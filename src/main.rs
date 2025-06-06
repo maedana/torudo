@@ -173,12 +173,40 @@ fn create_todo_list_items<'a>(todos: &[&'a TodoItem], selected_in_column: usize)
         .collect()
 }
 
+fn send_vim_command(todo_id: &str) {
+    let home_dir = env::var("HOME").unwrap();
+    let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{}/todotxt", home_dir));
+    let file_path = format!("{}/todos/{}.md", todotxt_dir, todo_id);
+    let command = format!(":e {}<CR>", file_path);
+    let socket_path = env::var("NVIM_LISTEN_ADDRESS")
+        .unwrap_or_else(|_| "/tmp/nvim.sock".to_string());
+
+    let _ = Command::new("nvim")
+        .arg("--server")
+        .arg(&socket_path)
+        .arg("--remote-send")
+        .arg(&command)
+        .output();
+}
+
 fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<TodoItem>) -> io::Result<()> {
     let grouped_todos = group_todos_by_project(&todos);
     let mut project_names: Vec<String> = grouped_todos.keys().cloned().collect();
     project_names.sort();
     let mut current_column = 0;
     let mut selected_in_column = 0;
+    
+    // 初期選択時にvimコマンドを送信
+    if let Some(current_project_name) = project_names.get(current_column) {
+        if let Some(current_todos) = grouped_todos.get(current_project_name) {
+            if let Some(selected_todo) = current_todos.get(selected_in_column) {
+                if let Some(todo_id) = &selected_todo.id {
+                    send_vim_command(todo_id);
+                }
+            }
+        }
+    }
+    
     loop {
         terminal.draw(|f| {
             let size = f.area();
@@ -224,7 +252,7 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<
                     }
                 }
             }
-            let instructions = Paragraph::new("jk: Navigate | hl: Change Column | Enter: Edit Todo | q: Quit")
+            let instructions = Paragraph::new("jk: Navigate | hl: Change Column | q: Quit")
                 .block(Block::default().title("Instructions").borders(Borders::ALL))
                 .alignment(Alignment::Center);
             
@@ -237,6 +265,16 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<
                 KeyCode::Char('k') => {
                     if selected_in_column > 0 {
                         selected_in_column -= 1;
+                        // 選択変更時にvimコマンドを送信
+                        if let Some(current_project_name) = project_names.get(current_column) {
+                            if let Some(current_todos) = grouped_todos.get(current_project_name) {
+                                if let Some(selected_todo) = current_todos.get(selected_in_column) {
+                                    if let Some(todo_id) = &selected_todo.id {
+                                        send_vim_command(todo_id);
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 KeyCode::Char('j') => {
@@ -244,6 +282,12 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<
                         if let Some(current_todos) = grouped_todos.get(current_project_name) {
                             if selected_in_column < current_todos.len().saturating_sub(1) {
                                 selected_in_column += 1;
+                                // 選択変更時にvimコマンドを送信
+                                if let Some(selected_todo) = current_todos.get(selected_in_column) {
+                                    if let Some(todo_id) = &selected_todo.id {
+                                        send_vim_command(todo_id);
+                                    }
+                                }
                             }
                         }
                     }
@@ -252,32 +296,29 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<
                     if current_column > 0 {
                         current_column -= 1;
                         selected_in_column = 0;
+                        // 列変更時にvimコマンドを送信
+                        if let Some(current_project_name) = project_names.get(current_column) {
+                            if let Some(current_todos) = grouped_todos.get(current_project_name) {
+                                if let Some(selected_todo) = current_todos.get(selected_in_column) {
+                                    if let Some(todo_id) = &selected_todo.id {
+                                        send_vim_command(todo_id);
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 KeyCode::Char('l') => {
                     if current_column < project_names.len().min(3).saturating_sub(1) {
                         current_column += 1;
                         selected_in_column = 0;
-                    }
-                },
-                KeyCode::Enter => {
-                    if let Some(current_project_name) = project_names.get(current_column) {
-                        if let Some(current_todos) = grouped_todos.get(current_project_name) {
-                            if let Some(selected_todo) = current_todos.get(selected_in_column) {
-                                if let Some(todo_id) = &selected_todo.id {
-                                    let home_dir = env::var("HOME").unwrap();
-                                    let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{}/todotxt", home_dir));
-                                    let file_path = format!("{}/todos/{}.md", todotxt_dir, todo_id);
-                                    let command = format!(":e {}<CR>", file_path);
-                                    let socket_path = env::var("NVIM_LISTEN_ADDRESS")
-                                        .unwrap_or_else(|_| "/tmp/nvim.sock".to_string());
-
-                                    let _ = Command::new("nvim")
-                                        .arg("--server")
-                                        .arg(&socket_path)
-                                        .arg("--remote-send")
-                                        .arg(&command)
-                                        .output();
+                        // 列変更時にvimコマンドを送信
+                        if let Some(current_project_name) = project_names.get(current_column) {
+                            if let Some(current_todos) = grouped_todos.get(current_project_name) {
+                                if let Some(selected_todo) = current_todos.get(selected_in_column) {
+                                    if let Some(todo_id) = &selected_todo.id {
+                                        send_vim_command(todo_id);
+                                    }
                                 }
                             }
                         }
