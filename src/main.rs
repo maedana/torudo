@@ -7,8 +7,8 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    text::{Line, Span, Text},
+    widgets::{Block, Borders, Paragraph, Wrap},
     Terminal,
 };
 use std::{collections::HashMap, error::Error, fs, io, process::Command, env};
@@ -131,46 +131,46 @@ fn group_todos_by_project(todos: &[TodoItem]) -> HashMap<String, Vec<&TodoItem>>
     grouped
 }
 
-fn create_todo_list_items<'a>(todos: &[&'a TodoItem], selected_in_column: usize) -> Vec<ListItem<'a>> {
-    todos
-        .iter()
-        .enumerate()
-        .map(|(i, todo)| {
-            let mut spans = Vec::new();
-            if todo.completed {
-                spans.push(Span::styled("✓ ", Style::default().fg(Color::Green)));
-            } else {
-                spans.push(Span::raw("  "));
-            }
-            if let Some(priority) = todo.priority {
-                let color = match priority {
-                    'A' => Color::Red,
-                    'B' => Color::Yellow,
-                    'C' => Color::Blue,
-                    _ => Color::White,
-                };
-                spans.push(Span::styled(
-                    format!("({}) ", priority),
-                    Style::default().fg(color).add_modifier(Modifier::BOLD)
-                ));
-            }
-            spans.push(Span::raw(&todo.description));
-            for context in &todo.contexts {
-                spans.push(Span::styled(
-                    format!(" @{}", context),
-                    Style::default().fg(Color::Cyan)
-                ));
-            }
-            let style = if i == selected_in_column {
-                Style::default().bg(Color::DarkGray)
-            } else if todo.completed {
-                Style::default().fg(Color::DarkGray)
-            } else {
-                Style::default()
+fn create_todo_text<'a>(todos: &[&'a TodoItem], selected_in_column: usize) -> Text<'a> {
+    let mut lines = Vec::new();
+    for (i, todo) in todos.iter().enumerate() {
+        let mut spans = Vec::new();
+        if todo.completed {
+            spans.push(Span::styled("✓ ", Style::default().fg(Color::Green)));
+        } else {
+            spans.push(Span::raw("  "));
+        }
+        if let Some(priority) = todo.priority {
+            let color = match priority {
+                'A' => Color::Red,
+                'B' => Color::Yellow,
+                'C' => Color::Blue,
+                _ => Color::White,
             };
-            ListItem::new(Line::from(spans)).style(style)
-        })
-        .collect()
+            spans.push(Span::styled(
+                format!("({}) ", priority),
+                Style::default().fg(color).add_modifier(Modifier::BOLD)
+            ));
+        }
+        spans.push(Span::raw(&todo.description));
+        for context in &todo.contexts {
+            spans.push(Span::styled(
+                format!(" @{}", context),
+                Style::default().fg(Color::Cyan)
+            ));
+        }
+        let style = if i == selected_in_column {
+            Style::default().bg(Color::DarkGray)
+        } else if todo.completed {
+            Style::default().fg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::from(spans).style(style));
+        
+        // 選択されていない項目の後に空行を追加しない（折り返し表示のため）
+    }
+    Text::from(lines)
 }
 
 fn send_vim_command(todo_id: &str) {
@@ -236,19 +236,19 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<
                     if let Some(project_todos) = grouped_todos.get(project_name) {
                         let is_active_column = col_idx == current_column;
                         let selected_for_this_column = if is_active_column { selected_in_column } else { usize::MAX };
-                        let items = create_todo_list_items(project_todos, selected_for_this_column);
+                        let text = create_todo_text(project_todos, selected_for_this_column);
                         let border_style = if is_active_column {
                             Style::default().fg(Color::Yellow)
                         } else {
                             Style::default().fg(Color::White)
                         };
-                        let list = List::new(items)
+                        let paragraph = Paragraph::new(text)
                             .block(Block::default()
                                 .title(format!("{} ({})", project_name, project_todos.len()))
                                 .borders(Borders::ALL)
                                 .border_style(border_style))
-                            .highlight_style(Style::default().bg(Color::DarkGray));
-                        f.render_widget(list, columns[col_idx]);
+                            .wrap(Wrap { trim: true });
+                        f.render_widget(paragraph, columns[col_idx]);
                     }
                 }
             }
