@@ -125,6 +125,58 @@ fn add_missing_ids(file_path: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn complete_todo(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error>> {
+    let content = fs::read_to_string(todo_file)?;
+    let lines: Vec<&str> = content.lines().collect();
+    let mut new_lines = Vec::new();
+    let mut completed_line = None;
+    
+    for line in lines {
+        if line.trim().is_empty() {
+            new_lines.push(line.to_string());
+            continue;
+        }
+        
+        let todo = TodoItem::parse(line);
+        if let Some(id) = &todo.id {
+            if id == todo_id {
+                let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+                let completed_todo_line = if todo.completed {
+                    line.to_string()
+                } else {
+                    format!("x {} {}", today, line)
+                };
+                completed_line = Some(completed_todo_line);
+                continue;
+            }
+        }
+        new_lines.push(line.to_string());
+    }
+    
+    if let Some(completed_todo) = completed_line {
+        let todo_dir = std::path::Path::new(todo_file).parent().unwrap();
+        let done_file = todo_dir.join("done.txt");
+        
+        let mut done_content = String::new();
+        if done_file.exists() {
+            done_content = fs::read_to_string(&done_file)?;
+        }
+        
+        if !done_content.is_empty() && !done_content.ends_with('\n') {
+            done_content.push('\n');
+        }
+        done_content.push_str(&completed_todo);
+        done_content.push('\n');
+        
+        fs::write(&done_file, done_content)?;
+        
+        let new_todo_content = new_lines.join("\n");
+        fs::write(todo_file, new_todo_content)?;
+    }
+    
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let home_dir = env::var("HOME").unwrap();
     let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{}/todotxt", home_dir));
@@ -339,7 +391,7 @@ fn run_app<B: ratatui::backend::Backend>(
                     }
                 }
             }
-            let instructions = Paragraph::new("jk: Navigate | hl: Change Column | r: Reload | q: Quit")
+            let instructions = Paragraph::new("jk: Navigate | hl: Change Column | x: Complete | r: Reload | q: Quit")
                 .block(Block::default().title("Instructions").borders(Borders::ALL))
                 .alignment(Alignment::Center);
             
@@ -444,6 +496,44 @@ fn run_app<B: ratatui::backend::Backend>(
                                 if let Some(selected_todo) = current_todos.get(selected_in_column) {
                                     if let Some(todo_id) = &selected_todo.id {
                                         send_vim_command(todo_id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                KeyCode::Char('x') => {
+                    // 選択されたtodoを完了にしてdone.txtに移動
+                    if let Some(current_project_name) = project_names.get(current_column) {
+                        if let Some(current_todos) = grouped_todos.get(current_project_name) {
+                            if let Some(selected_todo) = current_todos.get(selected_in_column) {
+                                if let Some(todo_id) = &selected_todo.id {
+                                    if let Ok(_) = complete_todo(&todo_file, todo_id) {
+                                        // 完了処理が成功した場合、リストを再読み込み
+                                        if let Ok(new_todos) = load_todos(&todo_file) {
+                                            todos = new_todos;
+                                            grouped_todos = group_todos_by_project(&todos);
+                                            project_names = grouped_todos.keys().cloned().collect();
+                                            project_names.sort();
+                                            
+                                            // 現在の選択位置を調整
+                                            if current_column >= project_names.len() {
+                                                current_column = project_names.len().saturating_sub(1);
+                                            }
+                                            if let Some(current_project_name) = project_names.get(current_column) {
+                                                if let Some(current_todos) = grouped_todos.get(current_project_name) {
+                                                    if selected_in_column >= current_todos.len() {
+                                                        selected_in_column = current_todos.len().saturating_sub(1);
+                                                    }
+                                                    // 選択項目のvimコマンドを送信
+                                                    if let Some(selected_todo) = current_todos.get(selected_in_column) {
+                                                        if let Some(todo_id) = &selected_todo.id {
+                                                            send_vim_command(todo_id);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
