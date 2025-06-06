@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 ratatui = "0.28"
 crossterm = "0.28"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = "1.0"
