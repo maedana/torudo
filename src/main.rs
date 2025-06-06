@@ -182,7 +182,7 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<
                 .block(Block::default().title("Torudo").borders(Borders::ALL))
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::Cyan));
-            let num_columns = project_names.len().min(3);
+            let num_columns = project_names.len();
             if num_columns > 0 {
                 let column_constraints: Vec<Constraint> = (0..num_columns)
                     .map(|_| Constraint::Percentage(100 / num_columns as u16))
@@ -191,7 +191,7 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<
                     .direction(Direction::Horizontal)
                     .constraints(column_constraints)
                     .split(chunks[1]);
-                for (col_idx, project_name) in project_names.iter().take(num_columns).enumerate() {
+                for (col_idx, project_name) in project_names.iter().enumerate() {
                     if let Some(project_todos) = grouped_todos.get(project_name) {
                         let is_active_column = col_idx == current_column;
                         let selected_for_this_column = if is_active_column { selected_in_column } else { usize::MAX };
@@ -338,7 +338,7 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<
                     }
                 },
                 KeyCode::Char('l') => {
-                    if current_column < project_names.len().min(3).saturating_sub(1) {
+                    if current_column < project_names.len().saturating_sub(1) {
                         current_column += 1;
                         selected_in_column = 0;
                         // 列変更時にvimコマンドを送信
