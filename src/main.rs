@@ -11,8 +11,10 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
     Terminal,
 };
-use std::{collections::HashMap, error::Error, fs, io, process::Command, env};
+use std::{collections::HashMap, error::Error, fs, io, process::Command, env, sync::mpsc};
 use chrono::NaiveDate;
+use uuid::Uuid;
+use notify::{Watcher, RecursiveMode, RecommendedWatcher, Event as NotifyEvent, EventKind};
 
 #[derive(Debug, Clone)]
 struct TodoItem {
@@ -92,18 +94,68 @@ fn load_todos(file_path: &str) -> Result<Vec<TodoItem>, Box<dyn Error>> {
     Ok(todos)
 }
 
+fn add_missing_ids(file_path: &str) -> Result<(), Box<dyn Error>> {
+    let content = fs::read_to_string(file_path)?;
+    let lines: Vec<&str> = content.lines().collect();
+    let mut modified = false;
+    let mut new_lines = Vec::new();
+    
+    for line in lines {
+        if line.trim().is_empty() {
+            new_lines.push(line.to_string());
+            continue;
+        }
+        
+        let todo = TodoItem::parse(line);
+        if todo.id.is_none() {
+            let new_id = Uuid::new_v4().to_string();
+            let new_line = format!("{} id:{}", line, new_id);
+            new_lines.push(new_line);
+            modified = true;
+        } else {
+            new_lines.push(line.to_string());
+        }
+    }
+    
+    if modified {
+        let new_content = new_lines.join("\n");
+        fs::write(file_path, new_content)?;
+    }
+    
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
+    let home_dir = env::var("HOME").unwrap();
+    let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{}/todotxt", home_dir));
+    let todo_file = format!("{}/todo.txt", todotxt_dir);
+    
+    // 初回起動時にIDがない行にUUIDを付与
+    if let Err(_) = add_missing_ids(&todo_file) {
+        // エラーが発生しても継続
+    }
+    
+    // ファイル監視の設定
+    let (tx, rx) = mpsc::channel();
+    let mut watcher = RecommendedWatcher::new(
+        move |res: Result<NotifyEvent, notify::Error>| {
+            if let Ok(event) = res {
+                let _ = tx.send(event);
+            }
+        },
+        notify::Config::default(),
+    )?;
+    watcher.watch(std::path::Path::new(&todo_file), RecursiveMode::NonRecursive)?;
+    
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     
-    let home_dir = env::var("HOME").unwrap();
-    let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{}/todotxt", home_dir));
-    let todo_file = format!("{}/todo.txt", todotxt_dir);
     let todos = load_todos(&todo_file)?;
-    let result = run_app(&mut terminal, todos);
+    let result = run_app(&mut terminal, todos, rx, todo_file.clone());
+    
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
@@ -148,10 +200,12 @@ fn send_vim_command(todo_id: &str) {
         .output();
 }
 
-fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, mut todos: Vec<TodoItem>) -> io::Result<()> {
-    let home_dir = env::var("HOME").unwrap();
-    let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{}/todotxt", home_dir));
-    let todo_file = format!("{}/todo.txt", todotxt_dir);
+fn run_app<B: ratatui::backend::Backend>(
+    terminal: &mut Terminal<B>, 
+    mut todos: Vec<TodoItem>,
+    file_watcher_rx: mpsc::Receiver<NotifyEvent>,
+    todo_file: String
+) -> io::Result<()> {
     
     let mut grouped_todos = group_todos_by_project(&todos);
     let mut project_names: Vec<String> = grouped_todos.keys().cloned().collect();
@@ -292,6 +346,45 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, mut todos: 
             f.render_widget(title, chunks[0]);
             f.render_widget(instructions, chunks[2]);
         })?;
+        
+        // ファイル監視イベントをチェック
+        if let Ok(event) = file_watcher_rx.try_recv() {
+            match event.kind {
+                EventKind::Modify(_) | EventKind::Create(_) => {
+                    // ファイルが変更されたらIDがない行にUUIDを付与
+                    if let Err(_) = add_missing_ids(&todo_file) {
+                        // エラーが発生しても継続
+                    }
+                    // ファイルを再読み込み
+                    if let Ok(new_todos) = load_todos(&todo_file) {
+                        todos = new_todos;
+                        grouped_todos = group_todos_by_project(&todos);
+                        project_names = grouped_todos.keys().cloned().collect();
+                        project_names.sort();
+                        
+                        // 現在の選択位置を調整
+                        if current_column >= project_names.len() {
+                            current_column = project_names.len().saturating_sub(1);
+                        }
+                        if let Some(current_project_name) = project_names.get(current_column) {
+                            if let Some(current_todos) = grouped_todos.get(current_project_name) {
+                                if selected_in_column >= current_todos.len() {
+                                    selected_in_column = current_todos.len().saturating_sub(1);
+                                }
+                                // 再読み込み後の選択項目のvimコマンドを送信
+                                if let Some(selected_todo) = current_todos.get(selected_in_column) {
+                                    if let Some(todo_id) = &selected_todo.id {
+                                        send_vim_command(todo_id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        
         if let Event::Key(key) = event::read()? {
             match key.code {
                 KeyCode::Char('q') => return Ok(()),
@@ -358,6 +451,10 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, mut todos: 
                     }
                 },
                 KeyCode::Char('r') => {
+                    // IDがない行にUUIDを付与してから再読み込み
+                    if let Err(_) = add_missing_ids(&todo_file) {
+                        // エラーが発生しても継続
+                    }
                     // todo.txtを再読み込み
                     match load_todos(&todo_file) {
                         Ok(new_todos) => {
