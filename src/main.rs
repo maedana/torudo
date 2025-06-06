@@ -11,7 +11,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Terminal,
 };
-use std::{collections::HashMap, error::Error, fs, io};
+use std::{collections::HashMap, error::Error, fs, io, process::Command, env};
 use chrono::NaiveDate;
 
 #[derive(Debug, Clone)]
@@ -99,7 +99,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     
-    let todos = load_todos("/home/maedana/todotxt/todo.txt")?;
+    let home_dir = env::var("HOME").unwrap();
+    let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{}/todotxt", home_dir));
+    let todo_file = format!("{}/todo.txt", todotxt_dir);
+    let todos = load_todos(&todo_file)?;
     let result = run_app(&mut terminal, todos);
     disable_raw_mode()?;
     execute!(
@@ -221,7 +224,7 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<
                     }
                 }
             }
-            let instructions = Paragraph::new("jk: Navigate | hl: Change Column | q: Quit")
+            let instructions = Paragraph::new("jk: Navigate | hl: Change Column | Enter: Edit Todo | q: Quit")
                 .block(Block::default().title("Instructions").borders(Borders::ALL))
                 .alignment(Alignment::Center);
             
@@ -255,6 +258,29 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<
                     if current_column < project_names.len().min(3).saturating_sub(1) {
                         current_column += 1;
                         selected_in_column = 0;
+                    }
+                },
+                KeyCode::Enter => {
+                    if let Some(current_project_name) = project_names.get(current_column) {
+                        if let Some(current_todos) = grouped_todos.get(current_project_name) {
+                            if let Some(selected_todo) = current_todos.get(selected_in_column) {
+                                if let Some(todo_id) = &selected_todo.id {
+                                    let home_dir = env::var("HOME").unwrap();
+                                    let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{}/todotxt", home_dir));
+                                    let file_path = format!("{}/todos/{}.md", todotxt_dir, todo_id);
+                                    let command = format!(":e {}<CR>", file_path);
+                                    let socket_path = env::var("NVIM_LISTEN_ADDRESS")
+                                        .unwrap_or_else(|_| "/tmp/nvim.sock".to_string());
+
+                                    let _ = Command::new("nvim")
+                                        .arg("--server")
+                                        .arg(&socket_path)
+                                        .arg("--remote-send")
+                                        .arg(&command)
+                                        .output();
+                                }
+                            }
+                        }
                     }
                 },
                 _ => {}
