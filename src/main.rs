@@ -221,7 +221,7 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<
                     }
                 }
             }
-            let instructions = Paragraph::new("↑↓: Navigate | ←→: Change Column | q: Quit")
+            let instructions = Paragraph::new("jk: Navigate | hl: Change Column | q: Quit")
                 .block(Block::default().title("Instructions").borders(Borders::ALL))
                 .alignment(Alignment::Center);
             
@@ -231,12 +231,12 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<
         if let Event::Key(key) = event::read()? {
             match key.code {
                 KeyCode::Char('q') => return Ok(()),
-                KeyCode::Up => {
+                KeyCode::Char('k') => {
                     if selected_in_column > 0 {
                         selected_in_column -= 1;
                     }
                 },
-                KeyCode::Down => {
+                KeyCode::Char('j') => {
                     if let Some(current_project_name) = project_names.get(current_column) {
                         if let Some(current_todos) = grouped_todos.get(current_project_name) {
                             if selected_in_column < current_todos.len().saturating_sub(1) {
@@ -245,13 +245,13 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<
                         }
                     }
                 },
-                KeyCode::Left => {
+                KeyCode::Char('h') => {
                     if current_column > 0 {
                         current_column -= 1;
                         selected_in_column = 0;
                     }
                 },
-                KeyCode::Right => {
+                KeyCode::Char('l') => {
                     if current_column < project_names.len().min(3).saturating_sub(1) {
                         current_column += 1;
                         selected_in_column = 0;
