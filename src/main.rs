@@ -148,8 +148,12 @@ fn send_vim_command(todo_id: &str) {
         .output();
 }
 
-fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<TodoItem>) -> io::Result<()> {
-    let grouped_todos = group_todos_by_project(&todos);
+fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, mut todos: Vec<TodoItem>) -> io::Result<()> {
+    let home_dir = env::var("HOME").unwrap();
+    let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{}/todotxt", home_dir));
+    let todo_file = format!("{}/todo.txt", todotxt_dir);
+    
+    let mut grouped_todos = group_todos_by_project(&todos);
     let mut project_names: Vec<String> = grouped_todos.keys().cloned().collect();
     project_names.sort();
     let mut current_column = 0;
@@ -281,7 +285,7 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<
                     }
                 }
             }
-            let instructions = Paragraph::new("jk: Navigate | hl: Change Column | q: Quit")
+            let instructions = Paragraph::new("jk: Navigate | hl: Change Column | r: Reload | q: Quit")
                 .block(Block::default().title("Instructions").borders(Borders::ALL))
                 .alignment(Alignment::Center);
             
@@ -350,6 +354,38 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, todos: Vec<
                                     }
                                 }
                             }
+                        }
+                    }
+                },
+                KeyCode::Char('r') => {
+                    // todo.txtを再読み込み
+                    match load_todos(&todo_file) {
+                        Ok(new_todos) => {
+                            todos = new_todos;
+                            grouped_todos = group_todos_by_project(&todos);
+                            project_names = grouped_todos.keys().cloned().collect();
+                            project_names.sort();
+                            
+                            // 現在の選択位置を調整
+                            if current_column >= project_names.len() {
+                                current_column = project_names.len().saturating_sub(1);
+                            }
+                            if let Some(current_project_name) = project_names.get(current_column) {
+                                if let Some(current_todos) = grouped_todos.get(current_project_name) {
+                                    if selected_in_column >= current_todos.len() {
+                                        selected_in_column = current_todos.len().saturating_sub(1);
+                                    }
+                                    // 再読み込み後の選択項目のvimコマンドを送信
+                                    if let Some(selected_todo) = current_todos.get(selected_in_column) {
+                                        if let Some(todo_id) = &selected_todo.id {
+                                            send_vim_command(todo_id);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            // エラーが発生した場合は何もしない
                         }
                     }
                 },
