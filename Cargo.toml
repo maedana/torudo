@@ -2,8 +2,18 @@
 name = "torudo"
 version = "0.1.0"
 edition = "2021"
+authors = ["maedana"]
+description = "A terminal-based todo.txt viewer and manager with TUI interface"
+homepage = "https://github.com/maedana/torudo"
+repository = "https://github.com/maedana/torudo"
+license = "MIT"
+keywords = ["todo", "tui", "terminal", "todotxt"]
+categories = ["command-line-utilities", "text-processing"]
+readme = "README.md"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[[bin]]
+name = "torudo"
+path = "src/main.rs"
 
 [dependencies]
 ratatui = "0.28"
