@@ -188,9 +188,24 @@ fn draw_project_column_owned(
     let inner_area = project_block.inner(column_area);
     f.render_widget(project_block, column_area);
 
-    let todo_height = 3;
+    // Calculate dynamic height for each todo based on text length
+    let available_width = inner_area.width.saturating_sub(4); // Account for borders
     let todo_constraints: Vec<Constraint> = project_todos.iter()
-        .map(|_| Constraint::Length(todo_height))
+        .map(|todo| {
+            // Create spans to get accurate text length including priority and context
+            let spans = create_todo_spans(todo);
+            let total_text_len: usize = spans.iter().map(|span| span.content.chars().count()).sum();
+            
+            let lines_needed = if available_width > 0 && available_width > 10 {
+                // More conservative calculation for better text wrapping
+                let effective_width = available_width.saturating_sub(2); // Account for padding
+                let lines = ((total_text_len as u16 + effective_width - 1) / effective_width).max(1);
+                lines + 2 // +2 for borders
+            } else {
+                4 // Fallback minimum height
+            };
+            Constraint::Length(lines_needed.min(8)) // Cap at 8 lines to prevent excessive height
+        })
         .collect();
 
     if !todo_constraints.is_empty() {
