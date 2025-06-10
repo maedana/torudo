@@ -16,6 +16,9 @@ A terminal-based todo.txt viewer and manager written in Rust with TUI interface.
 - Support for todo.txt format with priorities, projects, and contexts
 - Task completion with automatic archiving to done.txt
 
+## Demo
+![gif][1]
+
 ## Installation
 
 ### From crates.io (Recommended)
@@ -171,3 +174,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Inspired by the todo.txt format by Gina Trapani
 - Built with [Ratatui](https://github.com/ratatui-org/ratatui) for the terminal UI
 - Uses [crossterm](https://github.com/crossterm-rs/crossterm) for cross-platform terminal handling
+
+[1]: https://raw.githubusercontent.com/maedana/torudo/main/docs/demo.gif
