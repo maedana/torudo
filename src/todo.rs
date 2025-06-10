@@ -183,3 +183,246 @@ pub fn group_todos_by_project_owned(todos: &[Item]) -> HashMap<String, Vec<Item>
     }
     grouped
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+    use std::fs;
+
+    #[test]
+    fn test_item_parse_simple_todo() {
+        let line = "Buy groceries";
+        let item = Item::parse(line);
+        
+        assert!(!item.completed);
+        assert_eq!(item.priority, None);
+        assert_eq!(item.creation_date, None);
+        assert_eq!(item.completion_date, None);
+        assert_eq!(item.description, "Buy groceries");
+        assert!(item.projects.is_empty());
+        assert!(item.contexts.is_empty());
+        assert_eq!(item.id, None);
+    }
+
+    #[test]
+    fn test_item_parse_with_priority() {
+        let line = "(A) Call Mom";
+        let item = Item::parse(line);
+        
+        assert!(!item.completed);
+        assert_eq!(item.priority, Some('A'));
+        assert_eq!(item.description, "Call Mom");
+    }
+
+    #[test]
+    fn test_item_parse_with_creation_date() {
+        let line = "2024-01-15 Review quarterly report";
+        let item = Item::parse(line);
+        
+        assert!(!item.completed);
+        assert_eq!(item.creation_date, Some(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()));
+        assert_eq!(item.description, "Review quarterly report");
+    }
+
+    #[test]
+    fn test_item_parse_completed_todo() {
+        let line = "x 2024-01-20 2024-01-15 Complete project report";
+        let item = Item::parse(line);
+        
+        assert!(item.completed);
+        assert_eq!(item.completion_date, Some(NaiveDate::from_ymd_opt(2024, 1, 20).unwrap()));
+        assert_eq!(item.creation_date, Some(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()));
+        assert_eq!(item.priority, None); // Priority is not parsed after completion marker
+        assert_eq!(item.description, "Complete project report");
+    }
+
+    #[test]
+    fn test_item_parse_with_projects_and_contexts() {
+        let line = "(C) Buy groceries +personal @errands @shopping";
+        let item = Item::parse(line);
+        
+        assert_eq!(item.priority, Some('C'));
+        assert_eq!(item.description, "Buy groceries");
+        assert_eq!(item.projects, vec!["personal"]);
+        assert_eq!(item.contexts, vec!["errands", "shopping"]);
+    }
+
+    #[test]
+    fn test_item_parse_with_id() {
+        let line = "Learn Rust programming +learning @coding id:abc123";
+        let item = Item::parse(line);
+        
+        assert_eq!(item.description, "Learn Rust programming");
+        assert_eq!(item.projects, vec!["learning"]);
+        assert_eq!(item.contexts, vec!["coding"]);
+        assert_eq!(item.id, Some("abc123".to_string()));
+    }
+
+    #[test]
+    fn test_item_parse_complex_todo() {
+        let line = "(A) 2024-01-10 Fix critical bug +work @urgent @coding id:bug-001";
+        let item = Item::parse(line);
+        
+        assert!(!item.completed);
+        assert_eq!(item.priority, Some('A'));
+        assert_eq!(item.creation_date, Some(NaiveDate::from_ymd_opt(2024, 1, 10).unwrap()));
+        assert_eq!(item.description, "Fix critical bug");
+        assert_eq!(item.projects, vec!["work"]);
+        assert_eq!(item.contexts, vec!["urgent", "coding"]);
+        assert_eq!(item.id, Some("bug-001".to_string()));
+    }
+
+    #[test]
+    fn test_load_todos_from_content() {
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("test_todo.txt");
+        
+        let content = r#"(A) Call Mom +family @phone
+Buy groceries +personal @errands
+x 2024-01-15 (B) Review report +work @office
+Learn Rust +learning @coding id:rust-001"#;
+        
+        fs::write(&test_file, content).unwrap();
+        
+        let todos = load_todos(test_file.to_str().unwrap()).unwrap();
+        
+        assert_eq!(todos.len(), 4);
+        
+        // Test first todo
+        assert_eq!(todos[0].priority, Some('A'));
+        assert_eq!(todos[0].description, "Call Mom");
+        assert_eq!(todos[0].projects, vec!["family"]);
+        assert_eq!(todos[0].contexts, vec!["phone"]);
+        
+        // Test completed todo
+        assert!(todos[2].completed);
+        assert_eq!(todos[2].priority, Some('B'));
+        assert_eq!(todos[2].description, "Review report");
+        
+        // Test todo with ID
+        assert_eq!(todos[3].id, Some("rust-001".to_string()));
+        
+        fs::remove_file(&test_file).ok();
+    }
+
+    #[test]
+    fn test_group_todos_by_project() {
+        let todos = vec![
+            Item {
+                completed: false,
+                priority: Some('A'),
+                creation_date: None,
+                completion_date: None,
+                description: "Task 1".to_string(),
+                projects: vec!["work".to_string()],
+                contexts: vec![],
+                id: Some("1".to_string()),
+            },
+            Item {
+                completed: false,
+                priority: Some('B'),
+                creation_date: None,
+                completion_date: None,
+                description: "Task 2".to_string(),
+                projects: vec!["personal".to_string()],
+                contexts: vec![],
+                id: Some("2".to_string()),
+            },
+            Item {
+                completed: false,
+                priority: None,
+                creation_date: None,
+                completion_date: None,
+                description: "Task 3".to_string(),
+                projects: vec![],
+                contexts: vec![],
+                id: Some("3".to_string()),
+            },
+            Item {
+                completed: false,
+                priority: None,
+                creation_date: None,
+                completion_date: None,
+                description: "Task 4".to_string(),
+                projects: vec!["work".to_string(), "urgent".to_string()],
+                contexts: vec![],
+                id: Some("4".to_string()),
+            },
+        ];
+        
+        let grouped = group_todos_by_project_owned(&todos);
+        
+        assert_eq!(grouped.len(), 4); // work, personal, No Project, urgent
+        assert_eq!(grouped.get("work").unwrap().len(), 2); // Task 1 and Task 4
+        assert_eq!(grouped.get("personal").unwrap().len(), 1); // Task 2
+        assert_eq!(grouped.get("No Project").unwrap().len(), 1); // Task 3
+        assert_eq!(grouped.get("urgent").unwrap().len(), 1); // Task 4
+    }
+
+    #[test]
+    fn test_add_missing_ids() {
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("test_add_ids.txt");
+        
+        let content = r#"(A) Call Mom +family @phone
+Buy groceries +personal @errands id:existing-001
+Learn Rust +learning @coding"#;
+        
+        fs::write(&test_file, content).unwrap();
+        
+        // Add missing IDs
+        add_missing_ids(test_file.to_str().unwrap()).unwrap();
+        
+        // Read back and verify
+        let new_content = fs::read_to_string(&test_file).unwrap();
+        let lines: Vec<&str> = new_content.lines().collect();
+        
+        assert_eq!(lines.len(), 3);
+        
+        // First line should have ID added
+        assert!(lines[0].contains("id:"));
+        assert!(lines[0].starts_with("(A) Call Mom +family @phone"));
+        
+        // Second line should keep existing ID
+        assert!(lines[1].contains("id:existing-001"));
+        
+        // Third line should have ID added
+        assert!(lines[2].contains("id:"));
+        assert!(lines[2].starts_with("Learn Rust +learning @coding"));
+        
+        fs::remove_file(&test_file).ok();
+    }
+
+    #[test]
+    fn test_mark_complete() {
+        let temp_dir = std::env::temp_dir();
+        let todo_file = temp_dir.join("test_complete_todo.txt");
+        
+        let content = r#"(A) Call Mom +family @phone id:task-001
+Buy groceries +personal @errands id:task-002
+Learn Rust +learning @coding id:task-003"#;
+        
+        fs::write(&todo_file, content).unwrap();
+        
+        // Mark task-002 as complete
+        mark_complete(todo_file.to_str().unwrap(), "task-002").unwrap();
+        
+        // Check todo.txt - should have 2 remaining tasks
+        let remaining_content = fs::read_to_string(&todo_file).unwrap();
+        let remaining_lines: Vec<&str> = remaining_content.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(remaining_lines.len(), 2);
+        assert!(!remaining_content.contains("task-002"));
+        
+        // Check done.txt - should have 1 completed task
+        let done_file = temp_dir.join("done.txt");
+        assert!(done_file.exists(), "done.txt should be created");
+        let done_content = fs::read_to_string(&done_file).unwrap();
+        assert!(done_content.contains("x"));
+        assert!(done_content.contains("Buy groceries +personal @errands id:task-002"));
+        assert!(done_content.contains(&chrono::Local::now().format("%Y-%m-%d").to_string()));
+        
+        fs::remove_file(&todo_file).ok();
+        fs::remove_file(&done_file).ok();
+    }
+}
