@@ -1,11 +1,16 @@
 # Torudo
 
+[![Crates.io](https://img.shields.io/crates/v/torudo.svg)](https://crates.io/crates/torudo)
+
 A terminal-based todo.txt viewer and manager written in Rust with TUI interface.
 
 ## Features
 
 - Interactive TUI interface for browsing todo.txt files
 - Project-based column view for organized task management
+- **Priority-based sorting**: Todos are automatically sorted by priority (A, B, C) then by file line number
+- **Dynamic text wrapping**: Long todo titles automatically wrap to multiple lines for full visibility
+- **Smart setup**: Prompts to create missing directories and files on first run
 - Vim integration for editing individual todo items
 - Real-time file watching for automatic updates
 - Support for todo.txt format with priorities, projects, and contexts
@@ -13,10 +18,21 @@ A terminal-based todo.txt viewer and manager written in Rust with TUI interface.
 
 ## Installation
 
+### From crates.io (Recommended)
+
+```bash
+cargo install torudo
+```
+
+After installation, make sure `~/.cargo/bin` is in your PATH, then you can run:
+
+```bash
+torudo
+```
+
 ### Prerequisites
 
 - Rust (latest stable version)
-- Git
 
 ### Build from source
 
@@ -37,11 +53,24 @@ Torudo uses environment variables for configuration:
 
 ## Usage
 
+### First Time Setup
+
+When you run Torudo for the first time, it will check for the required directory and files:
+
+1. If `~/todotxt` directory doesn't exist, it will ask permission to create it
+2. If `todo.txt` doesn't exist, it will ask permission to create an empty file
+3. If you decline either creation, the application will exit
+
+This ensures you have control over where your todo files are stored.
+
 ### Basic Usage
 
 ```bash
 # Run torudo (looks for todo.txt in $TODOTXT_DIR or ~/todotxt)
 torudo
+
+# Run with debug mode for detailed logging
+torudo -d
 ```
 
 ### Keyboard Controls
@@ -71,6 +100,21 @@ Features supported:
 - Contexts: `@context_name`
 - Unique IDs: `id:unique_identifier` (automatically added if missing)
 
+### Todo Sorting
+
+Todos are automatically sorted within each project column using the following priority:
+
+1. **Priority level**: (A) items first, then (B), then (C)
+2. **File line number**: Within the same priority level, todos maintain their original file order
+
+This ensures high-priority items are always visible at the top while preserving your intended ordering for items of the same priority.
+
+### Display Features
+
+**Dynamic Text Wrapping**: Todo titles and descriptions automatically wrap to multiple lines based on the terminal width. This ensures that long todo items are fully visible without truncation, making it easy to read comprehensive task descriptions.
+
+**Smart Height Calculation**: Each todo item's display height is calculated dynamically based on its content length, with a reasonable maximum to prevent excessive screen usage.
+
 ### Vim Integration
 
 If you have Neovim running with a socket, Torudo can automatically open todo detail files when navigating. Each todo item can have an associated markdown file in `$TODOTXT_DIR/todos/{id}.md`.
@@ -92,6 +136,9 @@ If you have Neovim running with a socket, Torudo can automatically open todo det
 
 ```bash
 cargo run
+
+# With debug mode
+cargo run -- -d
 ```
 
 ### Running Tests
