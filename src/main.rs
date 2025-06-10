@@ -6,6 +6,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use std::time::{Duration, Instant};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout},
@@ -66,7 +67,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
         notify::Config::default(),
     )?;
-    watcher.watch(std::path::Path::new(&todo_file), RecursiveMode::NonRecursive)?;
+    watcher.watch(std::path::Path::new(&todotxt_dir), RecursiveMode::NonRecursive)?;
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -78,7 +79,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if args.debug {
         debug!("Loaded {} todos from file", todos.len());
     }
-    let result = run_app(&mut terminal, todos, &rx, &todo_file, args.debug);
+    let result = run_app(&mut terminal, todos, &rx, &todo_file, args.debug, watcher);
 
     disable_raw_mode()?;
     execute!(
@@ -278,9 +279,12 @@ fn run_app<B: ratatui::backend::Backend>(
     todos: Vec<Item>,
     file_watcher_rx: &mpsc::Receiver<NotifyEvent>,
     todo_file: &str,
-    debug_mode: bool
+    debug_mode: bool,
+    _watcher: RecommendedWatcher
 ) -> io::Result<()> {
     let mut state = AppState::new(todos);
+    let mut last_reload_time: Option<Instant> = None;
+    let debounce_duration = Duration::from_millis(200);
 
     // 初期選択時にvimコマンドを送信
     state.send_initial_vim_command();
@@ -291,45 +295,85 @@ fn run_app<B: ratatui::backend::Backend>(
         })?;
 
         // ファイル監視イベントをチェック
-        if let Ok(event) = file_watcher_rx.try_recv() {
-            match event.kind {
-                EventKind::Modify(_) | EventKind::Create(_) => {
-                    if debug_mode {
-                        debug!("File change detected, reloading todos");
-                    }
-                    state.handle_reload(todo_file);
+        let mut should_reload = false;
+        while let Ok(event) = file_watcher_rx.try_recv() {
+            // todo.txt に関連するイベントかチェック
+            let todo_file_path = std::path::Path::new(todo_file);
+            let is_todo_file_event = event.paths.iter().any(|path| {
+                path.file_name() == todo_file_path.file_name()
+            });
+            
+            if is_todo_file_event {
+                if debug_mode {
+                    debug!("todo.txt related event detected: {:?}", event.kind);
                 }
-                _ => {}
+                match event.kind {
+                    EventKind::Modify(_) => {
+                        should_reload = true;
+                        if debug_mode {
+                            debug!("todo.txt change event queued for reload");
+                        }
+                    }
+                    _ => {
+                        if debug_mode {
+                            debug!("Ignoring todo.txt event: {:?}", event.kind);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // デバウンス機能: 最後のリロードから一定時間経過後にリロード実行
+        if should_reload {
+            let now = Instant::now();
+            let should_perform_reload = match last_reload_time {
+                None => true,
+                Some(last_time) => now.duration_since(last_time) >= debounce_duration,
+            };
+            
+            if should_perform_reload {
+                if debug_mode {
+                    debug!("Executing debounced reload of todos");
+                }
+                state.handle_reload(todo_file);
+                last_reload_time = Some(now);
+            } else {
+                if debug_mode {
+                    debug!("Skipping reload due to debounce (too recent)");
+                }
             }
         }
 
-        if let Event::Key(key) = event::read()? {
-            match key.code {
-                KeyCode::Char('q') => {
-                    if debug_mode {
-                        debug!("Quit command received");
-                    }
-                    return Ok(());
-                },
-                KeyCode::Char(c @ ('k' | 'j' | 'h' | 'l')) => {
-                    if debug_mode {
-                        debug!("Navigation key pressed: {}", c);
-                    }
-                    state.handle_navigation_key(c);
-                },
-                KeyCode::Char('x') => {
-                    if debug_mode {
-                        debug!("Complete todo command received");
-                    }
-                    state.handle_complete_todo(todo_file);
-                },
-                KeyCode::Char('r') => {
-                    if debug_mode {
-                        debug!("Reload command received");
-                    }
-                    state.handle_reload(todo_file);
-                },
-                _ => {}
+        // ノンブロッキングでキーボードイベントをチェック
+        if event::poll(Duration::from_millis(100))? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Char('q') => {
+                        if debug_mode {
+                            debug!("Quit command received");
+                        }
+                        return Ok(());
+                    },
+                    KeyCode::Char(c @ ('k' | 'j' | 'h' | 'l')) => {
+                        if debug_mode {
+                            debug!("Navigation key pressed: {}", c);
+                        }
+                        state.handle_navigation_key(c);
+                    },
+                    KeyCode::Char('x') => {
+                        if debug_mode {
+                            debug!("Complete todo command received");
+                        }
+                        state.handle_complete_todo(todo_file);
+                    },
+                    KeyCode::Char('r') => {
+                        if debug_mode {
+                            debug!("Reload command received");
+                        }
+                        state.handle_reload(todo_file);
+                    },
+                    _ => {}
+                }
             }
         }
     }
