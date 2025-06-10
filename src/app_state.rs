@@ -155,3 +155,340 @@ impl AppState {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::todo::Item;
+    use std::fs;
+
+    fn create_test_todos() -> Vec<Item> {
+        vec![
+            Item {
+                completed: false,
+                priority: Some('A'),
+                creation_date: None,
+                completion_date: None,
+                description: "Task 1".to_string(),
+                projects: vec!["work".to_string()],
+                contexts: vec!["office".to_string()],
+                id: Some("task-1".to_string()),
+            },
+            Item {
+                completed: false,
+                priority: Some('B'),
+                creation_date: None,
+                completion_date: None,
+                description: "Task 2".to_string(),
+                projects: vec!["personal".to_string()],
+                contexts: vec!["home".to_string()],
+                id: Some("task-2".to_string()),
+            },
+            Item {
+                completed: false,
+                priority: None,
+                creation_date: None,
+                completion_date: None,
+                description: "Task 3".to_string(),
+                projects: vec![],
+                contexts: vec![],
+                id: Some("task-3".to_string()),
+            },
+            Item {
+                completed: false,
+                priority: Some('C'),
+                creation_date: None,
+                completion_date: None,
+                description: "Task 4".to_string(),
+                projects: vec!["work".to_string(), "urgent".to_string()],
+                contexts: vec![],
+                id: Some("task-4".to_string()),
+            },
+        ]
+    }
+
+    #[test]
+    fn test_app_state_new() {
+        let todos = create_test_todos();
+        let state = AppState::new(todos.clone());
+
+        assert_eq!(state.todos.len(), 4);
+        assert_eq!(state.current_column, 0);
+        assert_eq!(state.selected_in_column, 0);
+        
+        // Should have 4 projects: "No Project", "personal", "urgent", "work" (sorted)
+        assert_eq!(state.project_names.len(), 4);
+        assert_eq!(state.project_names, vec!["No Project", "personal", "urgent", "work"]);
+        
+        // Check grouped todos
+        assert_eq!(state.grouped_todos.get("work").unwrap().len(), 2); // task-1 and task-4
+        assert_eq!(state.grouped_todos.get("personal").unwrap().len(), 1); // task-2
+        assert_eq!(state.grouped_todos.get("No Project").unwrap().len(), 1); // task-3
+        assert_eq!(state.grouped_todos.get("urgent").unwrap().len(), 1); // task-4
+    }
+
+    #[test]
+    fn test_get_current_todo_id() {
+        let todos = create_test_todos();
+        let state = AppState::new(todos);
+
+        // Initial state should select first project ("No Project") and first todo
+        assert_eq!(state.get_current_todo_id(), Some("task-3"));
+    }
+
+    #[test]
+    fn test_handle_navigation_key_vertical() {
+        let todos = vec![
+            Item {
+                completed: false,
+                priority: Some('A'),
+                creation_date: None,
+                completion_date: None,
+                description: "Task 1".to_string(),
+                projects: vec!["work".to_string()],
+                contexts: vec![],
+                id: Some("task-1".to_string()),
+            },
+            Item {
+                completed: false,
+                priority: Some('B'),
+                creation_date: None,
+                completion_date: None,
+                description: "Task 2".to_string(),
+                projects: vec!["work".to_string()],
+                contexts: vec![],
+                id: Some("task-2".to_string()),
+            },
+        ];
+        
+        let mut state = AppState::new(todos);
+        
+        // Should start at first todo
+        assert_eq!(state.selected_in_column, 0);
+        assert_eq!(state.get_current_todo_id(), Some("task-1"));
+        
+        // Move down with 'j'
+        state.handle_navigation_key('j');
+        assert_eq!(state.selected_in_column, 1);
+        assert_eq!(state.get_current_todo_id(), Some("task-2"));
+        
+        // Try to move down again (should stay at last item)
+        state.handle_navigation_key('j');
+        assert_eq!(state.selected_in_column, 1);
+        
+        // Move up with 'k'
+        state.handle_navigation_key('k');
+        assert_eq!(state.selected_in_column, 0);
+        assert_eq!(state.get_current_todo_id(), Some("task-1"));
+        
+        // Try to move up again (should stay at first item)
+        state.handle_navigation_key('k');
+        assert_eq!(state.selected_in_column, 0);
+    }
+
+    #[test]
+    fn test_handle_navigation_key_horizontal() {
+        let todos = create_test_todos();
+        let mut state = AppState::new(todos);
+        
+        // Should start at first column ("No Project")
+        assert_eq!(state.current_column, 0);
+        assert_eq!(state.project_names[state.current_column], "No Project");
+        
+        // Move right with 'l'
+        state.handle_navigation_key('l');
+        assert_eq!(state.current_column, 1);
+        assert_eq!(state.selected_in_column, 0); // Should reset to first item
+        assert_eq!(state.project_names[state.current_column], "personal");
+        
+        // Move right again
+        state.handle_navigation_key('l');
+        assert_eq!(state.current_column, 2);
+        assert_eq!(state.project_names[state.current_column], "urgent");
+        
+        // Move left with 'h'
+        state.handle_navigation_key('h');
+        assert_eq!(state.current_column, 1);
+        assert_eq!(state.selected_in_column, 0); // Should reset to first item
+        assert_eq!(state.project_names[state.current_column], "personal");
+    }
+
+    #[test]
+    fn test_handle_navigation_key_boundaries() {
+        let todos = create_test_todos();
+        let mut state = AppState::new(todos);
+        
+        // Try to move left from first column (should stay)
+        assert_eq!(state.current_column, 0);
+        state.handle_navigation_key('h');
+        assert_eq!(state.current_column, 0);
+        
+        // Move to last column
+        state.current_column = state.project_names.len() - 1;
+        let last_column = state.current_column;
+        
+        // Try to move right from last column (should stay)
+        state.handle_navigation_key('l');
+        assert_eq!(state.current_column, last_column);
+    }
+
+    #[test]
+    fn test_reload_todos_success() {
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("test_app_state_reload.txt");
+        
+        let initial_content = r#"(A) Initial task +work @office id:initial-1"#;
+        fs::write(&test_file, initial_content).unwrap();
+        
+        let initial_todos = vec![
+            Item {
+                completed: false,
+                priority: Some('A'),
+                creation_date: None,
+                completion_date: None,
+                description: "Initial task".to_string(),
+                projects: vec!["work".to_string()],
+                contexts: vec!["office".to_string()],
+                id: Some("initial-1".to_string()),
+            }
+        ];
+        
+        let mut state = AppState::new(initial_todos);
+        assert_eq!(state.todos.len(), 1);
+        
+        // Update file content
+        let new_content = r#"(A) Initial task +work @office id:initial-1
+(B) New task +personal @home id:new-1"#;
+        fs::write(&test_file, new_content).unwrap();
+        
+        // Reload and verify
+        state.reload_todos(test_file.to_str().unwrap());
+        assert_eq!(state.todos.len(), 2);
+        assert_eq!(state.project_names.len(), 2); // "personal", "work"
+        
+        fs::remove_file(&test_file).ok();
+    }
+
+    #[test]
+    fn test_handle_complete_todo() {
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("test_app_state_complete.txt");
+        
+        let content = r#"(A) Task to complete +work @office id:complete-me
+(B) Other task +work @office id:keep-me"#;
+        fs::write(&test_file, content).unwrap();
+        
+        let todos = vec![
+            Item {
+                completed: false,
+                priority: Some('A'),
+                creation_date: None,
+                completion_date: None,
+                description: "Task to complete".to_string(),
+                projects: vec!["work".to_string()],
+                contexts: vec!["office".to_string()],
+                id: Some("complete-me".to_string()),
+            },
+            Item {
+                completed: false,
+                priority: Some('B'),
+                creation_date: None,
+                completion_date: None,
+                description: "Other task".to_string(),
+                projects: vec!["work".to_string()],
+                contexts: vec!["office".to_string()],
+                id: Some("keep-me".to_string()),
+            }
+        ];
+        
+        let mut state = AppState::new(todos);
+        assert_eq!(state.todos.len(), 2);
+        
+        // Complete the current todo
+        // Since both todos are in "work" project, and "complete-me" should be first
+        let current_id = state.get_current_todo_id().expect("Should have a current todo").to_string();
+        state.handle_complete_todo(test_file.to_str().unwrap());
+        
+        // Should reload and have one less todo
+        assert_eq!(state.todos.len(), 1);
+        
+        // Verify the remaining todo is not the one we completed
+        let remaining_ids: Vec<String> = state.todos.iter().filter_map(|t| t.id.clone()).collect();
+        assert!(!remaining_ids.contains(&current_id));
+        
+        // Check that done.txt was created
+        let done_file = temp_dir.join("done.txt");
+        if done_file.exists() {
+            let done_content = fs::read_to_string(&done_file).unwrap();
+            assert!(done_content.contains(&current_id));
+            fs::remove_file(&done_file).ok();
+        }
+        
+        fs::remove_file(&test_file).ok();
+    }
+
+    #[test]
+    fn test_handle_reload() {
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("test_app_state_manual_reload.txt");
+        
+        let content = r#"(A) Task without ID +work @office
+(B) Task with ID +personal @home id:existing-1"#;
+        fs::write(&test_file, content).unwrap();
+        
+        let todos = vec![
+            Item {
+                completed: false,
+                priority: Some('A'),
+                creation_date: None,
+                completion_date: None,
+                description: "Task without ID".to_string(),
+                projects: vec!["work".to_string()],
+                contexts: vec!["office".to_string()],
+                id: None,
+            }
+        ];
+        
+        let mut state = AppState::new(todos);
+        
+        // Manual reload should add missing IDs and reload todos
+        state.handle_reload(test_file.to_str().unwrap());
+        
+        // Should have loaded both todos
+        assert_eq!(state.todos.len(), 2);
+        
+        // Both todos should now have IDs
+        assert!(state.todos.iter().all(|todo| todo.id.is_some()));
+        
+        fs::remove_file(&test_file).ok();
+    }
+
+    #[test]
+    fn test_update_derived_state_column_bounds() {
+        let todos = create_test_todos();
+        let mut state = AppState::new(todos);
+        
+        // Set invalid column index
+        state.current_column = 999;
+        state.selected_in_column = 999;
+        
+        // Update derived state should fix bounds
+        state.update_derived_state();
+        
+        assert!(state.current_column < state.project_names.len());
+        assert!(state.selected_in_column < state.grouped_todos[&state.project_names[state.current_column]].len());
+    }
+
+    #[test]
+    fn test_send_initial_vim_command() {
+        let todos = create_test_todos();
+        let state = AppState::new(todos);
+        
+        // Should not panic even if vim command fails
+        state.send_initial_vim_command();
+        
+        // Test with empty state
+        let empty_state = AppState::new(vec![]);
+        empty_state.send_initial_vim_command();
+    }
+}
