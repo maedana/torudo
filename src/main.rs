@@ -39,7 +39,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{home_dir}/todotxt"));
     let todo_file = format!("{todotxt_dir}/todo.txt");
     
-    // デバッグモードの設定
+    // Setup debug mode
     if args.debug {
         setup_debug_logging(&todotxt_dir)?;
         info!("Debug mode enabled");
@@ -47,9 +47,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         debug!("Todo file: {}", todo_file);
     }
 
-    // 初回起動時にIDがない行にUUIDを付与
+    // Add UUIDs to lines without IDs on first startup
     if add_missing_ids(&todo_file).is_err() {
-        // エラーが発生しても継続
+        // Continue even if error occurs
         if args.debug {
             error!("Failed to add missing IDs to todo file");
         }
@@ -57,7 +57,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         debug!("Added missing IDs to todo file if needed");
     }
 
-    // ファイル監視の設定
+    // Setup file watcher
     let (tx, rx) = mpsc::channel();
     let mut watcher = RecommendedWatcher::new(
         move |res: Result<NotifyEvent, notify::Error>| {
@@ -286,7 +286,7 @@ fn run_app<B: ratatui::backend::Backend>(
     let mut last_reload_time: Option<Instant> = None;
     let debounce_duration = Duration::from_millis(200);
 
-    // 初期選択時にvimコマンドを送信
+    // Send initial vim command on startup
     state.send_initial_vim_command();
 
     loop {
@@ -294,10 +294,10 @@ fn run_app<B: ratatui::backend::Backend>(
             draw_ui(f, &state);
         })?;
 
-        // ファイル監視イベントをチェック
+        // Check file watcher events
         let mut should_reload = false;
         while let Ok(event) = file_watcher_rx.try_recv() {
-            // todo.txt に関連するイベントかチェック
+            // Check if event is related to todo.txt
             let todo_file_path = std::path::Path::new(todo_file);
             let is_todo_file_event = event.paths.iter().any(|path| {
                 path.file_name() == todo_file_path.file_name()
@@ -323,7 +323,7 @@ fn run_app<B: ratatui::backend::Backend>(
             }
         }
         
-        // デバウンス機能: 最後のリロードから一定時間経過後にリロード実行
+        // Debounce functionality: execute reload after certain time since last reload
         if should_reload {
             let now = Instant::now();
             let should_perform_reload = match last_reload_time {
@@ -344,7 +344,7 @@ fn run_app<B: ratatui::backend::Backend>(
             }
         }
 
-        // ノンブロッキングでキーボードイベントをチェック
+        // Check keyboard events non-blocking
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 match key.code {
