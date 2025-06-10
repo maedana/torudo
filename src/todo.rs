@@ -13,10 +13,11 @@ pub struct Item {
     pub projects: Vec<String>,
     pub contexts: Vec<String>,
     pub id: Option<String>,
+    pub line_number: usize,
 }
 
 impl Item {
-    pub fn parse(line: &str) -> Self {
+    pub fn parse(line: &str, line_number: usize) -> Self {
         let mut parts = line.split_whitespace().peekable();
         let mut item = Self {
             completed: false,
@@ -27,6 +28,7 @@ impl Item {
             projects: Vec::new(),
             contexts: Vec::new(),
             id: None,
+            line_number,
         };
         let mut desc_parts = Vec::new();
         if parts.peek() == Some(&"x") {
@@ -73,11 +75,25 @@ impl Item {
 
 pub fn load_todos(file_path: &str) -> Result<Vec<Item>, Box<dyn Error>> {
     let content = fs::read_to_string(file_path)?;
-    let todos = content
+    let mut todos: Vec<Item> = content
         .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(Item::parse)
+        .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty())
+        .map(|(line_num, line)| Item::parse(line, line_num + 1))
         .collect();
+    
+    // Sort by priority first (A, B, C, None), then by line number
+    todos.sort_by(|a, b| {
+        // First compare by priority
+        match (a.priority, b.priority) {
+            (Some(p1), Some(p2)) => p1.cmp(&p2), // A < B < C
+            (Some(_), None) => std::cmp::Ordering::Less, // Priority items come first
+            (None, Some(_)) => std::cmp::Ordering::Greater, // Non-priority items come last
+            (None, None) => a.line_number.cmp(&b.line_number), // Same priority, sort by line number
+        }
+        .then_with(|| a.line_number.cmp(&b.line_number)) // Secondary sort by line number
+    });
+    
     Ok(todos)
 }
 
@@ -87,13 +103,13 @@ pub fn add_missing_ids(file_path: &str) -> Result<(), Box<dyn Error>> {
     let mut modified = false;
     let mut new_lines = Vec::new();
     
-    for line in lines {
+    for (line_num, line) in lines.iter().enumerate() {
         if line.trim().is_empty() {
             new_lines.push(line.to_string());
             continue;
         }
         
-        let todo = Item::parse(line);
+        let todo = Item::parse(line, line_num + 1);
         if todo.id.is_none() {
             let new_id = Uuid::new_v4().to_string();
             let new_line = format!("{line} id:{new_id}");
@@ -119,13 +135,13 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
     let mut new_lines = Vec::new();
     let mut completed_line = None;
     
-    for line in lines {
+    for (line_num, line) in lines.iter().enumerate() {
         if line.trim().is_empty() {
             new_lines.push(line.to_string());
             continue;
         }
         
-        let todo = Item::parse(line);
+        let todo = Item::parse(line, line_num + 1);
         if let Some(id) = &todo.id {
             if id == todo_id {
                 let today = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -193,7 +209,7 @@ mod tests {
     #[test]
     fn test_item_parse_simple_todo() {
         let line = "Buy groceries";
-        let item = Item::parse(line);
+        let item = Item::parse(line, 1);
         
         assert!(!item.completed);
         assert_eq!(item.priority, None);
@@ -208,7 +224,7 @@ mod tests {
     #[test]
     fn test_item_parse_with_priority() {
         let line = "(A) Call Mom";
-        let item = Item::parse(line);
+        let item = Item::parse(line, 1);
         
         assert!(!item.completed);
         assert_eq!(item.priority, Some('A'));
@@ -218,7 +234,7 @@ mod tests {
     #[test]
     fn test_item_parse_with_creation_date() {
         let line = "2024-01-15 Review quarterly report";
-        let item = Item::parse(line);
+        let item = Item::parse(line, 1);
         
         assert!(!item.completed);
         assert_eq!(item.creation_date, Some(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()));
@@ -228,7 +244,7 @@ mod tests {
     #[test]
     fn test_item_parse_completed_todo() {
         let line = "x 2024-01-20 2024-01-15 Complete project report";
-        let item = Item::parse(line);
+        let item = Item::parse(line, 1);
         
         assert!(item.completed);
         assert_eq!(item.completion_date, Some(NaiveDate::from_ymd_opt(2024, 1, 20).unwrap()));
@@ -240,7 +256,7 @@ mod tests {
     #[test]
     fn test_item_parse_with_projects_and_contexts() {
         let line = "(C) Buy groceries +personal @errands @shopping";
-        let item = Item::parse(line);
+        let item = Item::parse(line, 1);
         
         assert_eq!(item.priority, Some('C'));
         assert_eq!(item.description, "Buy groceries");
@@ -251,7 +267,7 @@ mod tests {
     #[test]
     fn test_item_parse_with_id() {
         let line = "Learn Rust programming +learning @coding id:abc123";
-        let item = Item::parse(line);
+        let item = Item::parse(line, 1);
         
         assert_eq!(item.description, "Learn Rust programming");
         assert_eq!(item.projects, vec!["learning"]);
@@ -262,7 +278,7 @@ mod tests {
     #[test]
     fn test_item_parse_complex_todo() {
         let line = "(A) 2024-01-10 Fix critical bug +work @urgent @coding id:bug-001";
-        let item = Item::parse(line);
+        let item = Item::parse(line, 1);
         
         assert!(!item.completed);
         assert_eq!(item.priority, Some('A'));
@@ -295,12 +311,12 @@ Learn Rust +learning @coding id:rust-001"#;
         assert_eq!(todos[0].projects, vec!["family"]);
         assert_eq!(todos[0].contexts, vec!["phone"]);
         
-        // Test completed todo
-        assert!(todos[2].completed);
-        assert_eq!(todos[2].priority, Some('B'));
-        assert_eq!(todos[2].description, "Review report");
+        // Test completed todo (should be at index 1 after sorting: A, B, then no priority)
+        assert!(todos[1].completed);
+        assert_eq!(todos[1].priority, Some('B'));
+        assert_eq!(todos[1].description, "Review report");
         
-        // Test todo with ID
+        // Test todo with ID (should be at index 3 after sorting)
         assert_eq!(todos[3].id, Some("rust-001".to_string()));
         
         fs::remove_file(&test_file).ok();
@@ -318,6 +334,7 @@ Learn Rust +learning @coding id:rust-001"#;
                 projects: vec!["work".to_string()],
                 contexts: vec![],
                 id: Some("1".to_string()),
+                line_number: 1,
             },
             Item {
                 completed: false,
@@ -328,6 +345,7 @@ Learn Rust +learning @coding id:rust-001"#;
                 projects: vec!["personal".to_string()],
                 contexts: vec![],
                 id: Some("2".to_string()),
+                line_number: 2,
             },
             Item {
                 completed: false,
@@ -338,6 +356,7 @@ Learn Rust +learning @coding id:rust-001"#;
                 projects: vec![],
                 contexts: vec![],
                 id: Some("3".to_string()),
+                line_number: 3,
             },
             Item {
                 completed: false,
@@ -348,6 +367,7 @@ Learn Rust +learning @coding id:rust-001"#;
                 projects: vec!["work".to_string(), "urgent".to_string()],
                 contexts: vec![],
                 id: Some("4".to_string()),
+                line_number: 4,
             },
         ];
         

@@ -173,6 +173,7 @@ mod tests {
                 projects: vec!["work".to_string()],
                 contexts: vec!["office".to_string()],
                 id: Some("task-1".to_string()),
+                line_number: 1,
             },
             Item {
                 completed: false,
@@ -183,6 +184,7 @@ mod tests {
                 projects: vec!["personal".to_string()],
                 contexts: vec!["home".to_string()],
                 id: Some("task-2".to_string()),
+                line_number: 2,
             },
             Item {
                 completed: false,
@@ -193,6 +195,7 @@ mod tests {
                 projects: vec![],
                 contexts: vec![],
                 id: Some("task-3".to_string()),
+                line_number: 3,
             },
             Item {
                 completed: false,
@@ -203,6 +206,7 @@ mod tests {
                 projects: vec!["work".to_string(), "urgent".to_string()],
                 contexts: vec![],
                 id: Some("task-4".to_string()),
+                line_number: 4,
             },
         ]
     }
@@ -248,6 +252,7 @@ mod tests {
                 projects: vec!["work".to_string()],
                 contexts: vec![],
                 id: Some("task-1".to_string()),
+                line_number: 1,
             },
             Item {
                 completed: false,
@@ -258,6 +263,7 @@ mod tests {
                 projects: vec!["work".to_string()],
                 contexts: vec![],
                 id: Some("task-2".to_string()),
+                line_number: 2,
             },
         ];
         
@@ -350,6 +356,7 @@ mod tests {
                 projects: vec!["work".to_string()],
                 contexts: vec!["office".to_string()],
                 id: Some("initial-1".to_string()),
+                line_number: 1,
             }
         ];
         
@@ -388,6 +395,7 @@ mod tests {
                 projects: vec!["work".to_string()],
                 contexts: vec!["office".to_string()],
                 id: Some("complete-me".to_string()),
+                line_number: 1,
             },
             Item {
                 completed: false,
@@ -398,6 +406,7 @@ mod tests {
                 projects: vec!["work".to_string()],
                 contexts: vec!["office".to_string()],
                 id: Some("keep-me".to_string()),
+                line_number: 2,
             }
         ];
         
@@ -446,6 +455,7 @@ mod tests {
                 projects: vec!["work".to_string()],
                 contexts: vec!["office".to_string()],
                 id: None,
+                line_number: 1,
             }
         ];
         

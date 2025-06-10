@@ -23,6 +23,45 @@ mod app_state;
 use todo::{Item, load_todos, add_missing_ids};
 use app_state::AppState;
 
+fn confirm_creation(item_type: &str, path: &str) -> io::Result<bool> {
+    println!("{} does not exist: {}", item_type, path);
+    print!("Create it? (y/N): ");
+    io::stdout().flush()?;
+    
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let input = input.trim().to_lowercase();
+    
+    Ok(input == "y" || input == "yes")
+}
+
+fn ensure_setup_exists(todotxt_dir: &str, todo_file: &str) -> Result<(), Box<dyn Error>> {
+    use std::fs;
+    use std::path::Path;
+    
+    // Check if todotxt directory exists
+    if !Path::new(todotxt_dir).exists() {
+        if !confirm_creation("todotxt directory", todotxt_dir)? {
+            eprintln!("Creation of todotxt directory was rejected. Exiting application.");
+            std::process::exit(1);
+        }
+        fs::create_dir_all(todotxt_dir)?;
+        println!("Created todotxt directory: {}", todotxt_dir);
+    }
+    
+    // Check if todo.txt exists
+    if !Path::new(todo_file).exists() {
+        if !confirm_creation("todo.txt", todo_file)? {
+            eprintln!("Creation of todo.txt was rejected. Exiting application.");
+            std::process::exit(1);
+        }
+        fs::write(todo_file, "")?;
+        println!("Created todo.txt: {}", todo_file);
+    }
+    
+    Ok(())
+}
+
 #[derive(Parser)]
 #[command(name = "torudo")]
 #[command(about = "A terminal-based todo.txt viewer and manager")]
@@ -46,6 +85,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         debug!("TODOTXT_DIR: {}", todotxt_dir);
         debug!("Todo file: {}", todo_file);
     }
+
+    // Ensure required directories and files exist
+    ensure_setup_exists(&todotxt_dir, &todo_file)?;
 
     // Add UUIDs to lines without IDs on first startup
     if add_missing_ids(&todo_file).is_err() {
