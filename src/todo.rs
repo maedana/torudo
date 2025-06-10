@@ -1,6 +1,7 @@
 use chrono::NaiveDate;
 use std::{collections::HashMap, error::Error, fs};
 use uuid::Uuid;
+use log::debug;
 
 #[derive(Debug, Clone)]
 pub struct Item {
@@ -105,6 +106,7 @@ pub fn add_missing_ids(file_path: &str) -> Result<(), Box<dyn Error>> {
     
     if modified {
         let new_content = new_lines.join("\n");
+        debug!("Adding missing IDs to {} lines in todo file", usize::from(modified));
         fs::write(file_path, new_content)?;
     }
     
@@ -143,6 +145,8 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
         let todo_dir = std::path::Path::new(todo_file).parent().unwrap();
         let done_file = todo_dir.join("done.txt");
         
+        debug!("Moving completed todo to done.txt: {}", completed_todo);
+        
         let mut done_content = if done_file.exists() {
             fs::read_to_string(&done_file)?
         } else {
@@ -159,6 +163,8 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
         
         let new_todo_content = new_lines.join("\n");
         fs::write(todo_file, new_todo_content)?;
+        
+        debug!("Successfully moved todo to done.txt and updated todo.txt");
     }
     
     Ok(())

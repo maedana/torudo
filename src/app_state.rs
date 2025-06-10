@@ -1,4 +1,5 @@
 use std::{collections::HashMap, env, process::Command};
+use log::{debug, error};
 use crate::todo::{Item, load_todos, add_missing_ids, mark_complete, group_todos_by_project_owned};
 
 fn send_vim_command(todo_id: &str) {
@@ -9,12 +10,15 @@ fn send_vim_command(todo_id: &str) {
     let socket_path = env::var("NVIM_LISTEN_ADDRESS")
         .unwrap_or_else(|_| "/tmp/nvim.sock".to_string());
 
-    let _ = Command::new("nvim")
+    match Command::new("nvim")
         .arg("--server")
         .arg(&socket_path)
         .arg("--remote-send")
         .arg(&command)
-        .output();
+        .output() {
+        Ok(_) => debug!("Sent vim command: {}", command),
+        Err(e) => debug!("Failed to send vim command: {}", e),
+    }
 }
 
 pub struct AppState {
@@ -41,9 +45,13 @@ impl AppState {
     }
 
     pub fn reload_todos(&mut self, todo_file: &str) {
-        if let Ok(new_todos) = load_todos(todo_file) {
-            self.todos = new_todos;
-            self.update_derived_state();
+        match load_todos(todo_file) {
+            Ok(new_todos) => {
+                debug!("Reloaded {} todos from file", new_todos.len());
+                self.todos = new_todos;
+                self.update_derived_state();
+            },
+            Err(e) => error!("Failed to reload todos: {}", e),
         }
     }
 
@@ -122,15 +130,21 @@ impl AppState {
 
     pub fn handle_complete_todo(&mut self, todo_file: &str) {
         if let Some(todo_id) = self.get_current_todo_id() {
-            if matches!(mark_complete(todo_file, todo_id), Ok(())) {
-                self.reload_todos(todo_file);
+            debug!("Attempting to mark todo as complete: {}", todo_id);
+            match mark_complete(todo_file, todo_id) {
+                Ok(()) => {
+                    debug!("Successfully marked todo as complete: {}", todo_id);
+                    self.reload_todos(todo_file);
+                },
+                Err(e) => error!("Failed to mark todo as complete: {}", e),
             }
         }
     }
 
     pub fn handle_reload(&mut self, todo_file: &str) {
-        if add_missing_ids(todo_file).is_err() {
-            // エラーが発生しても継続
+        debug!("Manual reload requested");
+        if let Err(e) = add_missing_ids(todo_file) {
+            error!("Failed to add missing IDs during reload: {}", e);
         }
         self.reload_todos(todo_file);
     }

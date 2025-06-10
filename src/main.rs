@@ -1,3 +1,6 @@
+use clap::Parser;
+use log::{debug, info, error};
+use std::io::Write;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -19,14 +22,38 @@ mod app_state;
 use todo::{Item, load_todos, add_missing_ids};
 use app_state::AppState;
 
+#[derive(Parser)]
+#[command(name = "torudo")]
+#[command(about = "A terminal-based todo.txt viewer and manager")]
+struct Args {
+    /// Enable debug mode
+    #[arg(short, long)]
+    debug: bool,
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
+    let args = Args::parse();
+    
     let home_dir = env::var("HOME").unwrap();
     let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{home_dir}/todotxt"));
     let todo_file = format!("{todotxt_dir}/todo.txt");
+    
+    // デバッグモードの設定
+    if args.debug {
+        setup_debug_logging(&todotxt_dir)?;
+        info!("Debug mode enabled");
+        debug!("TODOTXT_DIR: {}", todotxt_dir);
+        debug!("Todo file: {}", todo_file);
+    }
 
     // 初回起動時にIDがない行にUUIDを付与
     if add_missing_ids(&todo_file).is_err() {
         // エラーが発生しても継続
+        if args.debug {
+            error!("Failed to add missing IDs to todo file");
+        }
+    } else if args.debug {
+        debug!("Added missing IDs to todo file if needed");
     }
 
     // ファイル監視の設定
@@ -48,7 +75,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     let todos = load_todos(&todo_file)?;
-    let result = run_app(&mut terminal, todos, &rx, &todo_file);
+    if args.debug {
+        debug!("Loaded {} todos from file", todos.len());
+    }
+    let result = run_app(&mut terminal, todos, &rx, &todo_file, args.debug);
 
     disable_raw_mode()?;
     execute!(
@@ -60,6 +90,30 @@ fn main() -> Result<(), Box<dyn Error>> {
     if let Err(err) = result {
         println!("{err:?}");
     }
+    Ok(())
+}
+
+fn setup_debug_logging(todotxt_dir: &str) -> Result<(), Box<dyn Error>> {
+    let debug_log_path = format!("{todotxt_dir}/debug.log");
+    
+    env_logger::Builder::from_default_env()
+        .target(env_logger::Target::Pipe(Box::new(
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(debug_log_path)?
+        )))
+        .filter_level(log::LevelFilter::Debug)
+        .format(|buf, record| {
+            writeln!(buf, "[{}] {} - {}: {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                record.level(),
+                record.target(),
+                record.args()
+            )
+        })
+        .init();
+    
     Ok(())
 }
 
@@ -223,7 +277,8 @@ fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>, 
     todos: Vec<Item>,
     file_watcher_rx: &mpsc::Receiver<NotifyEvent>,
-    todo_file: &str
+    todo_file: &str,
+    debug_mode: bool
 ) -> io::Result<()> {
     let mut state = AppState::new(todos);
 
@@ -239,6 +294,9 @@ fn run_app<B: ratatui::backend::Backend>(
         if let Ok(event) = file_watcher_rx.try_recv() {
             match event.kind {
                 EventKind::Modify(_) | EventKind::Create(_) => {
+                    if debug_mode {
+                        debug!("File change detected, reloading todos");
+                    }
                     state.handle_reload(todo_file);
                 }
                 _ => {}
@@ -247,14 +305,28 @@ fn run_app<B: ratatui::backend::Backend>(
 
         if let Event::Key(key) = event::read()? {
             match key.code {
-                KeyCode::Char('q') => return Ok(()),
+                KeyCode::Char('q') => {
+                    if debug_mode {
+                        debug!("Quit command received");
+                    }
+                    return Ok(());
+                },
                 KeyCode::Char(c @ ('k' | 'j' | 'h' | 'l')) => {
+                    if debug_mode {
+                        debug!("Navigation key pressed: {}", c);
+                    }
                     state.handle_navigation_key(c);
                 },
                 KeyCode::Char('x') => {
+                    if debug_mode {
+                        debug!("Complete todo command received");
+                    }
                     state.handle_complete_todo(todo_file);
                 },
                 KeyCode::Char('r') => {
+                    if debug_mode {
+                        debug!("Reload command received");
+                    }
                     state.handle_reload(todo_file);
                 },
                 _ => {}
