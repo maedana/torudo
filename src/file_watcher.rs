@@ -1,7 +1,7 @@
-use notify::{Watcher, RecursiveMode, RecommendedWatcher, Event as NotifyEvent};
-use std::sync::mpsc;
+use notify::{Event as NotifyEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use std::error::Error;
 use std::path::Path;
+use std::sync::mpsc;
 
 pub struct FileWatcher {
     _watcher: RecommendedWatcher,
@@ -19,7 +19,7 @@ impl FileWatcher {
             },
             notify::Config::default(),
         )?;
-        
+
         Ok(Self {
             _watcher: watcher,
             rx,
@@ -27,7 +27,8 @@ impl FileWatcher {
     }
 
     pub fn start_watching(&mut self, todotxt_dir: &str) -> Result<(), Box<dyn Error>> {
-        self._watcher.watch(Path::new(todotxt_dir), RecursiveMode::NonRecursive)?;
+        self._watcher
+            .watch(Path::new(todotxt_dir), RecursiveMode::NonRecursive)?;
         Ok(())
     }
 

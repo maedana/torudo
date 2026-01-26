@@ -1,31 +1,27 @@
 use clap::Parser;
-use log::{debug, info, error};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{
-    backend::CrosstermBackend,
-    Terminal,
-};
-use std::{error::Error, io, env};
+use log::{debug, error, info};
+use ratatui::{backend::CrosstermBackend, Terminal};
 use std::time::Duration;
+use std::{env, error::Error, io};
 
-mod todo;
 mod app_state;
-mod ui;
 mod event_handler;
 mod file_watcher;
 mod setup;
+mod todo;
+mod ui;
 
-use todo::{load_todos, add_missing_ids};
 use app_state::AppState;
-use ui::draw_ui;
 use event_handler::EventHandler;
 use file_watcher::FileWatcher;
 use setup::{ensure_setup_exists, setup_debug_logging};
-
+use todo::{add_missing_ids, load_todos};
+use ui::draw_ui;
 
 #[derive(Parser)]
 #[command(name = "torudo")]
@@ -39,11 +35,11 @@ struct Args {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-    
+
     let home_dir = env::var("HOME").unwrap();
     let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{home_dir}/todotxt"));
     let todo_file = format!("{todotxt_dir}/todo.txt");
-    
+
     // Setup debug mode
     if args.debug {
         setup_debug_logging(&todotxt_dir)?;
@@ -79,7 +75,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     if args.debug {
         debug!("Loaded {} todos from file", todos.len());
     }
-    let result = run_app(&mut terminal, todos, file_watcher.receiver(), &todo_file, args.debug);
+    let result = run_app(
+        &mut terminal,
+        todos,
+        file_watcher.receiver(),
+        &todo_file,
+        args.debug,
+    );
 
     disable_raw_mode()?;
     execute!(
@@ -95,7 +97,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run_app<B: ratatui::backend::Backend>(
-    terminal: &mut Terminal<B>, 
+    terminal: &mut Terminal<B>,
     todos: Vec<todo::Item>,
     file_watcher_rx: &std::sync::mpsc::Receiver<notify::Event>,
     todo_file: &str,

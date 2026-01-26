@@ -1,9 +1,9 @@
+use crate::app_state::AppState;
 use crossterm::event::{Event, KeyCode};
 use log::debug;
-use std::time::{Duration, Instant};
-use std::sync::mpsc;
 use notify::{Event as NotifyEvent, EventKind};
-use crate::app_state::AppState;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 pub struct EventHandler {
     last_reload_time: Option<Instant>,
@@ -29,10 +29,11 @@ impl EventHandler {
         while let Ok(event) = file_watcher_rx.try_recv() {
             // Check if event is related to todo.txt
             let todo_file_path = std::path::Path::new(todo_file);
-            let is_todo_file_event = event.paths.iter().any(|path| {
-                path.file_name() == todo_file_path.file_name()
-            });
-            
+            let is_todo_file_event = event
+                .paths
+                .iter()
+                .any(|path| path.file_name() == todo_file_path.file_name());
+
             if is_todo_file_event {
                 if debug_mode {
                     debug!("todo.txt related event detected: {:?}", event.kind);
@@ -52,7 +53,7 @@ impl EventHandler {
                 }
             }
         }
-        
+
         // Debounce functionality: execute reload after certain time since last reload
         if should_reload {
             let now = Instant::now();
@@ -60,7 +61,7 @@ impl EventHandler {
                 None => true,
                 Some(last_time) => now.duration_since(last_time) >= self.debounce_duration,
             };
-            
+
             if should_perform_reload {
                 if debug_mode {
                     debug!("Executing debounced reload of todos");
@@ -87,25 +88,25 @@ impl EventHandler {
                         debug!("Quit command received");
                     }
                     return true; // Signal to quit
-                },
+                }
                 KeyCode::Char(c @ ('k' | 'j' | 'h' | 'l')) => {
                     if debug_mode {
                         debug!("Navigation key pressed: {}", c);
                     }
                     state.handle_navigation_key(c);
-                },
+                }
                 KeyCode::Char('x') => {
                     if debug_mode {
                         debug!("Complete todo command received");
                     }
                     state.handle_complete_todo(todo_file);
-                },
+                }
                 KeyCode::Char('r') => {
                     if debug_mode {
                         debug!("Reload command received");
                     }
                     state.handle_reload(todo_file);
-                },
+                }
                 _ => {}
             }
         }
