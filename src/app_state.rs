@@ -7,7 +7,8 @@ fn send_vim_command(todo_id: &str) {
     let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{home_dir}/todotxt"));
     let file_path = format!("{todotxt_dir}/todos/{todo_id}.md");
     let command = format!(":e {file_path}<CR>");
-    let socket_path = env::var("NVIM_LISTEN_ADDRESS")
+    let socket_path = env::var("TORUDO_NVIM_SOCKET")
+        .or_else(|_| env::var("NVIM_LISTEN_ADDRESS"))
         .unwrap_or_else(|_| "/tmp/nvim.sock".to_string());
 
     match Command::new("nvim")

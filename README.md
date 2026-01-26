@@ -52,7 +52,8 @@ The binary will be available at `target/release/torudo`.
 Torudo uses environment variables for configuration:
 
 - `TODOTXT_DIR`: Directory containing your todo.txt file (default: `~/todotxt`)
-- `NVIM_LISTEN_ADDRESS`: Neovim socket path for vim integration (default: `/tmp/nvim.sock`)
+- `TORUDO_NVIM_SOCKET`: Neovim socket path for vim integration (default: `/tmp/nvim.sock`)
+- `NVIM_LISTEN_ADDRESS`: Legacy fallback for Neovim socket path (deprecated)
 
 ## Usage
 
