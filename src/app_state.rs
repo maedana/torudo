@@ -2,37 +2,35 @@ use crate::todo::{add_missing_ids, group_todos_by_project_owned, load_todos, mar
 use log::{debug, error};
 use std::{collections::HashMap, env, process::Command};
 
-fn send_vim_command(todo_id: &str) {
-    let home_dir = env::var("HOME").unwrap();
-    let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{home_dir}/todotxt"));
-    let file_path = format!("{todotxt_dir}/todos/{todo_id}.md");
-    let command = format!(":e {file_path}<CR>");
-    let socket_path = env::var("TORUDO_NVIM_SOCKET")
-        .or_else(|_| env::var("NVIM_LISTEN_ADDRESS"))
-        .unwrap_or_else(|_| "/tmp/nvim.sock".to_string());
-
-    match Command::new("nvim")
-        .arg("--server")
-        .arg(&socket_path)
-        .arg("--remote-send")
-        .arg(&command)
-        .output()
-    {
-        Ok(_) => debug!("Sent vim command: {}", command),
-        Err(e) => debug!("Failed to send vim command: {}", e),
-    }
-}
-
 pub struct AppState {
     pub todos: Vec<Item>,
     pub grouped_todos: HashMap<String, Vec<Item>>,
     pub project_names: Vec<String>,
     pub current_column: usize,
     pub selected_in_column: usize,
+    pub nvim_socket: String,
 }
 
 impl AppState {
-    pub fn new(todos: Vec<Item>) -> Self {
+    fn send_vim_command(&self, todo_id: &str) {
+        let home_dir = env::var("HOME").unwrap();
+        let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{home_dir}/todotxt"));
+        let file_path = format!("{todotxt_dir}/todos/{todo_id}.md");
+        let command = format!(":e {file_path}<CR>");
+
+        match Command::new("nvim")
+            .arg("--server")
+            .arg(&self.nvim_socket)
+            .arg("--remote-send")
+            .arg(&command)
+            .output()
+        {
+            Ok(_) => debug!("Sent vim command: {}", command),
+            Err(e) => debug!("Failed to send vim command: {}", e),
+        }
+    }
+
+    pub fn new(todos: Vec<Item>, nvim_socket: String) -> Self {
         let grouped_todos = group_todos_by_project_owned(&todos);
         let mut project_names: Vec<String> = grouped_todos.keys().cloned().collect();
         project_names.sort();
@@ -43,6 +41,7 @@ impl AppState {
             project_names,
             current_column: 0,
             selected_in_column: 0,
+            nvim_socket,
         }
     }
 
@@ -72,7 +71,7 @@ impl AppState {
                 }
                 if let Some(selected_todo) = current_todos.get(self.selected_in_column) {
                     if let Some(todo_id) = &selected_todo.id {
-                        send_vim_command(todo_id);
+                        self.send_vim_command(todo_id);
                     }
                 }
             }
@@ -92,7 +91,7 @@ impl AppState {
                 if self.selected_in_column > 0 {
                     self.selected_in_column -= 1;
                     if let Some(todo_id) = self.get_current_todo_id() {
-                        send_vim_command(todo_id);
+                        self.send_vim_command(todo_id);
                     }
                 }
             }
@@ -102,7 +101,7 @@ impl AppState {
                         if self.selected_in_column < current_todos.len().saturating_sub(1) {
                             self.selected_in_column += 1;
                             if let Some(todo_id) = self.get_current_todo_id() {
-                                send_vim_command(todo_id);
+                                self.send_vim_command(todo_id);
                             }
                         }
                     }
@@ -113,7 +112,7 @@ impl AppState {
                     self.current_column -= 1;
                     self.selected_in_column = 0;
                     if let Some(todo_id) = self.get_current_todo_id() {
-                        send_vim_command(todo_id);
+                        self.send_vim_command(todo_id);
                     }
                 }
             }
@@ -122,7 +121,7 @@ impl AppState {
                     self.current_column += 1;
                     self.selected_in_column = 0;
                     if let Some(todo_id) = self.get_current_todo_id() {
-                        send_vim_command(todo_id);
+                        self.send_vim_command(todo_id);
                     }
                 }
             }
@@ -153,7 +152,7 @@ impl AppState {
 
     pub fn send_initial_vim_command(&self) {
         if let Some(todo_id) = self.get_current_todo_id() {
-            send_vim_command(todo_id);
+            self.send_vim_command(todo_id);
         }
     }
 }
@@ -163,6 +162,10 @@ mod tests {
     use super::*;
     use crate::todo::Item;
     use std::fs;
+
+    fn create_test_state(todos: Vec<Item>) -> AppState {
+        AppState::new(todos, "/tmp/nvim.sock".to_string())
+    }
 
     fn create_test_todos() -> Vec<Item> {
         vec![
@@ -216,11 +219,12 @@ mod tests {
     #[test]
     fn test_app_state_new() {
         let todos = create_test_todos();
-        let state = AppState::new(todos.clone());
+        let state = AppState::new(todos.clone(), "/tmp/nvim.sock".to_string());
 
         assert_eq!(state.todos.len(), 4);
         assert_eq!(state.current_column, 0);
         assert_eq!(state.selected_in_column, 0);
+        assert_eq!(state.nvim_socket, "/tmp/nvim.sock");
 
         // Should have 4 projects: "No Project", "personal", "urgent", "work" (sorted)
         assert_eq!(state.project_names.len(), 4);
@@ -239,7 +243,7 @@ mod tests {
     #[test]
     fn test_get_current_todo_id() {
         let todos = create_test_todos();
-        let state = AppState::new(todos);
+        let state = create_test_state(todos);
 
         // Initial state should select first project ("No Project") and first todo
         assert_eq!(state.get_current_todo_id(), Some("task-3"));
@@ -272,7 +276,7 @@ mod tests {
             },
         ];
 
-        let mut state = AppState::new(todos);
+        let mut state = create_test_state(todos);
 
         // Should start at first todo
         assert_eq!(state.selected_in_column, 0);
@@ -300,7 +304,7 @@ mod tests {
     #[test]
     fn test_handle_navigation_key_horizontal() {
         let todos = create_test_todos();
-        let mut state = AppState::new(todos);
+        let mut state = create_test_state(todos);
 
         // Should start at first column ("No Project")
         assert_eq!(state.current_column, 0);
@@ -327,7 +331,7 @@ mod tests {
     #[test]
     fn test_handle_navigation_key_boundaries() {
         let todos = create_test_todos();
-        let mut state = AppState::new(todos);
+        let mut state = create_test_state(todos);
 
         // Try to move left from first column (should stay)
         assert_eq!(state.current_column, 0);
@@ -363,7 +367,7 @@ mod tests {
             line_number: 1,
         }];
 
-        let mut state = AppState::new(initial_todos);
+        let mut state = create_test_state(initial_todos);
         assert_eq!(state.todos.len(), 1);
 
         // Update file content
@@ -413,7 +417,7 @@ mod tests {
             },
         ];
 
-        let mut state = AppState::new(todos);
+        let mut state = create_test_state(todos);
         assert_eq!(state.todos.len(), 2);
 
         // Complete the current todo
@@ -463,7 +467,7 @@ mod tests {
             line_number: 1,
         }];
 
-        let mut state = AppState::new(todos);
+        let mut state = create_test_state(todos);
 
         // Manual reload should add missing IDs and reload todos
         state.handle_reload(test_file.to_str().unwrap());
@@ -480,7 +484,7 @@ mod tests {
     #[test]
     fn test_update_derived_state_column_bounds() {
         let todos = create_test_todos();
-        let mut state = AppState::new(todos);
+        let mut state = create_test_state(todos);
 
         // Set invalid column index
         state.current_column = 999;
@@ -499,13 +503,13 @@ mod tests {
     #[test]
     fn test_send_initial_vim_command() {
         let todos = create_test_todos();
-        let state = AppState::new(todos);
+        let state = create_test_state(todos);
 
         // Should not panic even if vim command fails
         state.send_initial_vim_command();
 
         // Test with empty state
-        let empty_state = AppState::new(vec![]);
+        let empty_state = create_test_state(vec![]);
         empty_state.send_initial_vim_command();
     }
 }

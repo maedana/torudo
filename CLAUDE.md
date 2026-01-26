@@ -13,10 +13,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Application Usage
 - `torudo` - Launch the TUI application
+- `torudo --nvim-listen /tmp/nvim.sock` - Specify Neovim socket path
 - Environment variables:
   - `TODOTXT_DIR` - Directory containing todo.txt (default: ~/todotxt)
-  - `TORUDO_NVIM_SOCKET` - Neovim socket path (default: /tmp/nvim.sock)
-  - `NVIM_LISTEN_ADDRESS` - Legacy fallback (deprecated)
 
 ## Architecture
 

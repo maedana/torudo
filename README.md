@@ -49,11 +49,13 @@ The binary will be available at `target/release/torudo`.
 
 ## Configuration
 
-Torudo uses environment variables for configuration:
+### Environment Variables
 
 - `TODOTXT_DIR`: Directory containing your todo.txt file (default: `~/todotxt`)
-- `TORUDO_NVIM_SOCKET`: Neovim socket path for vim integration (default: `/tmp/nvim.sock`)
-- `NVIM_LISTEN_ADDRESS`: Legacy fallback for Neovim socket path (deprecated)
+
+### Command Line Options
+
+- `--nvim-listen <PATH>`: Neovim socket path set by `nvim --listen` (default: `/tmp/nvim.sock`, fallback: `NVIM_LISTEN_ADDRESS` env var)
 
 ## Usage
 
@@ -75,6 +77,9 @@ torudo
 
 # Run with debug mode for detailed logging
 torudo -d
+
+# Specify Neovim socket path
+torudo --nvim-listen /tmp/my-nvim.sock
 ```
 
 ### Keyboard Controls

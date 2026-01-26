@@ -31,6 +31,10 @@ struct Args {
     /// Enable debug mode
     #[arg(short, long)]
     debug: bool,
+
+    /// Neovim socket path (set by nvim --listen)
+    #[arg(long, env = "NVIM_LISTEN_ADDRESS", default_value = "/tmp/nvim.sock")]
+    nvim_listen: String,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -81,6 +85,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         file_watcher.receiver(),
         &todo_file,
         args.debug,
+        args.nvim_listen,
     );
 
     disable_raw_mode()?;
@@ -102,8 +107,9 @@ fn run_app<B: ratatui::backend::Backend>(
     file_watcher_rx: &std::sync::mpsc::Receiver<notify::Event>,
     todo_file: &str,
     debug_mode: bool,
+    nvim_socket: String,
 ) -> io::Result<()> {
-    let mut state = AppState::new(todos);
+    let mut state = AppState::new(todos, nvim_socket);
     let mut event_handler = EventHandler::new();
 
     // Send initial vim command on startup
