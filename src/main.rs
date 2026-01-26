@@ -30,6 +30,7 @@ use setup::{ensure_setup_exists, setup_debug_logging};
 #[derive(Parser)]
 #[command(name = "torudo")]
 #[command(about = "A terminal-based todo.txt viewer and manager")]
+#[command(version)]
 struct Args {
     /// Enable debug mode
     #[arg(short, long)]
