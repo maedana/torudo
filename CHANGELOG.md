@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-07-26
+
+### Fixed
+- **done.txt format**: Completion format now follows todo.txt spec (priority moved after completion date)
+
+### Changed
+- **Neovim socket configuration**: Replaced `TORUDO_NVIM_SOCKET` environment variable with `--nvim-listen` CLI option
+  - Priority: CLI option → `NVIM_LISTEN_ADDRESS` env var → default `/tmp/nvim.sock`
+  - `TORUDO_NVIM_SOCKET` environment variable is no longer supported
+
+### Technical
+- Moved `send_vim_command` into `AppState` as a method
+- Added `nvim_socket` field to `AppState` struct
+
 ## [0.2.0] - 2025-06-10
 
 ### Added
@@ -46,5 +60,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Contexts (@context_name)
   - Custom IDs (id:unique_identifier)
 
+[0.3.0]: https://github.com/maedana/torudo/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/maedana/torudo/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/maedana/torudo/releases/tag/v0.1.0
