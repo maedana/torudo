@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::mpsc;
 
 pub struct FileWatcher {
-    _watcher: RecommendedWatcher,
+    watcher: RecommendedWatcher,
     rx: mpsc::Receiver<NotifyEvent>,
 }
 
@@ -21,18 +21,18 @@ impl FileWatcher {
         )?;
 
         Ok(Self {
-            _watcher: watcher,
+            watcher,
             rx,
         })
     }
 
     pub fn start_watching(&mut self, todotxt_dir: &str) -> Result<(), Box<dyn Error>> {
-        self._watcher
+        self.watcher
             .watch(Path::new(todotxt_dir), RecursiveMode::NonRecursive)?;
         Ok(())
     }
 
-    pub fn receiver(&self) -> &mpsc::Receiver<NotifyEvent> {
+    pub const fn receiver(&self) -> &mpsc::Receiver<NotifyEvent> {
         &self.rx
     }
 }

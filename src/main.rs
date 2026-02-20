@@ -48,8 +48,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     if args.debug {
         setup_debug_logging(&todotxt_dir)?;
         info!("Debug mode enabled");
-        debug!("TODOTXT_DIR: {}", todotxt_dir);
-        debug!("Todo file: {}", todo_file);
+        debug!("TODOTXT_DIR: {todotxt_dir}");
+        debug!("Todo file: {todo_file}");
     }
 
     // Ensure required directories and files exist
@@ -131,7 +131,7 @@ fn run_app<B: ratatui::backend::Backend>(
         // Check keyboard events non-blocking
         if event::poll(Duration::from_millis(100))? {
             let event = event::read()?;
-            if event_handler.handle_keyboard_event(event, &mut state, todo_file, debug_mode) {
+            if EventHandler::handle_keyboard_event(&event, &mut state, todo_file, debug_mode) {
                 return Ok(()); // Quit was requested
             }
         }

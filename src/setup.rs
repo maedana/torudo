@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 pub fn confirm_creation(item_type: &str, path: &str) -> io::Result<bool> {
-    println!("{} does not exist: {}", item_type, path);
+    println!("{item_type} does not exist: {path}");
     print!("Create it? (y/N): ");
     io::stdout().flush()?;
 
@@ -23,7 +23,7 @@ pub fn ensure_setup_exists(todotxt_dir: &str, todo_file: &str) -> Result<(), Box
             std::process::exit(1);
         }
         fs::create_dir_all(todotxt_dir)?;
-        println!("Created todotxt directory: {}", todotxt_dir);
+        println!("Created todotxt directory: {todotxt_dir}");
     }
 
     // Check if todo.txt exists
@@ -33,7 +33,7 @@ pub fn ensure_setup_exists(todotxt_dir: &str, todo_file: &str) -> Result<(), Box
             std::process::exit(1);
         }
         fs::write(todo_file, "")?;
-        println!("Created todo.txt: {}", todo_file);
+        println!("Created todo.txt: {todo_file}");
     }
 
     Ok(())

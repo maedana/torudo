@@ -11,7 +11,7 @@ pub struct EventHandler {
 }
 
 impl EventHandler {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             last_reload_time: None,
             debounce_duration: Duration::from_millis(200),
@@ -75,13 +75,12 @@ impl EventHandler {
     }
 
     pub fn handle_keyboard_event(
-        &self,
-        event: Event,
+        event: &Event,
         state: &mut AppState,
         todo_file: &str,
         debug_mode: bool,
     ) -> bool {
-        if let Event::Key(key) = event {
+        if let Event::Key(key) = *event {
             match key.code {
                 KeyCode::Char('q') => {
                     if debug_mode {
@@ -91,7 +90,7 @@ impl EventHandler {
                 }
                 KeyCode::Char(c @ ('k' | 'j' | 'h' | 'l')) => {
                     if debug_mode {
-                        debug!("Navigation key pressed: {}", c);
+                        debug!("Navigation key pressed: {c}");
                     }
                     state.handle_navigation_key(c);
                 }

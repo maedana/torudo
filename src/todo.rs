@@ -161,11 +161,7 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
                         (None, *line)
                     };
 
-                    if let Some(pri) = priority {
-                        format!("x {pri} {today} {rest}")
-                    } else {
-                        format!("x {today} {line}")
-                    }
+                    priority.map_or_else(|| format!("x {today} {line}"), |pri| format!("x {pri} {today} {rest}"))
                 };
                 completed_line = Some(completed_todo_line);
                 continue;
@@ -178,7 +174,7 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
         let todo_dir = std::path::Path::new(todo_file).parent().unwrap();
         let done_file = todo_dir.join("done.txt");
 
-        debug!("Moving completed todo to done.txt: {}", completed_todo);
+        debug!("Moving completed todo to done.txt: {completed_todo}");
 
         let mut done_content = if done_file.exists() {
             fs::read_to_string(&done_file)?

@@ -7,7 +7,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
-pub fn create_todo_spans(todo: &Item) -> Vec<Span> {
+pub fn create_todo_spans(todo: &Item) -> Vec<Span<'_>> {
     let mut spans = Vec::new();
     if todo.completed {
         spans.push(Span::styled("✓ ", Style::default().fg(Color::Green)));
@@ -85,11 +85,11 @@ pub fn draw_project_column(
             let spans = create_todo_spans(todo);
             let total_text_len: usize = spans.iter().map(|span| span.content.chars().count()).sum();
 
-            let lines_needed = if available_width > 0 && available_width > 10 {
+            let lines_needed = if available_width > 10 {
                 // More conservative calculation for better text wrapping
                 let effective_width = available_width.saturating_sub(2); // Account for padding
                 let lines =
-                    ((total_text_len as u16 + effective_width - 1) / effective_width).max(1);
+                    u16::try_from(total_text_len).unwrap_or(u16::MAX).div_ceil(effective_width).max(1);
                 lines + 2 // +2 for borders
             } else {
                 4 // Fallback minimum height

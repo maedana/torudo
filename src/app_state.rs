@@ -69,7 +69,7 @@ impl AppState {
                 self.todos = new_todos;
                 self.update_derived_state();
             }
-            Err(e) => error!("Failed to reload todos: {}", e),
+            Err(e) => error!("Failed to reload todos: {e}"),
         }
     }
 
@@ -148,13 +148,13 @@ impl AppState {
 
     pub fn handle_complete_todo(&mut self, todo_file: &str) {
         if let Some(todo_id) = self.get_current_todo_id() {
-            debug!("Attempting to mark todo as complete: {}", todo_id);
+            debug!("Attempting to mark todo as complete: {todo_id}");
             match mark_complete(todo_file, todo_id) {
                 Ok(()) => {
-                    debug!("Successfully marked todo as complete: {}", todo_id);
+                    debug!("Successfully marked todo as complete: {todo_id}");
                     self.reload_todos(todo_file);
                 }
-                Err(e) => error!("Failed to mark todo as complete: {}", e),
+                Err(e) => error!("Failed to mark todo as complete: {e}"),
             }
         }
     }
@@ -162,7 +162,7 @@ impl AppState {
     pub fn handle_reload(&mut self, todo_file: &str) {
         debug!("Manual reload requested");
         if let Err(e) = add_missing_ids(todo_file) {
-            error!("Failed to add missing IDs during reload: {}", e);
+            error!("Failed to add missing IDs during reload: {e}");
         }
         self.reload_todos(todo_file);
     }
