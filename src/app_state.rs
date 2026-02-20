@@ -1,6 +1,6 @@
 use crate::todo::{add_missing_ids, group_todos_by_project_owned, load_todos, mark_complete, Item};
 use log::{debug, error};
-use std::{collections::HashMap, env, process::Command};
+use std::{collections::HashMap, env, io::Write, os::unix::net::UnixStream, time::Duration};
 
 pub struct AppState {
     pub todos: Vec<Item>,
@@ -12,21 +12,38 @@ pub struct AppState {
 }
 
 impl AppState {
+    fn build_nvim_command_payload(cmd: &str) -> Vec<u8> {
+        let request = rmpv::Value::Array(vec![
+            rmpv::Value::Integer(0.into()),  // type = Request
+            rmpv::Value::Integer(1.into()),  // msgid
+            rmpv::Value::String("nvim_command".into()),
+            rmpv::Value::Array(vec![rmpv::Value::String(cmd.into())]),
+        ]);
+        let mut buf = Vec::new();
+        rmpv::encode::write_value(&mut buf, &request).expect("msgpack encoding should not fail");
+        buf
+    }
+
+    fn send_nvim_rpc(&self, cmd: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let mut stream = UnixStream::connect(&self.nvim_socket)?;
+        stream.set_read_timeout(Some(Duration::from_millis(500)))?;
+        let payload = Self::build_nvim_command_payload(cmd);
+        stream.write_all(&payload)?;
+        stream.flush()?;
+        // Read the response to confirm command completion before closing the connection
+        let _ = rmpv::decode::read_value(&mut stream);
+        Ok(())
+    }
+
     fn send_vim_command(&self, todo_id: &str) {
         let home_dir = env::var("HOME").unwrap();
         let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{home_dir}/todotxt"));
         let file_path = format!("{todotxt_dir}/todos/{todo_id}.md");
-        let command = format!(":e {file_path}<CR>");
+        let cmd = format!("e {file_path}");
 
-        match Command::new("nvim")
-            .arg("--server")
-            .arg(&self.nvim_socket)
-            .arg("--remote-send")
-            .arg(&command)
-            .output()
-        {
-            Ok(_) => debug!("Sent vim command: {}", command),
-            Err(e) => debug!("Failed to send vim command: {}", e),
+        match self.send_nvim_rpc(&cmd) {
+            Ok(()) => debug!("Sent nvim RPC command: {cmd}"),
+            Err(e) => debug!("Failed to send nvim RPC command: {e}"),
         }
     }
 
@@ -498,6 +515,28 @@ mod tests {
             state.selected_in_column
                 < state.grouped_todos[&state.project_names[state.current_column]].len()
         );
+    }
+
+    #[test]
+    fn test_build_nvim_command_payload() {
+        let payload = AppState::build_nvim_command_payload("e /path/to/file.md");
+
+        let mut cursor = std::io::Cursor::new(&payload);
+        let decoded = rmpv::decode::read_value(&mut cursor).unwrap();
+
+        if let rmpv::Value::Array(items) = decoded {
+            assert_eq!(items.len(), 4);
+            assert_eq!(items[0], rmpv::Value::Integer(0.into())); // type=Request
+            assert_eq!(items[1], rmpv::Value::Integer(1.into())); // msgid
+            assert_eq!(items[2], rmpv::Value::String("nvim_command".into()));
+            if let rmpv::Value::Array(params) = &items[3] {
+                assert_eq!(params[0], rmpv::Value::String("e /path/to/file.md".into()));
+            } else {
+                panic!("params should be an array");
+            }
+        } else {
+            panic!("decoded value should be an array");
+        }
     }
 
     #[test]

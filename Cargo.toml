@@ -24,6 +24,7 @@ notify = "6.0"
 clap = { version = "4.0", features = ["derive", "env"] }
 log = "0.4"
 env_logger = "0.10"
+rmpv = "1"
 
 [lints.clippy]
 all = "warn"
