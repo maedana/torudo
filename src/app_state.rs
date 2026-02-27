@@ -81,18 +81,16 @@ impl AppState {
         if self.current_column >= self.project_names.len() {
             self.current_column = self.project_names.len().saturating_sub(1);
         }
-        if let Some(current_project_name) = self.project_names.get(self.current_column) {
-            if let Some(current_todos) = self.grouped_todos.get(current_project_name) {
+        if let Some(current_project_name) = self.project_names.get(self.current_column)
+            && let Some(current_todos) = self.grouped_todos.get(current_project_name) {
                 if self.selected_in_column >= current_todos.len() {
                     self.selected_in_column = current_todos.len().saturating_sub(1);
                 }
-                if let Some(selected_todo) = current_todos.get(self.selected_in_column) {
-                    if let Some(todo_id) = &selected_todo.id {
+                if let Some(selected_todo) = current_todos.get(self.selected_in_column)
+                    && let Some(todo_id) = &selected_todo.id {
                         self.send_vim_command(todo_id);
                     }
-                }
             }
-        }
     }
 
     pub fn get_current_todo_id(&self) -> Option<&str> {
@@ -113,16 +111,14 @@ impl AppState {
                 }
             }
             'j' => {
-                if let Some(current_project_name) = self.project_names.get(self.current_column) {
-                    if let Some(current_todos) = self.grouped_todos.get(current_project_name) {
-                        if self.selected_in_column < current_todos.len().saturating_sub(1) {
+                if let Some(current_project_name) = self.project_names.get(self.current_column)
+                    && let Some(current_todos) = self.grouped_todos.get(current_project_name)
+                        && self.selected_in_column < current_todos.len().saturating_sub(1) {
                             self.selected_in_column += 1;
                             if let Some(todo_id) = self.get_current_todo_id() {
                                 self.send_vim_command(todo_id);
                             }
                         }
-                    }
-                }
             }
             'h' => {
                 if self.current_column > 0 {

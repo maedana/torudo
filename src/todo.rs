@@ -34,29 +34,24 @@ impl Item {
         if parts.peek() == Some(&"x") {
             item.completed = true;
             parts.next();
-            if let Some(date_str) = parts.peek() {
-                if let Ok(date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+            if let Some(date_str) = parts.peek()
+                && let Ok(date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
                     item.completion_date = Some(date);
                     parts.next();
                 }
-            }
         }
-        if let Some(part) = parts.peek() {
-            if part.len() == 3 && part.starts_with('(') && part.ends_with(')') {
-                if let Some(c) = part.chars().nth(1) {
-                    if c.is_ascii_uppercase() {
+        if let Some(part) = parts.peek()
+            && part.len() == 3 && part.starts_with('(') && part.ends_with(')')
+                && let Some(c) = part.chars().nth(1)
+                    && c.is_ascii_uppercase() {
                         item.priority = Some(c);
                         parts.next();
                     }
-                }
-            }
-        }
-        if let Some(date_str) = parts.peek() {
-            if let Ok(date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+        if let Some(date_str) = parts.peek()
+            && let Ok(date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
                 item.creation_date = Some(date);
                 parts.next();
             }
-        }
         for part in parts {
             if let Some(stripped) = part.strip_prefix('+') {
                 item.projects.push(stripped.to_string());
@@ -145,8 +140,8 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
         }
 
         let todo = Item::parse(line, line_num + 1);
-        if let Some(id) = &todo.id {
-            if id == todo_id {
+        if let Some(id) = &todo.id
+            && id == todo_id {
                 let today = chrono::Local::now().format("%Y-%m-%d").to_string();
                 let completed_todo_line = if todo.completed {
                     line.to_string()
@@ -166,7 +161,6 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
                 completed_line = Some(completed_todo_line);
                 continue;
             }
-        }
         new_lines.push(line.to_string());
     }
 
