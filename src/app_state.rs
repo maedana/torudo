@@ -2,6 +2,18 @@ use crate::todo::{add_missing_ids, group_todos_by_project_owned, load_todos, mar
 use log::{debug, error};
 use std::{collections::HashMap, env, io::Write, os::unix::net::UnixStream, time::Duration};
 
+fn parse_tmux_pane_from_frontmatter(content: &str) -> Option<String> {
+    let content = content.strip_prefix("---\n")?;
+    let end = content.find("\n---")?;
+    let frontmatter = &content[..end];
+    for line in frontmatter.lines() {
+        if let Some(value) = line.strip_prefix("tmux_pane:") {
+            return Some(value.trim().to_string());
+        }
+    }
+    None
+}
+
 pub struct AppState {
     pub todos: Vec<Item>,
     pub grouped_todos: HashMap<String, Vec<Item>>,
@@ -161,6 +173,60 @@ impl AppState {
             error!("Failed to add missing IDs during reload: {e}");
         }
         self.reload_todos(todo_file);
+    }
+
+    pub fn handle_switch_tmux_pane(&self) {
+        if env::var("TMUX").is_err() {
+            debug!("Not running inside tmux, skipping pane switching");
+            return;
+        }
+        let Some(todo_id) = self.get_current_todo_id() else {
+            return;
+        };
+        let home_dir = env::var("HOME").unwrap();
+        let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{home_dir}/todotxt"));
+        let file_path = format!("{todotxt_dir}/todos/{todo_id}.md");
+
+        let content = match std::fs::read_to_string(&file_path) {
+            Ok(c) => c,
+            Err(e) => {
+                debug!("Failed to read detail file {file_path}: {e}");
+                return;
+            }
+        };
+
+        let Some(pane_target) = parse_tmux_pane_from_frontmatter(&content) else {
+            debug!("No tmux_pane found in frontmatter of {file_path}");
+            return;
+        };
+
+        // Extract session:window from pane_target (e.g., "0:1.2" -> "0:1")
+        let window_target = pane_target
+            .rfind('.')
+            .map_or(pane_target.as_str(), |i| &pane_target[..i]);
+
+        if let Err(e) = std::process::Command::new("tmux")
+            .args(["select-window", "-t", window_target])
+            .output()
+        {
+            debug!("Failed to execute tmux select-window: {e}");
+            return;
+        }
+
+        match std::process::Command::new("tmux")
+            .args(["select-pane", "-t", &pane_target])
+            .output()
+        {
+            Ok(output) => {
+                if output.status.success() {
+                    debug!("Switched to tmux pane: {pane_target}");
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    debug!("tmux select-pane failed: {stderr}");
+                }
+            }
+            Err(e) => debug!("Failed to execute tmux command: {e}"),
+        }
     }
 
     pub fn send_initial_vim_command(&self) {
@@ -533,6 +599,33 @@ mod tests {
         } else {
             panic!("decoded value should be an array");
         }
+    }
+
+    #[test]
+    fn test_parse_tmux_pane_from_frontmatter_with_pane() {
+        let content = "---\ntmux_pane: 0:1.2\n---\n# Some content";
+        assert_eq!(
+            parse_tmux_pane_from_frontmatter(content),
+            Some("0:1.2".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_tmux_pane_from_frontmatter_without_tmux_pane() {
+        let content = "---\ntitle: My Todo\n---\n# Some content";
+        assert_eq!(parse_tmux_pane_from_frontmatter(content), None);
+    }
+
+    #[test]
+    fn test_parse_tmux_pane_from_frontmatter_no_frontmatter() {
+        let content = "# Just a heading\nSome content";
+        assert_eq!(parse_tmux_pane_from_frontmatter(content), None);
+    }
+
+    #[test]
+    fn test_parse_tmux_pane_from_frontmatter_empty_string() {
+        let content = "";
+        assert_eq!(parse_tmux_pane_from_frontmatter(content), None);
     }
 
     #[test]

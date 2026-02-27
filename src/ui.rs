@@ -177,7 +177,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
     }
 
     let instructions =
-        Paragraph::new("jk: Navigate | hl: Change Column | x: Complete | r: Reload | q: Quit")
+        Paragraph::new("jk: Navigate | hl: Change Column | x: Complete | s: Switch Pane | r: Reload | q: Quit")
             .block(Block::default().title("Instructions").borders(Borders::ALL))
             .alignment(Alignment::Center);
 

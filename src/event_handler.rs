@@ -100,6 +100,12 @@ impl EventHandler {
                     }
                     state.handle_complete_todo(todo_file);
                 }
+                KeyCode::Char('s') => {
+                    if debug_mode {
+                        debug!("Switch tmux pane command received");
+                    }
+                    state.handle_switch_tmux_pane();
+                }
                 KeyCode::Char('r') => {
                     if debug_mode {
                         debug!("Reload command received");
