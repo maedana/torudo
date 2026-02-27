@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture},
     execute,
@@ -12,6 +12,7 @@ use std::{env, error::Error, io};
 mod app_state;
 mod event_handler;
 mod file_watcher;
+mod mcp_server;
 mod setup;
 mod todo;
 mod ui;
@@ -28,6 +29,9 @@ use ui::draw_ui;
 #[command(about = "A terminal-based todo.txt viewer and manager")]
 #[command(version)]
 struct Args {
+    #[command(subcommand)]
+    command: Option<Command>,
+
     /// Enable debug mode
     #[arg(short, long)]
     debug: bool,
@@ -37,12 +41,25 @@ struct Args {
     nvim_listen: String,
 }
 
+#[derive(Subcommand)]
+enum Command {
+    /// Start MCP server (stdio transport)
+    McpServer,
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
     let home_dir = env::var("HOME").unwrap();
     let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{home_dir}/todotxt"));
     let todo_file = format!("{todotxt_dir}/todo.txt");
+
+    // Handle MCP server subcommand
+    if matches!(args.command, Some(Command::McpServer)) {
+        ensure_setup_exists(&todotxt_dir, &todo_file)?;
+        return mcp_server::run_mcp_server(&todotxt_dir, &todo_file)
+            .map_err(|e| e.to_string().into());
+    }
 
     // Setup debug mode
     if args.debug {
