@@ -227,6 +227,15 @@ pub fn append_todo(
     Ok(Item::parse(&line, 0))
 }
 
+pub fn update_plan(todotxt_dir: &str, id: &str, plan: &str) -> Result<(), Box<dyn Error>> {
+    let md_path = Path::new(todotxt_dir).join("todos").join(format!("{id}.md"));
+    if !md_path.exists() {
+        return Err(format!("Plan file not found: {}", md_path.display()).into());
+    }
+    fs::write(&md_path, plan)?;
+    Ok(())
+}
+
 pub fn group_todos_by_project_owned(todos: &[Item]) -> HashMap<String, Vec<Item>> {
     let mut grouped = HashMap::new();
     for todo in todos {
@@ -580,6 +589,33 @@ Learn Rust +learning @coding id:task-003"#;
         let md_path = temp_dir.path().join("todos").join(format!("{uuid}.md"));
         assert!(md_path.exists());
         assert_eq!(fs::read_to_string(&md_path).unwrap(), plan_content);
+    }
+
+    #[test]
+    fn test_update_plan() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let todos_dir = temp_dir.path().join("todos");
+        fs::create_dir_all(&todos_dir).unwrap();
+
+        let id = "test-uuid-123";
+        let md_path = todos_dir.join(format!("{id}.md"));
+        fs::write(&md_path, "# Old Plan\n\n- Old step").unwrap();
+
+        update_plan(temp_dir.path().to_str().unwrap(), id, "# New Plan\n\n- New step").unwrap();
+
+        let content = fs::read_to_string(&md_path).unwrap();
+        assert_eq!(content, "# New Plan\n\n- New step");
+    }
+
+    #[test]
+    fn test_update_plan_not_found() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let todos_dir = temp_dir.path().join("todos");
+        fs::create_dir_all(&todos_dir).unwrap();
+
+        let result = update_plan(temp_dir.path().to_str().unwrap(), "nonexistent-id", "# Plan");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Plan file not found"));
     }
 
     #[test]
