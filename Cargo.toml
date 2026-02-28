@@ -30,6 +30,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 schemars = "1"
+tmux-claude-state = { git = "https://github.com/maedana/claudeye" }
 
 [dev-dependencies]
 tempfile = "3"

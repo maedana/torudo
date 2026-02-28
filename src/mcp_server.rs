@@ -25,9 +25,7 @@ pub struct ListTodosParams {
 pub struct RegisterPlanParams {
     #[schemars(description = "Description of the task")]
     pub description: String,
-    #[schemars(
-        description = "Plan content to write to the detail markdown file. Supports YAML frontmatter with 'tmux_pane' key (e.g., '---\\ntmux_pane: 0:1.2\\n---\\n# Plan content'). The tmux_pane value specifies which tmux pane to jump to when the todo is selected in the TUI."
-    )]
+    #[schemars(description = "Plan content to write to the detail markdown file")]
     pub plan: String,
     #[schemars(
         description = "Project tag (without + prefix). Use the current repository/directory name."
@@ -41,9 +39,7 @@ pub struct RegisterPlanParams {
 pub struct UpdatePlanParams {
     #[schemars(description = "ID of the todo item to update (from register_plan response or list_todos)")]
     pub id: String,
-    #[schemars(
-        description = "New plan content to overwrite the existing detail markdown file. Supports YAML frontmatter with 'tmux_pane' key (e.g., '---\\ntmux_pane: 0:1.2\\n---\\n# Plan content'). The tmux_pane value specifies which tmux pane to jump to when the todo is selected in the TUI."
-    )]
+    #[schemars(description = "New plan content to overwrite the existing detail markdown file")]
     pub plan: String,
 }
 
@@ -162,11 +158,7 @@ impl ServerHandler for TorudoMcpServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             instructions: Some(
-                "torudo MCP server - manage todo.txt items and plans for GTD workflow. \
-                 When registering or updating plans, if the TMUX environment variable is set, \
-                 automatically detect the current pane by running \
-                 `tmux display-message -p '#{session_name}:#{window_index}.#{pane_index}'` \
-                 and include it as `tmux_pane` in the YAML frontmatter of the plan content."
+                "torudo MCP server - manage todo.txt items and plans for GTD workflow."
                     .to_string(),
             ),
             capabilities: ServerCapabilities::builder().enable_tools().build(),

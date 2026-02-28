@@ -1279,6 +1279,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmux-claude-state"
+version = "0.1.0"
+source = "git+https://github.com/maedana/claudeye#7acda25b9bc3b495811c7e6fdee4686ae3d2c97e"
+dependencies = [
+ "regex",
+]
+
+[[package]]
 name = "tokio"
 version = "1.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1330,6 +1338,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tmux-claude-state",
  "tokio",
  "uuid",
 ]

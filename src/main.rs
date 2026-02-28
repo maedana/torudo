@@ -6,8 +6,10 @@ use crossterm::{
 };
 use log::{debug, error, info};
 use ratatui::{backend::CrosstermBackend, Terminal};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{env, error::Error, io};
+use tmux_claude_state::monitor::MonitorState;
 
 mod app_state;
 mod event_handler;
@@ -96,6 +98,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     if args.debug {
         debug!("Loaded {} todos from file", todos.len());
     }
+
+    let monitor_state = if env::var("TMUX").is_ok() {
+        let state = Arc::new(Mutex::new(MonitorState::default()));
+        tmux_claude_state::monitor::start_polling(Arc::clone(&state));
+        Some(state)
+    } else {
+        None
+    };
+
     let result = run_app(
         &mut terminal,
         todos,
@@ -103,6 +114,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         &todo_file,
         args.debug,
         args.nvim_listen,
+        monitor_state,
     );
 
     disable_raw_mode()?;
@@ -125,8 +137,9 @@ fn run_app<B: ratatui::backend::Backend>(
     todo_file: &str,
     debug_mode: bool,
     nvim_socket: String,
+    monitor_state: Option<Arc<Mutex<MonitorState>>>,
 ) -> io::Result<()> {
-    let mut state = AppState::new(todos, nvim_socket);
+    let mut state = AppState::new(todos, nvim_socket, monitor_state);
     let mut event_handler = EventHandler::new();
 
     // Send initial vim command on startup

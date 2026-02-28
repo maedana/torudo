@@ -6,6 +6,20 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
+use std::time::Instant;
+use tmux_claude_state::claude_state::ClaudeState;
+use tmux_claude_state::monitor::ClaudeSession;
+
+pub fn format_elapsed(since: Instant) -> String {
+    let secs = since.elapsed().as_secs();
+    if secs < 60 {
+        format!("{secs}s")
+    } else if secs < 3600 {
+        format!("{}m", secs / 60)
+    } else {
+        format!("{}h", secs / 3600)
+    }
+}
 
 pub fn create_todo_spans(todo: &Item) -> Vec<Span<'_>> {
     let mut spans = Vec::new();
@@ -125,6 +139,101 @@ pub fn draw_project_column(
     }
 }
 
+const fn state_color(state: &ClaudeState) -> Color {
+    match state {
+        ClaudeState::Working => Color::Blue,
+        ClaudeState::WaitingForApproval => Color::Yellow,
+        ClaudeState::Idle => Color::DarkGray,
+    }
+}
+
+const fn state_label(state: &ClaudeState) -> &'static str {
+    match state {
+        ClaudeState::Working => "Working",
+        ClaudeState::WaitingForApproval => "Approval",
+        ClaudeState::Idle => "Idle",
+    }
+}
+
+pub fn draw_claude_sessions_column(
+    f: &mut ratatui::Frame,
+    sessions: &[ClaudeSession],
+    column_area: ratatui::layout::Rect,
+    is_active_column: bool,
+    selected_index: usize,
+) {
+    let border_style = if is_active_column {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::White)
+    };
+
+    let block = Block::default()
+        .title(format!("Claude Sessions ({})", sessions.len()))
+        .borders(Borders::ALL)
+        .border_style(border_style);
+
+    let inner_area = block.inner(column_area);
+    f.render_widget(block, column_area);
+
+    if sessions.is_empty() {
+        return;
+    }
+
+    let constraints: Vec<Constraint> = sessions
+        .iter()
+        .map(|_| Constraint::Length(3))
+        .collect();
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(inner_area);
+
+    for (idx, session) in sessions.iter().enumerate() {
+        if idx >= layout.len() {
+            break;
+        }
+        let is_selected = is_active_column && idx == selected_index;
+        let color = state_color(&session.state);
+        let elapsed = format_elapsed(session.state_changed_at);
+        let label = state_label(&session.state);
+
+        let spans = vec![
+            Span::styled(
+                &session.pane.project_name,
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(label, Style::default().fg(color)),
+            Span::raw(" "),
+            Span::styled(elapsed, Style::default().fg(Color::DarkGray)),
+        ];
+
+        let border_style = if is_selected {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(color)
+        };
+
+        let bg_style = if is_selected {
+            Style::default().bg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+
+        let paragraph = Paragraph::new(Line::from(spans))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(border_style),
+            )
+            .style(bg_style);
+
+        f.render_widget(paragraph, layout[idx]);
+    }
+}
+
 pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
     let size = f.area();
     let chunks = Layout::default()
@@ -145,7 +254,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
         .alignment(Alignment::Center)
         .style(Style::default().fg(Color::Cyan));
 
-    let num_columns = state.project_names.len();
+    let num_columns = state.total_columns();
     if num_columns > 0 {
         let column_constraints: Vec<Constraint> = (0..num_columns)
             .map(|_| Constraint::Percentage(100 / u16::try_from(num_columns).unwrap_or(1)))
@@ -174,6 +283,24 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
                 );
             }
         }
+
+        // Draw Claude Sessions column if enabled
+        if state.claude_sessions_enabled {
+            let claude_col_idx = state.project_names.len();
+            let is_active = state.is_on_claude_column();
+            let sessions = state.monitor_state
+                .as_ref()
+                .and_then(|ms| ms.lock().ok())
+                .map_or_else(Vec::new, |lock| lock.sessions.clone());
+
+            draw_claude_sessions_column(
+                f,
+                &sessions,
+                columns[claude_col_idx],
+                is_active,
+                state.claude_selected_index,
+            );
+        }
     }
 
     let instructions =
@@ -183,4 +310,67 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
 
     f.render_widget(title, chunks[0]);
     f.render_widget(instructions, chunks[2]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_elapsed_seconds() {
+        let now = Instant::now();
+        // Instant::now() just happened, so elapsed is ~0s
+        let result = format_elapsed(now);
+        assert_eq!(result, "0s");
+    }
+
+    #[test]
+    fn test_format_elapsed_minutes() {
+        let since = Instant::now() - std::time::Duration::from_secs(120);
+        assert_eq!(format_elapsed(since), "2m");
+    }
+
+    #[test]
+    fn test_format_elapsed_hours() {
+        let since = Instant::now() - std::time::Duration::from_secs(7200);
+        assert_eq!(format_elapsed(since), "2h");
+    }
+
+    #[test]
+    fn test_format_elapsed_boundary_59s() {
+        let since = Instant::now() - std::time::Duration::from_secs(59);
+        assert_eq!(format_elapsed(since), "59s");
+    }
+
+    #[test]
+    fn test_format_elapsed_boundary_60s() {
+        let since = Instant::now() - std::time::Duration::from_secs(60);
+        assert_eq!(format_elapsed(since), "1m");
+    }
+
+    #[test]
+    fn test_format_elapsed_boundary_3599s() {
+        let since = Instant::now() - std::time::Duration::from_secs(3599);
+        assert_eq!(format_elapsed(since), "59m");
+    }
+
+    #[test]
+    fn test_format_elapsed_boundary_3600s() {
+        let since = Instant::now() - std::time::Duration::from_secs(3600);
+        assert_eq!(format_elapsed(since), "1h");
+    }
+
+    #[test]
+    fn test_state_color() {
+        assert_eq!(state_color(&ClaudeState::Working), Color::Blue);
+        assert_eq!(state_color(&ClaudeState::WaitingForApproval), Color::Yellow);
+        assert_eq!(state_color(&ClaudeState::Idle), Color::DarkGray);
+    }
+
+    #[test]
+    fn test_state_label() {
+        assert_eq!(state_label(&ClaudeState::Working), "Working");
+        assert_eq!(state_label(&ClaudeState::WaitingForApproval), "Approval");
+        assert_eq!(state_label(&ClaudeState::Idle), "Idle");
+    }
 }

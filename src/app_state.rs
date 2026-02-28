@@ -1,18 +1,8 @@
 use crate::todo::{add_missing_ids, group_todos_by_project_owned, load_todos, mark_complete, Item};
 use log::{debug, error};
+use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, env, io::Write, os::unix::net::UnixStream, time::Duration};
-
-fn parse_tmux_pane_from_frontmatter(content: &str) -> Option<String> {
-    let content = content.strip_prefix("---\n")?;
-    let end = content.find("\n---")?;
-    let frontmatter = &content[..end];
-    for line in frontmatter.lines() {
-        if let Some(value) = line.strip_prefix("tmux_pane:") {
-            return Some(value.trim().to_string());
-        }
-    }
-    None
-}
+use tmux_claude_state::monitor::MonitorState;
 
 pub struct AppState {
     pub todos: Vec<Item>,
@@ -21,6 +11,9 @@ pub struct AppState {
     pub current_column: usize,
     pub selected_in_column: usize,
     pub nvim_socket: String,
+    pub monitor_state: Option<Arc<Mutex<MonitorState>>>,
+    pub claude_sessions_enabled: bool,
+    pub claude_selected_index: usize,
 }
 
 impl AppState {
@@ -59,10 +52,11 @@ impl AppState {
         }
     }
 
-    pub fn new(todos: Vec<Item>, nvim_socket: String) -> Self {
+    pub fn new(todos: Vec<Item>, nvim_socket: String, monitor_state: Option<Arc<Mutex<MonitorState>>>) -> Self {
         let grouped_todos = group_todos_by_project_owned(&todos);
         let mut project_names: Vec<String> = grouped_todos.keys().cloned().collect();
         project_names.sort();
+        let claude_sessions_enabled = monitor_state.is_some();
 
         Self {
             todos,
@@ -71,7 +65,18 @@ impl AppState {
             current_column: 0,
             selected_in_column: 0,
             nvim_socket,
+            monitor_state,
+            claude_sessions_enabled,
+            claude_selected_index: 0,
         }
+    }
+
+    pub const fn is_on_claude_column(&self) -> bool {
+        self.claude_sessions_enabled && self.current_column == self.project_names.len()
+    }
+
+    pub const fn total_columns(&self) -> usize {
+        self.project_names.len() + self.claude_sessions_enabled as usize
     }
 
     pub fn reload_todos(&mut self, todo_file: &str) {
@@ -90,8 +95,8 @@ impl AppState {
         self.project_names = self.grouped_todos.keys().cloned().collect();
         self.project_names.sort();
 
-        if self.current_column >= self.project_names.len() {
-            self.current_column = self.project_names.len().saturating_sub(1);
+        if self.current_column >= self.total_columns() {
+            self.current_column = self.total_columns().saturating_sub(1);
         }
         if let Some(current_project_name) = self.project_names.get(self.current_column)
             && let Some(current_todos) = self.grouped_todos.get(current_project_name) {
@@ -115,7 +120,11 @@ impl AppState {
     pub fn handle_navigation_key(&mut self, key_char: char) {
         match key_char {
             'k' => {
-                if self.selected_in_column > 0 {
+                if self.is_on_claude_column() {
+                    if self.claude_selected_index > 0 {
+                        self.claude_selected_index -= 1;
+                    }
+                } else if self.selected_in_column > 0 {
                     self.selected_in_column -= 1;
                     if let Some(todo_id) = self.get_current_todo_id() {
                         self.send_vim_command(todo_id);
@@ -123,7 +132,12 @@ impl AppState {
                 }
             }
             'j' => {
-                if let Some(current_project_name) = self.project_names.get(self.current_column)
+                if self.is_on_claude_column() {
+                    let session_count = self.claude_session_count();
+                    if self.claude_selected_index < session_count.saturating_sub(1) {
+                        self.claude_selected_index += 1;
+                    }
+                } else if let Some(current_project_name) = self.project_names.get(self.current_column)
                     && let Some(current_todos) = self.grouped_todos.get(current_project_name)
                         && self.selected_in_column < current_todos.len().saturating_sub(1) {
                             self.selected_in_column += 1;
@@ -135,23 +149,38 @@ impl AppState {
             'h' => {
                 if self.current_column > 0 {
                     self.current_column -= 1;
-                    self.selected_in_column = 0;
-                    if let Some(todo_id) = self.get_current_todo_id() {
-                        self.send_vim_command(todo_id);
+                    if self.is_on_claude_column() {
+                        self.claude_selected_index = 0;
+                    } else {
+                        self.selected_in_column = 0;
+                        if let Some(todo_id) = self.get_current_todo_id() {
+                            self.send_vim_command(todo_id);
+                        }
                     }
                 }
             }
             'l' => {
-                if self.current_column < self.project_names.len().saturating_sub(1) {
+                if self.current_column < self.total_columns().saturating_sub(1) {
                     self.current_column += 1;
-                    self.selected_in_column = 0;
-                    if let Some(todo_id) = self.get_current_todo_id() {
-                        self.send_vim_command(todo_id);
+                    if self.is_on_claude_column() {
+                        self.claude_selected_index = 0;
+                    } else {
+                        self.selected_in_column = 0;
+                        if let Some(todo_id) = self.get_current_todo_id() {
+                            self.send_vim_command(todo_id);
+                        }
                     }
                 }
             }
             _ => {}
         }
+    }
+
+    fn claude_session_count(&self) -> usize {
+        self.monitor_state
+            .as_ref()
+            .and_then(|ms| ms.lock().ok())
+            .map_or(0, |lock| lock.sessions.len())
     }
 
     pub fn handle_complete_todo(&mut self, todo_file: &str) {
@@ -176,57 +205,19 @@ impl AppState {
     }
 
     pub fn handle_switch_tmux_pane(&self) {
-        if env::var("TMUX").is_err() {
-            debug!("Not running inside tmux, skipping pane switching");
+        if !self.is_on_claude_column() {
             return;
         }
-        let Some(todo_id) = self.get_current_todo_id() else {
+        let Some(ref monitor_state) = self.monitor_state else {
             return;
         };
-        let home_dir = env::var("HOME").unwrap();
-        let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{home_dir}/todotxt"));
-        let file_path = format!("{todotxt_dir}/todos/{todo_id}.md");
-
-        let content = match std::fs::read_to_string(&file_path) {
-            Ok(c) => c,
-            Err(e) => {
-                debug!("Failed to read detail file {file_path}: {e}");
-                return;
-            }
-        };
-
-        let Some(pane_target) = parse_tmux_pane_from_frontmatter(&content) else {
-            debug!("No tmux_pane found in frontmatter of {file_path}");
+        let Ok(lock) = monitor_state.lock() else {
             return;
         };
-
-        // Extract session:window from pane_target (e.g., "0:1.2" -> "0:1")
-        let window_target = pane_target
-            .rfind('.')
-            .map_or(pane_target.as_str(), |i| &pane_target[..i]);
-
-        if let Err(e) = std::process::Command::new("tmux")
-            .args(["select-window", "-t", window_target])
-            .output()
-        {
-            debug!("Failed to execute tmux select-window: {e}");
+        let Some(session) = lock.sessions.get(self.claude_selected_index) else {
             return;
-        }
-
-        match std::process::Command::new("tmux")
-            .args(["select-pane", "-t", &pane_target])
-            .output()
-        {
-            Ok(output) => {
-                if output.status.success() {
-                    debug!("Switched to tmux pane: {pane_target}");
-                } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    debug!("tmux select-pane failed: {stderr}");
-                }
-            }
-            Err(e) => debug!("Failed to execute tmux command: {e}"),
-        }
+        };
+        tmux_claude_state::tmux::switch_to_pane(&session.pane.id);
     }
 
     pub fn send_initial_vim_command(&self) {
@@ -243,7 +234,12 @@ mod tests {
     use std::fs;
 
     fn create_test_state(todos: Vec<Item>) -> AppState {
-        AppState::new(todos, "/tmp/nvim.sock".to_string())
+        AppState::new(todos, "/tmp/nvim.sock".to_string(), None)
+    }
+
+    fn create_test_state_with_claude(todos: Vec<Item>) -> AppState {
+        let monitor_state = Arc::new(Mutex::new(MonitorState::default()));
+        AppState::new(todos, "/tmp/nvim.sock".to_string(), Some(monitor_state))
     }
 
     fn create_test_todos() -> Vec<Item> {
@@ -298,7 +294,7 @@ mod tests {
     #[test]
     fn test_app_state_new() {
         let todos = create_test_todos();
-        let state = AppState::new(todos.clone(), "/tmp/nvim.sock".to_string());
+        let state = AppState::new(todos.clone(), "/tmp/nvim.sock".to_string(), None);
 
         assert_eq!(state.todos.len(), 4);
         assert_eq!(state.current_column, 0);
@@ -602,30 +598,127 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_tmux_pane_from_frontmatter_with_pane() {
-        let content = "---\ntmux_pane: 0:1.2\n---\n# Some content";
-        assert_eq!(
-            parse_tmux_pane_from_frontmatter(content),
-            Some("0:1.2".to_string())
-        );
+    fn test_app_state_total_columns_without_claude() {
+        let todos = create_test_todos();
+        let state = create_test_state(todos);
+        assert_eq!(state.total_columns(), 4); // project_names.len() only
+        assert!(!state.claude_sessions_enabled);
     }
 
     #[test]
-    fn test_parse_tmux_pane_from_frontmatter_without_tmux_pane() {
-        let content = "---\ntitle: My Todo\n---\n# Some content";
-        assert_eq!(parse_tmux_pane_from_frontmatter(content), None);
+    fn test_app_state_total_columns_with_claude() {
+        let todos = create_test_todos();
+        let state = create_test_state_with_claude(todos);
+        assert_eq!(state.total_columns(), 5); // project_names.len() + 1
+        assert!(state.claude_sessions_enabled);
     }
 
     #[test]
-    fn test_parse_tmux_pane_from_frontmatter_no_frontmatter() {
-        let content = "# Just a heading\nSome content";
-        assert_eq!(parse_tmux_pane_from_frontmatter(content), None);
+    fn test_app_state_is_on_claude_column() {
+        let todos = create_test_todos();
+        let mut state = create_test_state_with_claude(todos);
+        // Initially at column 0, not on Claude column
+        assert!(!state.is_on_claude_column());
+        // Move to Claude column (index == project_names.len())
+        state.current_column = state.project_names.len();
+        assert!(state.is_on_claude_column());
     }
 
     #[test]
-    fn test_parse_tmux_pane_from_frontmatter_empty_string() {
-        let content = "";
-        assert_eq!(parse_tmux_pane_from_frontmatter(content), None);
+    fn test_app_state_is_on_claude_column_disabled() {
+        let todos = create_test_todos();
+        let mut state = create_test_state(todos);
+        // Even at last+1 position, not Claude column when disabled
+        state.current_column = state.project_names.len();
+        assert!(!state.is_on_claude_column());
+    }
+
+    #[test]
+    fn test_navigation_to_claude_column() {
+        let todos = create_test_todos();
+        let mut state = create_test_state_with_claude(todos);
+        // 4 project columns + 1 claude = total 5
+        // Move to last project column
+        state.current_column = 3; // "work"
+        // Move right to Claude column
+        state.handle_navigation_key('l');
+        assert_eq!(state.current_column, 4);
+        assert!(state.is_on_claude_column());
+        // Move right again, should stay
+        state.handle_navigation_key('l');
+        assert_eq!(state.current_column, 4);
+        // Move left back to project column
+        state.handle_navigation_key('h');
+        assert_eq!(state.current_column, 3);
+        assert!(!state.is_on_claude_column());
+    }
+
+    #[test]
+    fn test_navigation_without_claude_column() {
+        let todos = create_test_todos();
+        let mut state = create_test_state(todos);
+        // 4 project columns, no claude
+        state.current_column = 3; // last project
+        state.handle_navigation_key('l');
+        assert_eq!(state.current_column, 3); // should stay at last project
+    }
+
+    #[test]
+    fn test_claude_column_vertical_navigation() {
+        use std::time::Instant;
+        use tmux_claude_state::claude_state::ClaudeState;
+        use tmux_claude_state::monitor::ClaudeSession;
+        use tmux_claude_state::tmux::PaneInfo;
+
+        let todos = create_test_todos();
+        let monitor_state = Arc::new(Mutex::new(MonitorState {
+            sessions: vec![
+                ClaudeSession {
+                    pane: PaneInfo { id: "0:0.0".to_string(), pid: 1, cwd: "/proj1".to_string(), project_name: "proj1".to_string() },
+                    state: ClaudeState::Working,
+                    state_changed_at: Instant::now(),
+                },
+                ClaudeSession {
+                    pane: PaneInfo { id: "0:0.1".to_string(), pid: 2, cwd: "/proj2".to_string(), project_name: "proj2".to_string() },
+                    state: ClaudeState::Idle,
+                    state_changed_at: Instant::now(),
+                },
+                ClaudeSession {
+                    pane: PaneInfo { id: "0:1.0".to_string(), pid: 3, cwd: "/proj3".to_string(), project_name: "proj3".to_string() },
+                    state: ClaudeState::WaitingForApproval,
+                    state_changed_at: Instant::now(),
+                },
+            ],
+            any_claude_focused: false,
+        }));
+        let mut state = AppState::new(todos, "/tmp/nvim.sock".to_string(), Some(monitor_state));
+
+        // Move to Claude column
+        state.current_column = state.project_names.len();
+        assert!(state.is_on_claude_column());
+        assert_eq!(state.claude_selected_index, 0);
+
+        // j moves down
+        state.handle_navigation_key('j');
+        assert_eq!(state.claude_selected_index, 1);
+
+        state.handle_navigation_key('j');
+        assert_eq!(state.claude_selected_index, 2);
+
+        // Can't go past last
+        state.handle_navigation_key('j');
+        assert_eq!(state.claude_selected_index, 2);
+
+        // k moves up
+        state.handle_navigation_key('k');
+        assert_eq!(state.claude_selected_index, 1);
+
+        state.handle_navigation_key('k');
+        assert_eq!(state.claude_selected_index, 0);
+
+        // Can't go past first
+        state.handle_navigation_key('k');
+        assert_eq!(state.claude_selected_index, 0);
     }
 
     #[test]
