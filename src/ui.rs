@@ -142,7 +142,7 @@ pub fn draw_project_column(
 const fn state_color(state: &ClaudeState) -> Color {
     match state {
         ClaudeState::Working => Color::Blue,
-        ClaudeState::WaitingForApproval => Color::Yellow,
+        ClaudeState::WaitingForApproval => Color::LightRed,
         ClaudeState::Idle => Color::DarkGray,
     }
 }
@@ -364,7 +364,7 @@ mod tests {
     #[test]
     fn test_state_color() {
         assert_eq!(state_color(&ClaudeState::Working), Color::Blue);
-        assert_eq!(state_color(&ClaudeState::WaitingForApproval), Color::Yellow);
+        assert_eq!(state_color(&ClaudeState::WaitingForApproval), Color::LightRed);
         assert_eq!(state_color(&ClaudeState::Idle), Color::DarkGray);
     }
 
