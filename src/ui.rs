@@ -199,15 +199,16 @@ pub fn draw_claude_sessions_column(
         let elapsed = format_elapsed(session.state_changed_at);
         let label = state_label(&session.state);
 
+        let text_color = if is_selected { Color::Yellow } else { color };
         let spans = vec![
             Span::styled(
                 &session.pane.project_name,
-                Style::default().fg(color).add_modifier(Modifier::BOLD),
+                Style::default().fg(text_color).add_modifier(Modifier::BOLD),
             ),
             Span::raw(" "),
-            Span::styled(label, Style::default().fg(color)),
+            Span::styled(label, Style::default().fg(text_color)),
             Span::raw(" "),
-            Span::styled(elapsed, Style::default().fg(Color::DarkGray)),
+            Span::styled(elapsed, Style::default().fg(if is_selected { Color::White } else { Color::DarkGray })),
         ];
 
         let border_style = if is_selected {
