@@ -160,6 +160,7 @@ impl AppState {
                 if self.is_on_claude_column() {
                     if self.claude_selected_index > 0 {
                         self.claude_selected_index -= 1;
+                        self.enter_preview_mode();
                         self.update_preview_content();
                     }
                 } else if self.selected_in_column > 0 {
@@ -174,6 +175,7 @@ impl AppState {
                     let session_count = self.claude_session_count();
                     if self.claude_selected_index < session_count.saturating_sub(1) {
                         self.claude_selected_index += 1;
+                        self.enter_preview_mode();
                         self.update_preview_content();
                     }
                 } else if let Some(current_project_name) = self.project_names.get(self.current_column)
@@ -191,6 +193,8 @@ impl AppState {
                     self.current_column -= 1;
                     if self.is_on_claude_column() {
                         self.claude_selected_index = 0;
+                        self.enter_preview_mode();
+                        self.update_preview_content();
                     } else if was_on_claude && self.preview_active {
                         self.leave_preview_mode();
                     } else {
