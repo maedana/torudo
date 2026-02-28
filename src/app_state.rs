@@ -1,6 +1,7 @@
 use crate::todo::{add_missing_ids, group_todos_by_project_owned, load_todos, mark_complete, Item};
 use log::{debug, error};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use std::{collections::HashMap, env, io::Write, os::unix::net::UnixStream, time::Duration};
 use tmux_claude_state::monitor::MonitorState;
 
@@ -14,30 +15,57 @@ pub struct AppState {
     pub monitor_state: Option<Arc<Mutex<MonitorState>>>,
     pub claude_sessions_enabled: bool,
     pub claude_selected_index: usize,
+    pub preview_active: bool,
+    pub last_preview_update: Option<Instant>,
 }
 
 impl AppState {
-    fn build_nvim_command_payload(cmd: &str) -> Vec<u8> {
+    fn build_nvim_rpc_payload(method: &str, params: Vec<rmpv::Value>) -> Vec<u8> {
         let request = rmpv::Value::Array(vec![
             rmpv::Value::Integer(0.into()),  // type = Request
             rmpv::Value::Integer(1.into()),  // msgid
-            rmpv::Value::String("nvim_command".into()),
-            rmpv::Value::Array(vec![rmpv::Value::String(cmd.into())]),
+            rmpv::Value::String(method.into()),
+            rmpv::Value::Array(params),
         ]);
         let mut buf = Vec::new();
         rmpv::encode::write_value(&mut buf, &request).expect("msgpack encoding should not fail");
         buf
     }
 
-    fn send_nvim_rpc(&self, cmd: &str) -> Result<(), Box<dyn std::error::Error>> {
+    fn build_nvim_command_payload(cmd: &str) -> Vec<u8> {
+        Self::build_nvim_rpc_payload("nvim_command", vec![rmpv::Value::String(cmd.into())])
+    }
+
+    fn build_buf_set_lines_payload(content: &str) -> Vec<u8> {
+        let lines: Vec<rmpv::Value> = content
+            .split('\n')
+            .map(|line| rmpv::Value::String(line.into()))
+            .collect();
+        Self::build_nvim_rpc_payload(
+            "nvim_buf_set_lines",
+            vec![
+                rmpv::Value::Integer(0.into()),    // buffer=0 (current)
+                rmpv::Value::Integer(0.into()),    // start=0
+                rmpv::Value::Integer((-1).into()), // end=-1 (all lines)
+                rmpv::Value::Boolean(false),       // strict_indexing=false
+                rmpv::Value::Array(lines),
+            ],
+        )
+    }
+
+    fn send_nvim_rpc_raw(&self, payload: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         let mut stream = UnixStream::connect(&self.nvim_socket)?;
         stream.set_read_timeout(Some(Duration::from_millis(500)))?;
-        let payload = Self::build_nvim_command_payload(cmd);
-        stream.write_all(&payload)?;
+        stream.write_all(payload)?;
         stream.flush()?;
         // Read the response to confirm command completion before closing the connection
         let _ = rmpv::decode::read_value(&mut stream);
         Ok(())
+    }
+
+    fn send_nvim_rpc_command(&self, cmd: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let payload = Self::build_nvim_command_payload(cmd);
+        self.send_nvim_rpc_raw(&payload)
     }
 
     fn send_vim_command(&self, todo_id: &str) {
@@ -46,7 +74,7 @@ impl AppState {
         let file_path = format!("{todotxt_dir}/todos/{todo_id}.md");
         let cmd = format!("e {file_path}");
 
-        match self.send_nvim_rpc(&cmd) {
+        match self.send_nvim_rpc_command(&cmd) {
             Ok(()) => debug!("Sent nvim RPC command: {cmd}"),
             Err(e) => debug!("Failed to send nvim RPC command: {e}"),
         }
@@ -68,6 +96,8 @@ impl AppState {
             monitor_state,
             claude_sessions_enabled,
             claude_selected_index: 0,
+            preview_active: false,
+            last_preview_update: None,
         }
     }
 
@@ -123,6 +153,7 @@ impl AppState {
                 if self.is_on_claude_column() {
                     if self.claude_selected_index > 0 {
                         self.claude_selected_index -= 1;
+                        self.update_preview_content();
                     }
                 } else if self.selected_in_column > 0 {
                     self.selected_in_column -= 1;
@@ -136,6 +167,7 @@ impl AppState {
                     let session_count = self.claude_session_count();
                     if self.claude_selected_index < session_count.saturating_sub(1) {
                         self.claude_selected_index += 1;
+                        self.update_preview_content();
                     }
                 } else if let Some(current_project_name) = self.project_names.get(self.current_column)
                     && let Some(current_todos) = self.grouped_todos.get(current_project_name)
@@ -148,9 +180,12 @@ impl AppState {
             }
             'h' => {
                 if self.current_column > 0 {
+                    let was_on_claude = self.is_on_claude_column();
                     self.current_column -= 1;
                     if self.is_on_claude_column() {
                         self.claude_selected_index = 0;
+                    } else if was_on_claude && self.preview_active {
+                        self.leave_preview_mode();
                     } else {
                         self.selected_in_column = 0;
                         if let Some(todo_id) = self.get_current_todo_id() {
@@ -164,6 +199,8 @@ impl AppState {
                     self.current_column += 1;
                     if self.is_on_claude_column() {
                         self.claude_selected_index = 0;
+                        self.enter_preview_mode();
+                        self.update_preview_content();
                     } else {
                         self.selected_in_column = 0;
                         if let Some(todo_id) = self.get_current_todo_id() {
@@ -224,6 +261,64 @@ impl AppState {
         if let Some(todo_id) = self.get_current_todo_id() {
             self.send_vim_command(todo_id);
         }
+    }
+
+    fn enter_preview_mode(&mut self) {
+        let cmd = r"enew | setlocal buftype=nofile bufhidden=wipe noswapfile | file [Claude\ Preview]";
+        match self.send_nvim_rpc_command(cmd) {
+            Ok(()) => {
+                debug!("Entered preview mode");
+                self.preview_active = true;
+            }
+            Err(e) => debug!("Failed to enter preview mode: {e}"),
+        }
+    }
+
+    fn update_preview_content(&mut self) {
+        let pane_id = {
+            let Some(ref monitor_state) = self.monitor_state else {
+                return;
+            };
+            let Ok(lock) = monitor_state.lock() else {
+                return;
+            };
+            let Some(session) = lock.sessions.get(self.claude_selected_index) else {
+                return;
+            };
+            session.pane.id.clone()
+        };
+
+        let content = tmux_claude_state::tmux::capture_pane(&pane_id);
+        let payload = Self::build_buf_set_lines_payload(&content);
+        match self.send_nvim_rpc_raw(&payload) {
+            Ok(()) => {
+                debug!("Updated preview content for pane {pane_id}");
+                self.last_preview_update = Some(Instant::now());
+                // Scroll to bottom to show latest output
+                let _ = self.send_nvim_rpc_command("normal! G");
+            }
+            Err(e) => debug!("Failed to update preview content: {e}"),
+        }
+    }
+
+    fn leave_preview_mode(&mut self) {
+        self.preview_active = false;
+        self.last_preview_update = None;
+        if let Some(todo_id) = self.get_current_todo_id() {
+            self.send_vim_command(todo_id);
+        }
+    }
+
+    pub fn maybe_update_preview(&mut self) {
+        if !self.preview_active {
+            return;
+        }
+        if let Some(last) = self.last_preview_update
+            && last.elapsed() < Duration::from_secs(2)
+        {
+            return;
+        }
+        self.update_preview_content();
     }
 }
 
@@ -573,6 +668,121 @@ mod tests {
             state.selected_in_column
                 < state.grouped_todos[&state.project_names[state.current_column]].len()
         );
+    }
+
+    #[test]
+    fn test_build_nvim_rpc_payload() {
+        let params = vec![rmpv::Value::String("e /path/to/file.md".into())];
+        let payload = AppState::build_nvim_rpc_payload("nvim_command", params);
+
+        let mut cursor = std::io::Cursor::new(&payload);
+        let decoded = rmpv::decode::read_value(&mut cursor).unwrap();
+
+        if let rmpv::Value::Array(items) = decoded {
+            assert_eq!(items.len(), 4);
+            assert_eq!(items[0], rmpv::Value::Integer(0.into())); // type=Request
+            assert_eq!(items[1], rmpv::Value::Integer(1.into())); // msgid
+            assert_eq!(items[2], rmpv::Value::String("nvim_command".into()));
+            if let rmpv::Value::Array(params) = &items[3] {
+                assert_eq!(params[0], rmpv::Value::String("e /path/to/file.md".into()));
+            } else {
+                panic!("params should be an array");
+            }
+        } else {
+            panic!("decoded value should be an array");
+        }
+    }
+
+    #[test]
+    fn test_build_nvim_rpc_payload_arbitrary_method() {
+        let params = vec![
+            rmpv::Value::Integer(0.into()),
+            rmpv::Value::Integer(0.into()),
+            rmpv::Value::Integer((-1).into()),
+            rmpv::Value::Boolean(false),
+            rmpv::Value::Array(vec![
+                rmpv::Value::String("line1".into()),
+                rmpv::Value::String("line2".into()),
+            ]),
+        ];
+        let payload = AppState::build_nvim_rpc_payload("nvim_buf_set_lines", params);
+
+        let mut cursor = std::io::Cursor::new(&payload);
+        let decoded = rmpv::decode::read_value(&mut cursor).unwrap();
+
+        if let rmpv::Value::Array(items) = decoded {
+            assert_eq!(items[2], rmpv::Value::String("nvim_buf_set_lines".into()));
+            if let rmpv::Value::Array(params) = &items[3] {
+                assert_eq!(params.len(), 5);
+                assert_eq!(params[0], rmpv::Value::Integer(0.into()));
+                assert_eq!(params[3], rmpv::Value::Boolean(false));
+                if let rmpv::Value::Array(lines) = &params[4] {
+                    assert_eq!(lines.len(), 2);
+                    assert_eq!(lines[0], rmpv::Value::String("line1".into()));
+                } else {
+                    panic!("lines should be an array");
+                }
+            } else {
+                panic!("params should be an array");
+            }
+        } else {
+            panic!("decoded value should be an array");
+        }
+    }
+
+    #[test]
+    fn test_build_buf_set_lines_payload() {
+        let content = "line1\nline2\nline3";
+        let payload = AppState::build_buf_set_lines_payload(content);
+
+        let mut cursor = std::io::Cursor::new(&payload);
+        let decoded = rmpv::decode::read_value(&mut cursor).unwrap();
+
+        if let rmpv::Value::Array(items) = decoded {
+            assert_eq!(items[2], rmpv::Value::String("nvim_buf_set_lines".into()));
+            if let rmpv::Value::Array(params) = &items[3] {
+                assert_eq!(params.len(), 5);
+                assert_eq!(params[0], rmpv::Value::Integer(0.into())); // buffer=0 (current)
+                assert_eq!(params[1], rmpv::Value::Integer(0.into())); // start=0
+                assert_eq!(params[2], rmpv::Value::Integer((-1).into())); // end=-1 (all)
+                assert_eq!(params[3], rmpv::Value::Boolean(false)); // strict_indexing=false
+                if let rmpv::Value::Array(lines) = &params[4] {
+                    assert_eq!(lines.len(), 3);
+                    assert_eq!(lines[0], rmpv::Value::String("line1".into()));
+                    assert_eq!(lines[1], rmpv::Value::String("line2".into()));
+                    assert_eq!(lines[2], rmpv::Value::String("line3".into()));
+                } else {
+                    panic!("lines should be an array");
+                }
+            } else {
+                panic!("params should be an array");
+            }
+        } else {
+            panic!("decoded value should be an array");
+        }
+    }
+
+    #[test]
+    fn test_build_buf_set_lines_payload_empty() {
+        let payload = AppState::build_buf_set_lines_payload("");
+
+        let mut cursor = std::io::Cursor::new(&payload);
+        let decoded = rmpv::decode::read_value(&mut cursor).unwrap();
+
+        if let rmpv::Value::Array(items) = decoded {
+            if let rmpv::Value::Array(params) = &items[3] {
+                if let rmpv::Value::Array(lines) = &params[4] {
+                    assert_eq!(lines.len(), 1);
+                    assert_eq!(lines[0], rmpv::Value::String("".into()));
+                } else {
+                    panic!("lines should be an array");
+                }
+            } else {
+                panic!("params should be an array");
+            }
+        } else {
+            panic!("decoded value should be an array");
+        }
     }
 
     #[test]

@@ -165,5 +165,7 @@ fn run_app<B: ratatui::backend::Backend>(
                 return Ok(()); // Quit was requested
             }
         }
+
+        state.maybe_update_preview();
     }
 }
