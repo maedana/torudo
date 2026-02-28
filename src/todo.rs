@@ -1,6 +1,6 @@
 use chrono::NaiveDate;
 use log::debug;
-use std::{collections::HashMap, error::Error, fmt::Write as _, fs, path::Path};
+use std::{collections::HashMap, error::Error, fs};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -190,49 +190,6 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
         debug!("Successfully moved todo to done.txt and updated todo.txt");
     }
 
-    Ok(())
-}
-
-pub fn append_todo(
-    todo_file: &str,
-    todotxt_dir: &str,
-    description: &str,
-    project: &str,
-    priority: Option<char>,
-    plan: Option<&str>,
-) -> Result<Item, Box<dyn Error>> {
-    let uuid = Uuid::new_v4().to_string();
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-
-    let mut line = String::new();
-    if let Some(p) = priority {
-        write!(line, "({p}) ")?;
-    }
-    write!(line, "{today} {description} +{project} id:{uuid}")?;
-
-    let mut content = fs::read_to_string(todo_file).unwrap_or_default();
-    if !content.is_empty() && !content.ends_with('\n') {
-        content.push('\n');
-    }
-    content.push_str(&line);
-    content.push('\n');
-    fs::write(todo_file, &content)?;
-
-    if let Some(plan) = plan {
-        let todos_dir = Path::new(todotxt_dir).join("todos");
-        fs::create_dir_all(&todos_dir)?;
-        fs::write(todos_dir.join(format!("{uuid}.md")), plan)?;
-    }
-
-    Ok(Item::parse(&line, 0))
-}
-
-pub fn update_plan(todotxt_dir: &str, id: &str, plan: &str) -> Result<(), Box<dyn Error>> {
-    let md_path = Path::new(todotxt_dir).join("todos").join(format!("{id}.md"));
-    if !md_path.exists() {
-        return Err(format!("Plan file not found: {}", md_path.display()).into());
-    }
-    fs::write(&md_path, plan)?;
     Ok(())
 }
 
@@ -515,107 +472,6 @@ Learn Rust +learning @coding id:task-003"#;
 
         fs::remove_file(&todo_file).ok();
         fs::remove_file(&done_file).ok();
-    }
-
-    #[test]
-    fn test_append_todo() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let todo_file = temp_dir.path().join("todo.txt");
-        fs::write(&todo_file, "").unwrap();
-
-        let item = append_todo(
-            todo_file.to_str().unwrap(),
-            temp_dir.path().to_str().unwrap(),
-            "Implement MCP server",
-            "torudo",
-            None,
-            None,
-        )
-        .unwrap();
-
-        assert_eq!(item.description, "Implement MCP server");
-        assert_eq!(item.projects, vec!["torudo"]);
-        assert!(item.id.is_some());
-        assert_eq!(item.priority, None);
-        assert!(item.creation_date.is_some());
-
-        let content = fs::read_to_string(&todo_file).unwrap();
-        assert!(content.contains("Implement MCP server"));
-        assert!(content.contains("+torudo"));
-        assert!(content.contains("id:"));
-    }
-
-    #[test]
-    fn test_append_todo_with_priority() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let todo_file = temp_dir.path().join("todo.txt");
-        fs::write(&todo_file, "").unwrap();
-
-        let item = append_todo(
-            todo_file.to_str().unwrap(),
-            temp_dir.path().to_str().unwrap(),
-            "Critical task",
-            "work",
-            Some('A'),
-            None,
-        )
-        .unwrap();
-
-        assert_eq!(item.priority, Some('A'));
-        assert_eq!(item.description, "Critical task");
-
-        let content = fs::read_to_string(&todo_file).unwrap();
-        assert!(content.starts_with("(A) "));
-    }
-
-    #[test]
-    fn test_append_todo_creates_detail_md() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let todo_file = temp_dir.path().join("todo.txt");
-        fs::write(&todo_file, "").unwrap();
-
-        let plan_content = "# Plan\n\n- Step 1\n- Step 2";
-        let item = append_todo(
-            todo_file.to_str().unwrap(),
-            temp_dir.path().to_str().unwrap(),
-            "Plan task",
-            "project",
-            None,
-            Some(plan_content),
-        )
-        .unwrap();
-
-        let uuid = item.id.unwrap();
-        let md_path = temp_dir.path().join("todos").join(format!("{uuid}.md"));
-        assert!(md_path.exists());
-        assert_eq!(fs::read_to_string(&md_path).unwrap(), plan_content);
-    }
-
-    #[test]
-    fn test_update_plan() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let todos_dir = temp_dir.path().join("todos");
-        fs::create_dir_all(&todos_dir).unwrap();
-
-        let id = "test-uuid-123";
-        let md_path = todos_dir.join(format!("{id}.md"));
-        fs::write(&md_path, "# Old Plan\n\n- Old step").unwrap();
-
-        update_plan(temp_dir.path().to_str().unwrap(), id, "# New Plan\n\n- New step").unwrap();
-
-        let content = fs::read_to_string(&md_path).unwrap();
-        assert_eq!(content, "# New Plan\n\n- New step");
-    }
-
-    #[test]
-    fn test_update_plan_not_found() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let todos_dir = temp_dir.path().join("todos");
-        fs::create_dir_all(&todos_dir).unwrap();
-
-        let result = update_plan(temp_dir.path().to_str().unwrap(), "nonexistent-id", "# Plan");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Plan file not found"));
     }
 
     #[test]
