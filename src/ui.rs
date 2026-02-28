@@ -143,13 +143,13 @@ const fn state_color(state: &ClaudeState) -> Color {
     match state {
         ClaudeState::Working => Color::Blue,
         ClaudeState::WaitingForApproval => Color::LightRed,
-        ClaudeState::Idle => Color::DarkGray,
+        ClaudeState::Idle => Color::White,
     }
 }
 
 const fn state_label(state: &ClaudeState) -> &'static str {
     match state {
-        ClaudeState::Working => "Working",
+        ClaudeState::Working => "Running",
         ClaudeState::WaitingForApproval => "Approval",
         ClaudeState::Idle => "Idle",
     }
@@ -208,7 +208,7 @@ pub fn draw_claude_sessions_column(
             Span::raw(" "),
             Span::styled(label, Style::default().fg(text_color)),
             Span::raw(" "),
-            Span::styled(elapsed, Style::default().fg(if is_selected { Color::White } else { Color::DarkGray })),
+            Span::styled(elapsed, Style::default().fg(text_color)),
         ];
 
         let border_style = if is_selected {
@@ -365,12 +365,12 @@ mod tests {
     fn test_state_color() {
         assert_eq!(state_color(&ClaudeState::Working), Color::Blue);
         assert_eq!(state_color(&ClaudeState::WaitingForApproval), Color::LightRed);
-        assert_eq!(state_color(&ClaudeState::Idle), Color::DarkGray);
+        assert_eq!(state_color(&ClaudeState::Idle), Color::White);
     }
 
     #[test]
     fn test_state_label() {
-        assert_eq!(state_label(&ClaudeState::Working), "Working");
+        assert_eq!(state_label(&ClaudeState::Working), "Running");
         assert_eq!(state_label(&ClaudeState::WaitingForApproval), "Approval");
         assert_eq!(state_label(&ClaudeState::Idle), "Idle");
     }
