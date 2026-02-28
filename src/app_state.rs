@@ -3,6 +3,7 @@ use log::{debug, error};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::{collections::HashMap, env, io::Write, os::unix::net::UnixStream, time::Duration};
+use tmux_claude_state::claude_state::ClaudeState;
 use tmux_claude_state::monitor::MonitorState;
 
 pub struct AppState {
@@ -17,6 +18,7 @@ pub struct AppState {
     pub claude_selected_index: usize,
     pub preview_active: bool,
     pub last_preview_update: Option<Instant>,
+    terminal_channel: Option<i64>,
 }
 
 impl AppState {
@@ -36,21 +38,25 @@ impl AppState {
         Self::build_nvim_rpc_payload("nvim_command", vec![rmpv::Value::String(cmd.into())])
     }
 
-    fn build_buf_set_lines_payload(content: &str) -> Vec<u8> {
-        let lines: Vec<rmpv::Value> = content
-            .split('\n')
-            .map(|line| rmpv::Value::String(line.into()))
-            .collect();
-        Self::build_nvim_rpc_payload(
-            "nvim_buf_set_lines",
-            vec![
-                rmpv::Value::Integer(0.into()),    // buffer=0 (current)
-                rmpv::Value::Integer(0.into()),    // start=0
-                rmpv::Value::Integer((-1).into()), // end=-1 (all lines)
-                rmpv::Value::Boolean(false),       // strict_indexing=false
-                rmpv::Value::Array(lines),
-            ],
-        )
+    fn parse_rpc_result(response: &rmpv::Value) -> Result<rmpv::Value, Box<dyn std::error::Error>> {
+        match response {
+            rmpv::Value::Array(items) if items.len() >= 4 => {
+                if !items[2].is_nil() {
+                    return Err(format!("Neovim RPC error: {}", items[2]).into());
+                }
+                Ok(items[3].clone())
+            }
+            _ => Err("Invalid RPC response format".into()),
+        }
+    }
+
+    fn send_nvim_rpc_with_result(&self, payload: &[u8]) -> Result<rmpv::Value, Box<dyn std::error::Error>> {
+        let mut stream = UnixStream::connect(&self.nvim_socket)?;
+        stream.set_read_timeout(Some(Duration::from_millis(500)))?;
+        stream.write_all(payload)?;
+        stream.flush()?;
+        let response = rmpv::decode::read_value(&mut stream)?;
+        Self::parse_rpc_result(&response)
     }
 
     fn send_nvim_rpc_raw(&self, payload: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
@@ -98,6 +104,7 @@ impl AppState {
             claude_selected_index: 0,
             preview_active: false,
             last_preview_update: None,
+            terminal_channel: None,
         }
     }
 
@@ -264,13 +271,32 @@ impl AppState {
     }
 
     fn enter_preview_mode(&mut self) {
-        let cmd = r"enew | setlocal buftype=nofile bufhidden=wipe noswapfile | file [Claude\ Preview]";
-        match self.send_nvim_rpc_command(cmd) {
-            Ok(()) => {
-                debug!("Entered preview mode");
+        // Create a new empty buffer first
+        if let Err(e) = self.send_nvim_rpc_command("enew") {
+            debug!("Failed to create new buffer for preview: {e}");
+            return;
+        }
+
+        // Open a terminal channel on the current buffer
+        let payload = Self::build_nvim_rpc_payload(
+            "nvim_open_term",
+            vec![
+                rmpv::Value::Integer(0.into()), // buffer=0 (current)
+                rmpv::Value::Map(vec![]),        // opts={}
+            ],
+        );
+        match self.send_nvim_rpc_with_result(&payload) {
+            Ok(rmpv::Value::Integer(chan_id)) => {
+                debug!("Entered preview mode with terminal channel {chan_id}");
+                self.terminal_channel = Some(chan_id.as_i64().unwrap_or(0));
                 self.preview_active = true;
+                // Set buffer options
+                let _ = self.send_nvim_rpc_command(
+                    r"setlocal bufhidden=wipe noswapfile | file [Claude\ Preview]",
+                );
             }
-            Err(e) => debug!("Failed to enter preview mode: {e}"),
+            Ok(other) => debug!("Unexpected nvim_open_term result: {other}"),
+            Err(e) => debug!("Failed to open terminal buffer: {e}"),
         }
     }
 
@@ -288,14 +314,24 @@ impl AppState {
             session.pane.id.clone()
         };
 
-        let content = tmux_claude_state::tmux::capture_pane(&pane_id);
-        let payload = Self::build_buf_set_lines_payload(&content);
+        let Some(chan_id) = self.terminal_channel else {
+            return;
+        };
+
+        let content = tmux_claude_state::tmux::capture_pane_with_ansi(&pane_id);
+        // Clear screen and move cursor to home, then send ANSI content
+        let data = format!("\x1b[2J\x1b[H{content}");
+        let payload = Self::build_nvim_rpc_payload(
+            "nvim_chan_send",
+            vec![
+                rmpv::Value::Integer(chan_id.into()),
+                rmpv::Value::String(data.into()),
+            ],
+        );
         match self.send_nvim_rpc_raw(&payload) {
             Ok(()) => {
                 debug!("Updated preview content for pane {pane_id}");
                 self.last_preview_update = Some(Instant::now());
-                // Scroll to bottom to show latest output
-                let _ = self.send_nvim_rpc_command("normal! G");
             }
             Err(e) => debug!("Failed to update preview content: {e}"),
         }
@@ -304,6 +340,7 @@ impl AppState {
     fn leave_preview_mode(&mut self) {
         self.preview_active = false;
         self.last_preview_update = None;
+        self.terminal_channel = None;
         if let Some(todo_id) = self.get_current_todo_id() {
             self.send_vim_command(todo_id);
         }
@@ -311,6 +348,13 @@ impl AppState {
 
     pub fn maybe_update_preview(&mut self) {
         if !self.preview_active {
+            return;
+        }
+        let is_working = self.monitor_state.as_ref()
+            .and_then(|ms| ms.lock().ok())
+            .and_then(|lock| lock.sessions.get(self.claude_selected_index).cloned())
+            .is_some_and(|s| s.state == ClaudeState::Working);
+        if !is_working {
             return;
         }
         if let Some(last) = self.last_preview_update
@@ -731,61 +775,6 @@ mod tests {
     }
 
     #[test]
-    fn test_build_buf_set_lines_payload() {
-        let content = "line1\nline2\nline3";
-        let payload = AppState::build_buf_set_lines_payload(content);
-
-        let mut cursor = std::io::Cursor::new(&payload);
-        let decoded = rmpv::decode::read_value(&mut cursor).unwrap();
-
-        if let rmpv::Value::Array(items) = decoded {
-            assert_eq!(items[2], rmpv::Value::String("nvim_buf_set_lines".into()));
-            if let rmpv::Value::Array(params) = &items[3] {
-                assert_eq!(params.len(), 5);
-                assert_eq!(params[0], rmpv::Value::Integer(0.into())); // buffer=0 (current)
-                assert_eq!(params[1], rmpv::Value::Integer(0.into())); // start=0
-                assert_eq!(params[2], rmpv::Value::Integer((-1).into())); // end=-1 (all)
-                assert_eq!(params[3], rmpv::Value::Boolean(false)); // strict_indexing=false
-                if let rmpv::Value::Array(lines) = &params[4] {
-                    assert_eq!(lines.len(), 3);
-                    assert_eq!(lines[0], rmpv::Value::String("line1".into()));
-                    assert_eq!(lines[1], rmpv::Value::String("line2".into()));
-                    assert_eq!(lines[2], rmpv::Value::String("line3".into()));
-                } else {
-                    panic!("lines should be an array");
-                }
-            } else {
-                panic!("params should be an array");
-            }
-        } else {
-            panic!("decoded value should be an array");
-        }
-    }
-
-    #[test]
-    fn test_build_buf_set_lines_payload_empty() {
-        let payload = AppState::build_buf_set_lines_payload("");
-
-        let mut cursor = std::io::Cursor::new(&payload);
-        let decoded = rmpv::decode::read_value(&mut cursor).unwrap();
-
-        if let rmpv::Value::Array(items) = decoded {
-            if let rmpv::Value::Array(params) = &items[3] {
-                if let rmpv::Value::Array(lines) = &params[4] {
-                    assert_eq!(lines.len(), 1);
-                    assert_eq!(lines[0], rmpv::Value::String("".into()));
-                } else {
-                    panic!("lines should be an array");
-                }
-            } else {
-                panic!("params should be an array");
-            }
-        } else {
-            panic!("decoded value should be an array");
-        }
-    }
-
-    #[test]
     fn test_build_nvim_command_payload() {
         let payload = AppState::build_nvim_command_payload("e /path/to/file.md");
 
@@ -805,6 +794,39 @@ mod tests {
         } else {
             panic!("decoded value should be an array");
         }
+    }
+
+    #[test]
+    fn test_parse_rpc_result_success() {
+        let response = rmpv::Value::Array(vec![
+            rmpv::Value::Integer(1.into()), // type=Response
+            rmpv::Value::Integer(1.into()), // msgid
+            rmpv::Value::Nil,               // no error
+            rmpv::Value::Integer(42.into()), // result
+        ]);
+        let result = AppState::parse_rpc_result(&response).unwrap();
+        assert_eq!(result, rmpv::Value::Integer(42.into()));
+    }
+
+    #[test]
+    fn test_parse_rpc_result_error() {
+        let response = rmpv::Value::Array(vec![
+            rmpv::Value::Integer(1.into()),
+            rmpv::Value::Integer(1.into()),
+            rmpv::Value::String("some error".into()),
+            rmpv::Value::Nil,
+        ]);
+        let result = AppState::parse_rpc_result(&response);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Neovim RPC error"));
+    }
+
+    #[test]
+    fn test_parse_rpc_result_invalid_format() {
+        let response = rmpv::Value::Integer(42.into());
+        let result = AppState::parse_rpc_result(&response);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid RPC response format"));
     }
 
     #[test]

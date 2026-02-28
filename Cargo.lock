@@ -1281,7 +1281,7 @@ dependencies = [
 [[package]]
 name = "tmux-claude-state"
 version = "0.1.0"
-source = "git+https://github.com/maedana/claudeye#7acda25b9bc3b495811c7e6fdee4686ae3d2c97e"
+source = "git+https://github.com/maedana/claudeye#54ac23e95c049973a72680e0646f39e15989c18e"
 dependencies = [
  "regex",
 ]
