@@ -358,7 +358,7 @@ impl AppState {
             return;
         }
         if let Some(last) = self.last_preview_update
-            && last.elapsed() < Duration::from_secs(2)
+            && last.elapsed() < Duration::from_millis(100)
         {
             return;
         }
