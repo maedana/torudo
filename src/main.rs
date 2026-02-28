@@ -37,6 +37,10 @@ struct Args {
     /// Neovim socket path (set by nvim --listen)
     #[arg(long, env = "NVIM_LISTEN_ADDRESS", default_value = "/tmp/nvim.sock")]
     nvim_listen: String,
+
+    /// Enable Claude Sessions column (requires tmux)
+    #[arg(long)]
+    claude_sessions: bool,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -82,10 +86,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         debug!("Loaded {} todos from file", todos.len());
     }
 
-    let monitor_state = if env::var("TMUX").is_ok() {
-        let state = Arc::new(Mutex::new(MonitorState::default()));
-        tmux_claude_state::monitor::start_polling(Arc::clone(&state));
-        Some(state)
+    let monitor_state = if args.claude_sessions {
+        if env::var("TMUX").is_ok() {
+            let state = Arc::new(Mutex::new(MonitorState::default()));
+            tmux_claude_state::monitor::start_polling(Arc::clone(&state));
+            Some(state)
+        } else {
+            eprintln!("Warning: --claude-sessions requires tmux. Claude Sessions column will be disabled.");
+            None
+        }
     } else {
         None
     };
