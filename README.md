@@ -56,7 +56,6 @@ The binary will be available at `target/release/torudo`.
 ### Command Line Options
 
 - `--nvim-listen <PATH>`: Neovim socket path set by `nvim --listen` (default: `/tmp/nvim.sock`, fallback: `NVIM_LISTEN_ADDRESS` env var)
-- `--claude-sessions`: Enable Claude Sessions column (requires tmux)
 
 ## Usage
 
@@ -81,9 +80,6 @@ torudo -d
 
 # Specify Neovim socket path
 torudo --nvim-listen /tmp/my-nvim.sock
-
-# Enable Claude Sessions column (requires tmux)
-torudo --claude-sessions
 ```
 
 ### Keyboard Controls
