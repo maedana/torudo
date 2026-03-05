@@ -984,15 +984,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tmux-claude-state"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b89dc333d50521140e32ba8978dac0c03fc71a56f8d75980cfe0766e9888c4f"
-dependencies = [
- "regex",
-]
-
-[[package]]
 name = "torudo"
 version = "0.4.0"
 dependencies = [
@@ -1005,7 +996,6 @@ dependencies = [
  "ratatui",
  "rmpv",
  "tempfile",
- "tmux-claude-state",
  "uuid",
 ]
 

@@ -6,10 +6,8 @@ use crossterm::{
 };
 use log::{debug, error, info};
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{env, error::Error, io};
-use tmux_claude_state::monitor::MonitorState;
 
 mod app_state;
 mod event_handler;
@@ -37,10 +35,6 @@ struct Args {
     /// Neovim socket path (set by nvim --listen)
     #[arg(long, env = "NVIM_LISTEN_ADDRESS", default_value = "/tmp/nvim.sock")]
     nvim_listen: String,
-
-    /// Enable Claude Sessions column (requires tmux)
-    #[arg(long)]
-    claude_sessions: bool,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -86,19 +80,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         debug!("Loaded {} todos from file", todos.len());
     }
 
-    let monitor_state = if args.claude_sessions {
-        if env::var("TMUX").is_ok() {
-            let state = Arc::new(Mutex::new(MonitorState::default()));
-            tmux_claude_state::monitor::start_polling(Arc::clone(&state));
-            Some(state)
-        } else {
-            eprintln!("Warning: --claude-sessions requires tmux. Claude Sessions column will be disabled.");
-            None
-        }
-    } else {
-        None
-    };
-
     let result = run_app(
         &mut terminal,
         todos,
@@ -106,7 +87,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         &todo_file,
         args.debug,
         args.nvim_listen,
-        monitor_state,
     );
 
     disable_raw_mode()?;
@@ -129,9 +109,8 @@ fn run_app<B: ratatui::backend::Backend>(
     todo_file: &str,
     debug_mode: bool,
     nvim_socket: String,
-    monitor_state: Option<Arc<Mutex<MonitorState>>>,
 ) -> io::Result<()> {
-    let mut state = AppState::new(todos, nvim_socket, monitor_state);
+    let mut state = AppState::new(todos, nvim_socket);
     let mut event_handler = EventHandler::new();
 
     // Send initial vim command on startup
@@ -157,7 +136,5 @@ fn run_app<B: ratatui::backend::Backend>(
                 return Ok(()); // Quit was requested
             }
         }
-
-        state.maybe_update_preview();
     }
 }
