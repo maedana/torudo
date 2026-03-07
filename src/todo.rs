@@ -193,6 +193,31 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
     Ok(())
 }
 
+pub fn has_todo_with_id(file_path: &str, id: &str) -> bool {
+    let Ok(content) = fs::read_to_string(file_path) else {
+        return false;
+    };
+    let id_tag = format!("id:{id}");
+    content.lines().any(|line| {
+        line.split_whitespace().any(|word| word == id_tag)
+    })
+}
+
+pub fn append_todo(file_path: &str, line: &str) -> Result<(), Box<dyn Error>> {
+    let mut content = if std::path::Path::new(file_path).exists() {
+        fs::read_to_string(file_path)?
+    } else {
+        String::new()
+    };
+    if !content.is_empty() && !content.ends_with('\n') {
+        content.push('\n');
+    }
+    content.push_str(line);
+    content.push('\n');
+    fs::write(file_path, content)?;
+    Ok(())
+}
+
 pub fn group_todos_by_project_owned(todos: &[Item]) -> HashMap<String, Vec<Item>> {
     let mut grouped = HashMap::new();
     for todo in todos {
@@ -472,6 +497,66 @@ Learn Rust +learning @coding id:task-003"#;
 
         fs::remove_file(&todo_file).ok();
         fs::remove_file(&done_file).ok();
+    }
+
+    #[test]
+    fn test_append_todo() {
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("test_append_todo.txt");
+
+        let content = "(A) Existing task +work id:existing-1";
+        fs::write(&test_file, content).unwrap();
+
+        append_todo(
+            test_file.to_str().unwrap(),
+            "New task +myproject id:new-slug",
+        )
+        .unwrap();
+
+        let result = fs::read_to_string(&test_file).unwrap();
+        assert!(result.contains("Existing task"));
+        assert!(result.contains("New task +myproject id:new-slug"));
+
+        fs::remove_file(&test_file).ok();
+    }
+
+    #[test]
+    fn test_append_todo_to_nonexistent_file() {
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("test_append_todo_new.txt");
+        fs::remove_file(&test_file).ok();
+
+        append_todo(
+            test_file.to_str().unwrap(),
+            "First task +project id:first",
+        )
+        .unwrap();
+
+        let result = fs::read_to_string(&test_file).unwrap();
+        assert!(result.contains("First task +project id:first"));
+
+        fs::remove_file(&test_file).ok();
+    }
+
+    #[test]
+    fn test_has_todo_with_id() {
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("test_has_todo_id.txt");
+
+        let content = "(A) Task one +work id:task-001\nTask two +personal id:task-002";
+        fs::write(&test_file, content).unwrap();
+
+        assert!(has_todo_with_id(test_file.to_str().unwrap(), "task-001"));
+        assert!(has_todo_with_id(test_file.to_str().unwrap(), "task-002"));
+        assert!(!has_todo_with_id(test_file.to_str().unwrap(), "task-003"));
+        assert!(!has_todo_with_id(test_file.to_str().unwrap(), "task-00")); // partial match should not work
+
+        fs::remove_file(&test_file).ok();
+    }
+
+    #[test]
+    fn test_has_todo_with_id_nonexistent_file() {
+        assert!(!has_todo_with_id("/nonexistent/path/todo.txt", "any-id"));
     }
 
     #[test]
