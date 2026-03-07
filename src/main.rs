@@ -10,6 +10,7 @@ use std::time::Duration;
 use std::{env, error::Error, io};
 
 mod app_state;
+mod crmux;
 mod event_handler;
 mod file_watcher;
 mod setup;
@@ -132,7 +133,7 @@ fn run_app<B: ratatui::backend::Backend>(
         // Check keyboard events non-blocking
         if event::poll(Duration::from_millis(100))? {
             let event = event::read()?;
-            if EventHandler::handle_keyboard_event(&event, &mut state, todo_file, debug_mode) {
+            if event_handler.handle_keyboard_event(&event, &mut state, todo_file, debug_mode) {
                 return Ok(()); // Quit was requested
             }
         }

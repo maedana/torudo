@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 pub struct EventHandler {
     last_reload_time: Option<Instant>,
     debounce_duration: Duration,
+    pending_key: Option<char>,
 }
 
 impl EventHandler {
@@ -15,6 +16,7 @@ impl EventHandler {
         Self {
             last_reload_time: None,
             debounce_duration: Duration::from_millis(200),
+            pending_key: None,
         }
     }
 
@@ -75,12 +77,43 @@ impl EventHandler {
     }
 
     pub fn handle_keyboard_event(
+        &mut self,
         event: &Event,
         state: &mut AppState,
         todo_file: &str,
         debug_mode: bool,
     ) -> bool {
         if let Event::Key(key) = *event {
+            // Handle second key of 2-stroke sequence
+            if let Some(first) = self.pending_key.take() {
+                if first == 's' {
+                    let todotxt_dir = std::path::Path::new(todo_file)
+                        .parent()
+                        .and_then(|p| p.to_str())
+                        .unwrap_or(".");
+                    match key.code {
+                        KeyCode::Char('p') => {
+                            if debug_mode {
+                                debug!("Send plan prompt requested (sp)");
+                            }
+                            state.handle_send_plan(todotxt_dir);
+                        }
+                        KeyCode::Char('i') => {
+                            if debug_mode {
+                                debug!("Send implement prompt requested (si)");
+                            }
+                            state.handle_send_implement(todotxt_dir);
+                        }
+                        _ => {
+                            if debug_mode {
+                                debug!("Unknown send command: s + {:?}", key.code);
+                            }
+                        }
+                    }
+                }
+                return false;
+            }
+
             match key.code {
                 KeyCode::Char('q') => {
                     if debug_mode {
@@ -105,6 +138,10 @@ impl EventHandler {
                         debug!("Reload command received");
                     }
                     state.handle_reload(todo_file);
+                }
+                KeyCode::Char('s') if state.crmux_available => {
+                    self.pending_key = Some('s');
+                    state.status_message = Some("s-".to_string());
                 }
                 _ => {}
             }

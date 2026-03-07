@@ -25,6 +25,10 @@ clap = { version = "4.0", features = ["derive", "env"] }
 log = "0.4"
 env_logger = "0.10"
 rmpv = "1"
+rmp = "0.8"
+rmp-serde = "1"
+serde_json = "1"
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

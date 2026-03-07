@@ -134,6 +134,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
             [
                 Constraint::Length(3),
                 Constraint::Min(0),
+                Constraint::Length(1),
                 Constraint::Length(3),
             ]
             .as_ref(),
@@ -176,11 +177,26 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
         }
     }
 
-    let instructions =
-        Paragraph::new("jk: Navigate | hl: Change Column | x: Complete | r: Reload | q: Quit")
-            .block(Block::default().title("Instructions").borders(Borders::ALL))
-            .alignment(Alignment::Center);
+    // Status message bar
+    let status = state.status_message.as_ref().map_or_else(
+        || Paragraph::new(""),
+        |msg| {
+            Paragraph::new(msg.as_str())
+                .style(Style::default().fg(Color::Green))
+                .alignment(Alignment::Center)
+        },
+    );
+
+    let instruction_text = if state.crmux_available {
+        "jk: Navigate | hl: Change Column | x: Complete | r: Reload | sp: Plan | si: Implement | q: Quit"
+    } else {
+        "jk: Navigate | hl: Change Column | x: Complete | r: Reload | q: Quit"
+    };
+    let instructions = Paragraph::new(instruction_text)
+        .block(Block::default().title("Instructions").borders(Borders::ALL))
+        .alignment(Alignment::Center);
 
     f.render_widget(title, chunks[0]);
-    f.render_widget(instructions, chunks[2]);
+    f.render_widget(status, chunks[2]);
+    f.render_widget(instructions, chunks[3]);
 }

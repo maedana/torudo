@@ -9,6 +9,8 @@ pub struct AppState {
     pub current_column: usize,
     pub selected_in_column: usize,
     pub nvim_socket: String,
+    pub crmux_available: bool,
+    pub status_message: Option<String>,
 }
 
 impl AppState {
@@ -56,6 +58,8 @@ impl AppState {
         let mut project_names: Vec<String> = grouped_todos.keys().cloned().collect();
         project_names.sort();
 
+        let crmux_available = crate::crmux::is_available();
+
         Self {
             todos,
             grouped_todos,
@@ -63,6 +67,8 @@ impl AppState {
             current_column: 0,
             selected_in_column: 0,
             nvim_socket,
+            crmux_available,
+            status_message: None,
         }
     }
 
@@ -105,6 +111,7 @@ impl AppState {
     }
 
     pub fn handle_navigation_key(&mut self, key_char: char) {
+        self.status_message = None;
         match key_char {
             'k' => {
                 if self.selected_in_column > 0 {
@@ -172,6 +179,84 @@ impl AppState {
             self.send_vim_command(todo_id);
         }
     }
+
+    pub fn get_current_project_name(&self) -> Option<&str> {
+        self.project_names.get(self.current_column).map(String::as_str)
+    }
+
+    fn get_current_todo_description(&self) -> Option<&str> {
+        let project_name = self.project_names.get(self.current_column)?;
+        let todos = self.grouped_todos.get(project_name)?;
+        let todo = todos.get(self.selected_in_column)?;
+        Some(&todo.description)
+    }
+
+    fn build_prompt(&self, todotxt_dir: &str, mode: PromptMode) -> Option<(String, String)> {
+        let project = self.get_current_project_name()?.to_string();
+        let todo_id = self.get_current_todo_id()?;
+        let description = self.get_current_todo_description()?;
+
+        let md_path = format!("{todotxt_dir}/todos/{todo_id}.md");
+        let md_content = std::fs::read_to_string(&md_path).unwrap_or_default();
+        let md_content = md_content.trim();
+
+        let prefix = match mode {
+            PromptMode::Plan => "/plan\n",
+            PromptMode::Implement => "",
+        };
+
+        let text = if md_content.is_empty() {
+            format!("{prefix}# Task: {description}")
+        } else {
+            format!("{prefix}# Task: {description}\n\n## Details\n{md_content}")
+        };
+
+        Some((project, text))
+    }
+
+    pub fn handle_send_plan(&mut self, todotxt_dir: &str) {
+        if !self.crmux_available {
+            return;
+        }
+        if let Some((project, text)) = self.build_prompt(todotxt_dir, PromptMode::Plan) {
+            debug!("Plan prompt for project '{project}':\n{text}");
+            match crate::crmux::send_text(&project, &text) {
+                Ok(()) => {
+                    self.status_message = Some(format!("Sent plan prompt -> {project}"));
+                    debug!("Sent plan prompt to crmux project: {project}");
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Failed to send plan: {e}"));
+                    error!("Failed to send plan prompt: {e}");
+                }
+            }
+        }
+    }
+
+    pub fn handle_send_implement(&mut self, todotxt_dir: &str) {
+        if !self.crmux_available {
+            return;
+        }
+        if let Some((project, text)) = self.build_prompt(todotxt_dir, PromptMode::Implement) {
+            debug!("Implement prompt for project '{project}':\n{text}");
+            match crate::crmux::send_text(&project, &text) {
+                Ok(()) => {
+                    self.status_message = Some(format!("Sent implement prompt -> {project}"));
+                    debug!("Sent implement prompt to crmux project: {project}");
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Failed to send implement: {e}"));
+                    error!("Failed to send implement prompt: {e}");
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum PromptMode {
+    Plan,
+    Implement,
 }
 
 #[cfg(test)]
@@ -181,7 +266,9 @@ mod tests {
     use std::fs;
 
     fn create_test_state(todos: Vec<Item>) -> AppState {
-        AppState::new(todos, "/tmp/nvim.sock".to_string())
+        let mut state = AppState::new(todos, "/tmp/nvim.sock".to_string());
+        state.crmux_available = false;
+        state
     }
 
     fn create_test_todos() -> Vec<Item> {
@@ -597,6 +684,85 @@ mod tests {
         } else {
             panic!("decoded value should be an array");
         }
+    }
+
+    #[test]
+    fn test_get_current_project_name() {
+        let todos = create_test_todos();
+        let mut state = create_test_state(todos);
+
+        // First column is "No Project"
+        assert_eq!(state.get_current_project_name(), Some("No Project"));
+
+        // Navigate to "personal"
+        state.handle_navigation_key('l');
+        assert_eq!(state.get_current_project_name(), Some("personal"));
+    }
+
+    #[test]
+    fn test_build_prompt_without_md_file() {
+        let temp_dir = std::env::temp_dir().join("test_build_prompt_no_md");
+        fs::create_dir_all(temp_dir.join("todos")).unwrap();
+
+        let todos = vec![Item {
+            completed: false,
+            priority: Some('A'),
+            creation_date: None,
+            completion_date: None,
+            description: "Design auth module".to_string(),
+            projects: vec!["myapp".to_string()],
+            contexts: vec![],
+            id: Some("abc-123".to_string()),
+            line_number: 1,
+        }];
+
+        let state = create_test_state(todos);
+        let todotxt_dir = temp_dir.to_str().unwrap();
+
+        let (project, text) = state.build_prompt(todotxt_dir, PromptMode::Plan).unwrap();
+        assert_eq!(project, "myapp");
+        assert!(text.starts_with("/plan\n"));
+        assert!(text.contains("Design auth module"));
+        assert!(!text.contains("## Details"));
+
+        let (_, text) = state.build_prompt(todotxt_dir, PromptMode::Implement).unwrap();
+        assert!(!text.starts_with("/plan"));
+        assert!(text.contains("Design auth module"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_build_prompt_with_md_file() {
+        let temp_dir = std::env::temp_dir().join("test_build_prompt_with_md");
+        fs::create_dir_all(temp_dir.join("todos")).unwrap();
+
+        let todos = vec![Item {
+            completed: false,
+            priority: Some('A'),
+            creation_date: None,
+            completion_date: None,
+            description: "Design auth module".to_string(),
+            projects: vec!["myapp".to_string()],
+            contexts: vec![],
+            id: Some("abc-456".to_string()),
+            line_number: 1,
+        }];
+
+        // Create the md file
+        let md_path = temp_dir.join("todos/abc-456.md");
+        fs::write(&md_path, "## Requirements\n- OAuth2 support\n- JWT tokens\n").unwrap();
+
+        let state = create_test_state(todos);
+        let todotxt_dir = temp_dir.to_str().unwrap();
+
+        let (project, text) = state.build_prompt(todotxt_dir, PromptMode::Plan).unwrap();
+        assert_eq!(project, "myapp");
+        assert!(text.contains("Design auth module"));
+        assert!(text.contains("## Details"));
+        assert!(text.contains("OAuth2 support"));
+
+        fs::remove_dir_all(&temp_dir).ok();
     }
 
     #[test]
