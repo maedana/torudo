@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-03-07
+
 ### Changed
 - **crmux integration**: Use crmux `mode` parameter for permission mode switching instead of `/plan` prefix
   - `sp` now switches to plan mode automatically
@@ -82,6 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Contexts (@context_name)
   - Custom IDs (id:unique_identifier)
 
+[0.6.0]: https://github.com/maedana/torudo/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/maedana/torudo/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/maedana/torudo/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/maedana/torudo/compare/v0.2.0...v0.3.0
