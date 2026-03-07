@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **crmux integration**: Send prompts to Claude Code sessions via crmux RPC
+  - `sp`: Send plan prompt (with `/plan` prefix) to an idle Claude Code session matching the project
+  - `si`: Send implement prompt to an idle Claude Code session matching the project
+  - Prompts include the todo description and contents of `todos/{id}.md` if available
+  - Requires crmux >= 0.10.0 running; keybindings hidden when unavailable
+- **Status bar**: Shows send results and pending key state (`s-`)
+
 ## [0.4.0] - 2026-02-20
 
 ### Changed

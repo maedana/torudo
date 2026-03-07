@@ -15,6 +15,7 @@ A terminal-based todo.txt viewer and manager written in Rust with TUI interface.
 - Real-time file watching for automatic updates
 - Support for todo.txt format with priorities, projects, and contexts
 - Task completion with automatic archiving to done.txt
+- **crmux integration**: Send plan/implement prompts to Claude Code sessions via [crmux](https://github.com/maedana/crmux) (>= 0.10.0)
 
 ## Demo
 ![gif][1]
@@ -88,7 +89,11 @@ torudo --nvim-listen /tmp/my-nvim.sock
 - `h/l`: Switch between project columns
 - `x`: Mark selected todo as complete and move to done.txt
 - `r`: Reload todo.txt file
+- `sp`: Send plan prompt to Claude Code via crmux (with `/plan` prefix)
+- `si`: Send implement prompt to Claude Code via crmux
 - `q`: Quit application
+
+> `sp`/`si` keybindings are only available when crmux >= 0.10.0 is running.
 
 ### Todo.txt Format
 
