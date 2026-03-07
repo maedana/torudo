@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-07
+
 ### Added
 - **crmux integration**: Send prompts to Claude Code sessions via crmux RPC
   - `sp`: Send plan prompt (with `/plan` prefix) to an idle Claude Code session matching the project
@@ -75,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Contexts (@context_name)
   - Custom IDs (id:unique_identifier)
 
+[0.5.0]: https://github.com/maedana/torudo/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/maedana/torudo/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/maedana/torudo/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/maedana/torudo/compare/v0.1.0...v0.2.0
