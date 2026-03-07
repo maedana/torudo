@@ -191,7 +191,7 @@ impl AppState {
         Some(&todo.description)
     }
 
-    fn build_prompt(&self, todotxt_dir: &str, mode: PromptMode) -> Option<(String, String)> {
+    fn build_prompt(&self, todotxt_dir: &str) -> Option<(String, String)> {
         let project = self.get_current_project_name()?.to_string();
         let todo_id = self.get_current_todo_id()?;
         let description = self.get_current_todo_description()?;
@@ -200,63 +200,41 @@ impl AppState {
         let md_content = std::fs::read_to_string(&md_path).unwrap_or_default();
         let md_content = md_content.trim();
 
-        let prefix = match mode {
-            PromptMode::Plan => "/plan\n",
-            PromptMode::Implement => "",
-        };
-
         let text = if md_content.is_empty() {
-            format!("{prefix}# Task: {description}")
+            format!("# Task: {description}")
         } else {
-            format!("{prefix}# Task: {description}\n\n## Details\n{md_content}")
+            format!("# Task: {description}\n\n## Details\n{md_content}")
         };
 
         Some((project, text))
     }
 
-    pub fn handle_send_plan(&mut self, todotxt_dir: &str) {
+    fn send_to_crmux(&mut self, todotxt_dir: &str, mode: Option<&str>, label: &str) {
         if !self.crmux_available {
             return;
         }
-        if let Some((project, text)) = self.build_prompt(todotxt_dir, PromptMode::Plan) {
-            debug!("Plan prompt for project '{project}':\n{text}");
-            match crate::crmux::send_text(&project, &text) {
+        if let Some((project, text)) = self.build_prompt(todotxt_dir) {
+            debug!("{label} prompt for project '{project}':\n{text}");
+            match crate::crmux::send_text(&project, &text, mode) {
                 Ok(()) => {
-                    self.status_message = Some(format!("Sent plan prompt -> {project}"));
-                    debug!("Sent plan prompt to crmux project: {project}");
+                    self.status_message = Some(format!("Sent {label} prompt -> {project}"));
+                    debug!("Sent {label} prompt to crmux project: {project}");
                 }
                 Err(e) => {
-                    self.status_message = Some(format!("Failed to send plan: {e}"));
-                    error!("Failed to send plan prompt: {e}");
+                    self.status_message = Some(format!("Failed to send {label}: {e}"));
+                    error!("Failed to send {label} prompt: {e}");
                 }
             }
         }
+    }
+
+    pub fn handle_send_plan(&mut self, todotxt_dir: &str) {
+        self.send_to_crmux(todotxt_dir, Some("plan-mode"), "plan");
     }
 
     pub fn handle_send_implement(&mut self, todotxt_dir: &str) {
-        if !self.crmux_available {
-            return;
-        }
-        if let Some((project, text)) = self.build_prompt(todotxt_dir, PromptMode::Implement) {
-            debug!("Implement prompt for project '{project}':\n{text}");
-            match crate::crmux::send_text(&project, &text) {
-                Ok(()) => {
-                    self.status_message = Some(format!("Sent implement prompt -> {project}"));
-                    debug!("Sent implement prompt to crmux project: {project}");
-                }
-                Err(e) => {
-                    self.status_message = Some(format!("Failed to send implement: {e}"));
-                    error!("Failed to send implement prompt: {e}");
-                }
-            }
-        }
+        self.send_to_crmux(todotxt_dir, Some("accept-edits"), "implement");
     }
-}
-
-#[derive(Clone, Copy)]
-enum PromptMode {
-    Plan,
-    Implement,
 }
 
 #[cfg(test)]
@@ -719,15 +697,10 @@ mod tests {
         let state = create_test_state(todos);
         let todotxt_dir = temp_dir.to_str().unwrap();
 
-        let (project, text) = state.build_prompt(todotxt_dir, PromptMode::Plan).unwrap();
+        let (project, text) = state.build_prompt(todotxt_dir).unwrap();
         assert_eq!(project, "myapp");
-        assert!(text.starts_with("/plan\n"));
         assert!(text.contains("Design auth module"));
         assert!(!text.contains("## Details"));
-
-        let (_, text) = state.build_prompt(todotxt_dir, PromptMode::Implement).unwrap();
-        assert!(!text.starts_with("/plan"));
-        assert!(text.contains("Design auth module"));
 
         fs::remove_dir_all(&temp_dir).ok();
     }
@@ -756,7 +729,7 @@ mod tests {
         let state = create_test_state(todos);
         let todotxt_dir = temp_dir.to_str().unwrap();
 
-        let (project, text) = state.build_prompt(todotxt_dir, PromptMode::Plan).unwrap();
+        let (project, text) = state.build_prompt(todotxt_dir).unwrap();
         assert_eq!(project, "myapp");
         assert!(text.contains("Design auth module"));
         assert!(text.contains("## Details"));

@@ -77,11 +77,20 @@ fn encode_notification(method: &str, params: &serde_json::Value) -> Vec<u8> {
 }
 
 /// Send text to a crmux project via the Unix domain socket.
-pub fn send_text(project: &str, text: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let params = serde_json::json!({
+/// If `mode` is `Some`, crmux will switch the target session's permission mode before sending.
+/// Valid modes: `"plan-mode"`, `"accept-edits"`.
+pub fn send_text(
+    project: &str,
+    text: &str,
+    mode: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut params = serde_json::json!({
         "text": text,
         "project": project,
     });
+    if let Some(m) = mode {
+        params["mode"] = serde_json::Value::String(m.to_string());
+    }
     let payload = encode_notification("send_text", &params);
     let mut stream = UnixStream::connect(socket_path())?;
     stream.write_all(&payload)?;
