@@ -22,21 +22,29 @@ A terminal-based todo.txt viewer and manager written in Rust with TUI interface.
 
 ## Installation
 
-### From crates.io (Recommended)
+### Download binary (Recommended)
+
+Download the latest release from [GitHub Releases](https://github.com/maedana/torudo/releases):
+
+```bash
+# Linux (x86_64)
+curl -L https://github.com/maedana/torudo/releases/latest/download/torudo-x86_64-unknown-linux-gnu.tar.gz | tar xz
+sudo mv torudo /usr/local/bin/
+
+# macOS (Apple Silicon)
+curl -L https://github.com/maedana/torudo/releases/latest/download/torudo-aarch64-apple-darwin.tar.gz | tar xz
+sudo mv torudo /usr/local/bin/
+
+# macOS (Intel)
+curl -L https://github.com/maedana/torudo/releases/latest/download/torudo-x86_64-apple-darwin.tar.gz | tar xz
+sudo mv torudo /usr/local/bin/
+```
+
+### From crates.io
 
 ```bash
 cargo install torudo
 ```
-
-After installation, make sure `~/.cargo/bin` is in your PATH, then you can run:
-
-```bash
-torudo
-```
-
-### Prerequisites
-
-- Rust (latest stable version)
 
 ### Build from source
 
