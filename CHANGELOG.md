@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **crmux integration**: Use crmux `mode` parameter for permission mode switching instead of `/plan` prefix
+  - `sp` now switches to plan mode automatically
+  - `si` now switches to accept-edits mode automatically
+
 ## [0.5.0] - 2026-03-07
 
 ### Added

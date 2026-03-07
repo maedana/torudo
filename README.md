@@ -83,8 +83,8 @@ torudo --nvim-listen /tmp/my-nvim.sock
 - `h/l`: Switch between project columns
 - `x`: Mark selected todo as complete and move to done.txt
 - `r`: Reload todo.txt file
-- `sp`: Send plan prompt to Claude Code via crmux (with `/plan` prefix)
-- `si`: Send implement prompt to Claude Code via crmux
+- `sp`: Send plan prompt to Claude Code via crmux (switches to plan mode)
+- `si`: Send implement prompt to Claude Code via crmux (switches to accept-edits mode)
 - `q`: Quit application
 
 > `sp`/`si` keybindings are only available when crmux >= 0.10.0 is running.
