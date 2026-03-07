@@ -1,6 +1,16 @@
-use crate::todo::{add_missing_ids, group_todos_by_project_owned, load_todos, mark_complete, Item};
+use crate::crmux::Plan;
+use crate::todo::{
+    add_missing_ids, append_todo, group_todos_by_project_owned, has_todo_with_id, load_todos,
+    mark_complete, Item,
+};
 use log::{debug, error};
 use std::{collections::HashMap, env, io::Write, os::unix::net::UnixStream, time::Duration};
+
+pub struct PlanModal {
+    pub plans: Vec<Plan>,
+    pub selected: usize,
+    pub checked: Vec<bool>,
+}
 
 pub struct AppState {
     pub todos: Vec<Item>,
@@ -9,8 +19,9 @@ pub struct AppState {
     pub current_column: usize,
     pub selected_in_column: usize,
     pub nvim_socket: String,
-    pub crmux_available: bool,
+    pub crmux_version: Option<(u32, u32, u32)>,
     pub status_message: Option<String>,
+    pub plan_modal: Option<PlanModal>,
 }
 
 impl AppState {
@@ -58,7 +69,7 @@ impl AppState {
         let mut project_names: Vec<String> = grouped_todos.keys().cloned().collect();
         project_names.sort();
 
-        let crmux_available = crate::crmux::is_available();
+        let crmux_version = crate::crmux::detect();
 
         Self {
             todos,
@@ -67,8 +78,9 @@ impl AppState {
             current_column: 0,
             selected_in_column: 0,
             nvim_socket,
-            crmux_available,
+            crmux_version,
             status_message: None,
+            plan_modal: None,
         }
     }
 
@@ -209,8 +221,17 @@ impl AppState {
         Some((project, text))
     }
 
+    pub const fn crmux_available(&self) -> bool {
+        self.crmux_version.is_some()
+    }
+
+    pub fn crmux_supports_get_plans(&self) -> bool {
+        self.crmux_version
+            .is_some_and(crate::crmux::version_supports_get_plans)
+    }
+
     fn send_to_crmux(&mut self, todotxt_dir: &str, mode: Option<&str>, label: &str) {
-        if !self.crmux_available {
+        if !self.crmux_available() {
             return;
         }
         if let Some((project, text)) = self.build_prompt(todotxt_dir) {
@@ -226,6 +247,100 @@ impl AppState {
                 }
             }
         }
+    }
+
+    pub fn handle_open_plan_modal(&mut self) {
+        match crate::crmux::get_plans() {
+            Ok(plans) => {
+                if plans.is_empty() {
+                    self.status_message = Some("No plans found".to_string());
+                } else {
+                    let checked = vec![false; plans.len()];
+                    self.plan_modal = Some(PlanModal {
+                        plans,
+                        selected: 0,
+                        checked,
+                    });
+                }
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Failed to get plans: {e}"));
+                error!("Failed to get plans: {e}");
+            }
+        }
+    }
+
+    pub fn handle_plan_modal_key(&mut self, key_char: char, todo_file: &str) {
+        let Some(modal) = &mut self.plan_modal else {
+            return;
+        };
+        match key_char {
+            'j' => {
+                if modal.selected < modal.plans.len().saturating_sub(1) {
+                    modal.selected += 1;
+                }
+            }
+            'k' => {
+                if modal.selected > 0 {
+                    modal.selected -= 1;
+                }
+            }
+            ' ' => {
+                let idx = modal.selected;
+                modal.checked[idx] = !modal.checked[idx];
+            }
+            _ => {}
+        }
+        if key_char == 'q' {
+            self.plan_modal = None;
+        } else if key_char == '\r' {
+            self.import_selected_plans(todo_file);
+        }
+    }
+
+    fn import_selected_plans(&mut self, todo_file: &str) {
+        let Some(modal) = self.plan_modal.take() else {
+            return;
+        };
+
+        let todotxt_dir = std::path::Path::new(todo_file)
+            .parent()
+            .and_then(|p| p.to_str())
+            .unwrap_or(".");
+
+        let mut imported = 0u32;
+        let mut skipped = 0u32;
+
+        for (i, plan) in modal.plans.iter().enumerate() {
+            if !modal.checked[i] {
+                continue;
+            }
+
+            if has_todo_with_id(todo_file, &plan.slug) {
+                skipped += 1;
+                debug!("Skipping already existing plan: {}", plan.slug);
+                continue;
+            }
+
+            let line = format!("{} +{} id:{}", plan.title, plan.project_name, plan.slug);
+            if let Err(e) = append_todo(todo_file, &line) {
+                error!("Failed to append todo: {e}");
+                continue;
+            }
+
+            // Copy plan file to todos directory
+            let dest = format!("{todotxt_dir}/todos/{}.md", plan.slug);
+            if let Ok(content) = std::fs::read_to_string(&plan.path)
+                && let Err(e) = std::fs::write(&dest, content)
+            {
+                error!("Failed to copy plan file: {e}");
+            }
+
+            imported += 1;
+        }
+
+        self.status_message = Some(format!("Imported {imported} plans (skipped {skipped})"));
+        self.reload_todos(todo_file);
     }
 
     pub fn handle_send_plan(&mut self, todotxt_dir: &str) {
@@ -245,7 +360,7 @@ mod tests {
 
     fn create_test_state(todos: Vec<Item>) -> AppState {
         let mut state = AppState::new(todos, "/tmp/nvim.sock".to_string());
-        state.crmux_available = false;
+        state.crmux_version = None;
         state
     }
 
@@ -736,6 +851,232 @@ mod tests {
         assert!(text.contains("OAuth2 support"));
 
         fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    fn create_test_plan_modal() -> PlanModal {
+        PlanModal {
+            plans: vec![
+                Plan {
+                    title: "Plan A".to_string(),
+                    project_name: "proj1".to_string(),
+                    slug: "slug-a".to_string(),
+                    path: "/tmp/plan-a.md".to_string(),
+                },
+                Plan {
+                    title: "Plan B".to_string(),
+                    project_name: "proj2".to_string(),
+                    slug: "slug-b".to_string(),
+                    path: "/tmp/plan-b.md".to_string(),
+                },
+                Plan {
+                    title: "Plan C".to_string(),
+                    project_name: "proj3".to_string(),
+                    slug: "slug-c".to_string(),
+                    path: "/tmp/plan-c.md".to_string(),
+                },
+            ],
+            selected: 0,
+            checked: vec![false, false, false],
+        }
+    }
+
+    #[test]
+    fn test_plan_modal_navigation() {
+        let todos = create_test_todos();
+        let mut state = create_test_state(todos);
+        state.plan_modal = Some(create_test_plan_modal());
+
+        let todo_file = "/tmp/dummy.txt";
+
+        // Move down
+        state.handle_plan_modal_key('j', todo_file);
+        assert_eq!(state.plan_modal.as_ref().unwrap().selected, 1);
+
+        state.handle_plan_modal_key('j', todo_file);
+        assert_eq!(state.plan_modal.as_ref().unwrap().selected, 2);
+
+        // Should stay at last
+        state.handle_plan_modal_key('j', todo_file);
+        assert_eq!(state.plan_modal.as_ref().unwrap().selected, 2);
+
+        // Move up
+        state.handle_plan_modal_key('k', todo_file);
+        assert_eq!(state.plan_modal.as_ref().unwrap().selected, 1);
+
+        state.handle_plan_modal_key('k', todo_file);
+        assert_eq!(state.plan_modal.as_ref().unwrap().selected, 0);
+
+        // Should stay at first
+        state.handle_plan_modal_key('k', todo_file);
+        assert_eq!(state.plan_modal.as_ref().unwrap().selected, 0);
+    }
+
+    #[test]
+    fn test_plan_modal_toggle() {
+        let todos = create_test_todos();
+        let mut state = create_test_state(todos);
+        state.plan_modal = Some(create_test_plan_modal());
+
+        let todo_file = "/tmp/dummy.txt";
+
+        // Toggle first item
+        state.handle_plan_modal_key(' ', todo_file);
+        assert!(state.plan_modal.as_ref().unwrap().checked[0]);
+
+        // Toggle again to uncheck
+        state.handle_plan_modal_key(' ', todo_file);
+        assert!(!state.plan_modal.as_ref().unwrap().checked[0]);
+
+        // Move and toggle second
+        state.handle_plan_modal_key('j', todo_file);
+        state.handle_plan_modal_key(' ', todo_file);
+        assert!(state.plan_modal.as_ref().unwrap().checked[1]);
+    }
+
+    #[test]
+    fn test_plan_modal_cancel() {
+        let todos = create_test_todos();
+        let mut state = create_test_state(todos);
+        state.plan_modal = Some(create_test_plan_modal());
+
+        let todo_file = "/tmp/dummy.txt";
+        state.handle_plan_modal_key('q', todo_file);
+        assert!(state.plan_modal.is_none());
+    }
+
+    #[test]
+    fn test_import_selected_plans() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_import");
+        fs::create_dir_all(temp_dir.join("todos")).unwrap();
+
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(&todo_file, "(A) Existing task +work id:existing-1\n").unwrap();
+
+        // Create plan source files
+        let plan_file = temp_dir.join("plan-a.md");
+        fs::write(&plan_file, "# Plan A details\n").unwrap();
+
+        let mut state = create_test_state(vec![]);
+        state.plan_modal = Some(PlanModal {
+            plans: vec![
+                Plan {
+                    title: "Plan A".to_string(),
+                    project_name: "proj1".to_string(),
+                    slug: "slug-a".to_string(),
+                    path: plan_file.to_str().unwrap().to_string(),
+                },
+                Plan {
+                    title: "Plan B".to_string(),
+                    project_name: "proj2".to_string(),
+                    slug: "slug-b".to_string(),
+                    path: "/nonexistent/plan-b.md".to_string(),
+                },
+            ],
+            selected: 0,
+            checked: vec![true, true],
+        });
+
+        state.import_selected_plans(todo_file.to_str().unwrap());
+
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert!(content.contains("Plan A +proj1 id:slug-a"));
+        assert!(content.contains("Plan B +proj2 id:slug-b"));
+
+        // Check md file was copied
+        let md_dest = temp_dir.join("todos/slug-a.md");
+        assert!(md_dest.exists());
+        assert_eq!(
+            fs::read_to_string(&md_dest).unwrap(),
+            "# Plan A details\n"
+        );
+
+        assert!(state.plan_modal.is_none());
+        assert!(state
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("Imported 2"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_import_selected_plans_skips_existing() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_import_skip");
+        fs::create_dir_all(temp_dir.join("todos")).unwrap();
+
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(
+            &todo_file,
+            "Existing plan +proj1 id:slug-a\n",
+        )
+        .unwrap();
+
+        let mut state = create_test_state(vec![]);
+        state.plan_modal = Some(PlanModal {
+            plans: vec![Plan {
+                title: "Plan A".to_string(),
+                project_name: "proj1".to_string(),
+                slug: "slug-a".to_string(),
+                path: "/tmp/plan-a.md".to_string(),
+            }],
+            selected: 0,
+            checked: vec![true],
+        });
+
+        state.import_selected_plans(todo_file.to_str().unwrap());
+
+        // Should not duplicate
+        let content = fs::read_to_string(&todo_file).unwrap();
+        let count = content.matches("id:slug-a").count();
+        assert_eq!(count, 1);
+        assert!(state
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("skipped 1"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_crmux_available() {
+        let mut state = create_test_state(vec![]);
+
+        // None means not available
+        state.crmux_version = None;
+        assert!(!state.crmux_available());
+
+        // Any version means available
+        state.crmux_version = Some((0, 10, 0));
+        assert!(state.crmux_available());
+    }
+
+    #[test]
+    fn test_crmux_supports_get_plans() {
+        let mut state = create_test_state(vec![]);
+
+        // None
+        state.crmux_version = None;
+        assert!(!state.crmux_supports_get_plans());
+
+        // 0.10.x — available but no get-plans
+        state.crmux_version = Some((0, 10, 0));
+        assert!(!state.crmux_supports_get_plans());
+
+        state.crmux_version = Some((0, 10, 9));
+        assert!(!state.crmux_supports_get_plans());
+
+        // 0.11.0 — supports get-plans
+        state.crmux_version = Some((0, 11, 0));
+        assert!(state.crmux_supports_get_plans());
+
+        // Above 0.11.0
+        state.crmux_version = Some((0, 12, 0));
+        assert!(state.crmux_supports_get_plans());
+
+        state.crmux_version = Some((1, 0, 0));
+        assert!(state.crmux_supports_get_plans());
     }
 
     #[test]

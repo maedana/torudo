@@ -84,8 +84,38 @@ impl EventHandler {
         debug_mode: bool,
     ) -> bool {
         if let Event::Key(key) = *event {
+            // Handle plan modal keys when modal is open
+            if state.plan_modal.is_some() {
+                match key.code {
+                    KeyCode::Char(c @ ('j' | 'k' | ' ' | 'q')) => {
+                        state.handle_plan_modal_key(c, todo_file);
+                    }
+                    KeyCode::Enter => {
+                        state.handle_plan_modal_key('\r', todo_file);
+                    }
+                    _ => {}
+                }
+                return false;
+            }
+
             // Handle second key of 2-stroke sequence
             if let Some(first) = self.pending_key.take() {
+                if first == 'g' {
+                    match key.code {
+                        KeyCode::Char('p') if state.crmux_supports_get_plans() => {
+                            if debug_mode {
+                                debug!("Get plans requested (gp)");
+                            }
+                            state.handle_open_plan_modal();
+                        }
+                        _ => {
+                            if debug_mode {
+                                debug!("Unknown g-command: g + {:?}", key.code);
+                            }
+                        }
+                    }
+                    return false;
+                }
                 if first == 's' {
                     let todotxt_dir = std::path::Path::new(todo_file)
                         .parent()
@@ -139,9 +169,13 @@ impl EventHandler {
                     }
                     state.handle_reload(todo_file);
                 }
-                KeyCode::Char('s') if state.crmux_available => {
+                KeyCode::Char('s') if state.crmux_available() => {
                     self.pending_key = Some('s');
                     state.status_message = Some("s-".to_string());
+                }
+                KeyCode::Char('g') if state.crmux_supports_get_plans() => {
+                    self.pending_key = Some('g');
+                    state.status_message = Some("g-".to_string());
                 }
                 _ => {}
             }

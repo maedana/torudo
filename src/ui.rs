@@ -1,10 +1,10 @@
 use crate::app_state::AppState;
 use crate::todo::Item;
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
 pub fn create_todo_spans(todo: &Item) -> Vec<Span<'_>> {
@@ -187,7 +187,9 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
         },
     );
 
-    let instruction_text = if state.crmux_available {
+    let instruction_text = if state.crmux_supports_get_plans() {
+        "jk: Navigate | hl: Change Column | x: Complete | r: Reload | sp: Plan | si: Implement | gp: Get Plans | q: Quit"
+    } else if state.crmux_available() {
         "jk: Navigate | hl: Change Column | x: Complete | r: Reload | sp: Plan | si: Implement | q: Quit"
     } else {
         "jk: Navigate | hl: Change Column | x: Complete | r: Reload | q: Quit"
@@ -199,4 +201,78 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
     f.render_widget(title, chunks[0]);
     f.render_widget(status, chunks[2]);
     f.render_widget(instructions, chunks[3]);
+
+    // Draw plan modal overlay if open
+    if let Some(modal) = &state.plan_modal {
+        draw_plan_modal(f, modal, size);
+    }
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(area);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
+}
+
+fn draw_plan_modal(
+    f: &mut ratatui::Frame,
+    modal: &crate::app_state::PlanModal,
+    area: Rect,
+) {
+    let modal_area = centered_rect(60, 60, area);
+    f.render_widget(Clear, modal_area);
+
+    let block = Block::default()
+        .title("Get Plans")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+
+    let inner = block.inner(modal_area);
+    f.render_widget(block, modal_area);
+
+    // Split inner area: list + help text
+    let inner_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    let lines: Vec<Line<'_>> = modal
+        .plans
+        .iter()
+        .enumerate()
+        .map(|(i, plan)| {
+            let checkbox = if modal.checked[i] { "[x] " } else { "[ ] " };
+            let text = format!("{checkbox}{}: {}", plan.project_name, plan.title);
+            let style = if i == modal.selected {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            Line::from(Span::styled(text, style))
+        })
+        .collect();
+
+    let list = Paragraph::new(lines).wrap(Wrap { trim: true });
+    f.render_widget(list, inner_chunks[0]);
+
+    let help = Paragraph::new("j/k: Move | Space: Toggle | Enter: Import | q: Cancel")
+        .style(Style::default())
+        .alignment(Alignment::Center);
+    f.render_widget(help, inner_chunks[1]);
 }

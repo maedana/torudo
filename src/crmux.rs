@@ -1,3 +1,4 @@
+use serde::Deserialize;
 use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
@@ -27,40 +28,46 @@ const fn version_meets_minimum(version: (u32, u32, u32), minimum: (u32, u32, u32
 /// Minimum crmux version required for `send_text` with project targeting.
 const MIN_CRMUX_VERSION: (u32, u32, u32) = (0, 10, 0);
 
+/// Minimum crmux version required for `get-plans` RPC.
+pub const MIN_CRMUX_GET_PLANS_VERSION: (u32, u32, u32) = (0, 11, 0);
+
 /// Return the crmux socket path: `/tmp/crmux-{uid}.sock`
 fn socket_path() -> PathBuf {
     let uid = unsafe { libc::getuid() };
     PathBuf::from(format!("/tmp/crmux-{uid}.sock"))
 }
 
-/// Check if a compatible crmux instance is running.
+/// Detect a compatible crmux instance and return its version.
 ///
-/// Returns `true` if:
+/// Returns `Some((major, minor, patch))` if:
 /// 1. `crmux --version` reports version >= 0.10.0
 /// 2. The crmux Unix domain socket exists
-pub fn is_available() -> bool {
-    // Check version
-    let Ok(output) = Command::new("crmux")
+///
+/// Returns `None` if crmux is not available.
+pub fn detect() -> Option<(u32, u32, u32)> {
+    let output = Command::new("crmux")
         .arg("--version")
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
-    else {
-        return false;
-    };
+        .ok()?;
     if !output.status.success() {
-        return false;
+        return None;
     }
     let version_str = String::from_utf8_lossy(&output.stdout);
-    let Some(version) = parse_crmux_version(&version_str) else {
-        return false;
-    };
+    let version = parse_crmux_version(&version_str)?;
     if !version_meets_minimum(version, MIN_CRMUX_VERSION) {
-        return false;
+        return None;
     }
+    if !socket_path().exists() {
+        return None;
+    }
+    Some(version)
+}
 
-    // Check socket exists
-    socket_path().exists()
+/// Check if version meets the minimum required for get-plans RPC.
+pub const fn version_supports_get_plans(version: (u32, u32, u32)) -> bool {
+    version_meets_minimum(version, MIN_CRMUX_GET_PLANS_VERSION)
 }
 
 /// Encode a msgpack-rpc notification: `[2, method, params]`
@@ -98,9 +105,82 @@ pub fn send_text(
     Ok(())
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct Plan {
+    pub title: String,
+    pub project_name: String,
+    pub slug: String,
+    pub path: String,
+}
+
+#[derive(Deserialize)]
+struct PlansResponse {
+    plans: Vec<Plan>,
+}
+
+pub fn parse_plans(json: &str) -> Result<Vec<Plan>, Box<dyn std::error::Error>> {
+    let response: PlansResponse = serde_json::from_str(json)?;
+    Ok(response.plans)
+}
+
+pub fn get_plans() -> Result<Vec<Plan>, Box<dyn std::error::Error>> {
+    let output = Command::new("crmux")
+        .args(["rpc", "get-plans"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()?;
+    if !output.status.success() {
+        return Err("crmux rpc get-plans failed".into());
+    }
+    let json = String::from_utf8(output.stdout)?;
+    parse_plans(&json)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_plans_valid_json() {
+        let json = r#"{
+            "plans": [
+                {
+                    "path": "/home/user/.claude/plans/abc.md",
+                    "project_name": "myproject",
+                    "session_id": "sess-1",
+                    "slug": "abc",
+                    "title": "My Plan"
+                },
+                {
+                    "path": "/home/user/.claude/plans/def.md",
+                    "project_name": "other",
+                    "session_id": "sess-2",
+                    "slug": "def",
+                    "title": "Other Plan"
+                }
+            ]
+        }"#;
+        let plans = parse_plans(json).unwrap();
+        assert_eq!(plans.len(), 2);
+        assert_eq!(plans[0].title, "My Plan");
+        assert_eq!(plans[0].project_name, "myproject");
+        assert_eq!(plans[0].slug, "abc");
+        assert_eq!(plans[0].path, "/home/user/.claude/plans/abc.md");
+        assert_eq!(plans[1].slug, "def");
+    }
+
+    #[test]
+    fn test_parse_plans_empty() {
+        let json = r#"{"plans": []}"#;
+        let plans = parse_plans(json).unwrap();
+        assert!(plans.is_empty());
+    }
+
+    #[test]
+    fn test_parse_plans_invalid_json() {
+        let result = parse_plans("not json");
+        assert!(result.is_err());
+    }
 
     #[test]
     fn test_parse_crmux_version_valid() {
@@ -131,6 +211,19 @@ mod tests {
         assert!(!version_meets_minimum((0, 9, 0), (0, 10, 0)));
         // Lower minor, higher patch
         assert!(!version_meets_minimum((0, 9, 9), (0, 10, 0)));
+    }
+
+    #[test]
+    fn test_version_supports_get_plans() {
+        // Below 0.11.0
+        assert!(!version_supports_get_plans((0, 10, 0)));
+        assert!(!version_supports_get_plans((0, 10, 9)));
+        // Exact 0.11.0
+        assert!(version_supports_get_plans((0, 11, 0)));
+        // Above 0.11.0
+        assert!(version_supports_get_plans((0, 11, 1)));
+        assert!(version_supports_get_plans((0, 12, 0)));
+        assert!(version_supports_get_plans((1, 0, 0)));
     }
 
     #[test]
