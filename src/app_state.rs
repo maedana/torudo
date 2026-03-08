@@ -6,6 +6,38 @@ use crate::todo::{
 use log::{debug, error};
 use std::{collections::HashMap, env, io::Write, os::unix::net::UnixStream, time::Duration};
 
+fn parse_frontmatter_cwd(content: &str) -> Option<String> {
+    let content = content.trim();
+    if !content.starts_with("---") {
+        return None;
+    }
+    let after_first = &content[3..].trim_start_matches('\n');
+    let end = after_first.find("\n---")?;
+    let frontmatter = &after_first[..end];
+    for line in frontmatter.lines() {
+        let line = line.trim();
+        if let Some(value) = line.strip_prefix("cwd:") {
+            let value = value.trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn strip_frontmatter(content: &str) -> &str {
+    let trimmed = content.trim();
+    if !trimmed.starts_with("---") {
+        return content;
+    }
+    let after_first = &trimmed[3..].trim_start_matches('\n');
+    after_first.find("\n---").map_or(content, |end| {
+        let rest = &after_first[end + 4..];
+        rest.trim_start_matches('\n')
+    })
+}
+
 pub struct PlanModal {
     pub plans: Vec<Plan>,
     pub selected: usize,
@@ -219,7 +251,7 @@ impl AppState {
 
         let md_path = format!("{todotxt_dir}/todos/{todo_id}.md");
         let md_content = std::fs::read_to_string(&md_path).unwrap_or_default();
-        let md_content = md_content.trim();
+        let md_content = strip_frontmatter(&md_content).trim();
 
         let text = if md_content.is_empty() {
             format!("# Task: {description}")
@@ -383,7 +415,14 @@ impl AppState {
         let Some(todo_id) = self.get_current_todo_id().map(str::to_string) else {
             return;
         };
-        match crate::claude::launch(&text, permission_mode, &todo_id) {
+        let md_path = format!("{todotxt_dir}/todos/{todo_id}.md");
+        let md_content = std::fs::read_to_string(&md_path).unwrap_or_default();
+        let Some(cwd) = parse_frontmatter_cwd(&md_content) else {
+            self.status_message =
+                Some(format!("cwd not set in {todo_id}.md frontmatter"));
+            return;
+        };
+        match crate::claude::launch(&text, permission_mode, &todo_id, &cwd) {
             Ok(()) => {
                 self.status_message = Some(format!("Launched {label} session -> {todo_id}"));
                 debug!("Launched {label} session for todo: {todo_id}");
@@ -1179,6 +1218,109 @@ mod tests {
 
         state.crmux_version = Some((1, 0, 0));
         assert!(state.crmux_supports_get_plans());
+    }
+
+    #[test]
+    fn test_strip_frontmatter() {
+        let content = "---\ncwd: /path/to/repo\n---\n# Content\nBody";
+        assert_eq!(strip_frontmatter(content), "# Content\nBody");
+    }
+
+    #[test]
+    fn test_strip_frontmatter_no_frontmatter() {
+        let content = "# Just content";
+        assert_eq!(strip_frontmatter(content), "# Just content");
+    }
+
+    #[test]
+    fn test_build_prompt_strips_frontmatter() {
+        let temp_dir = std::env::temp_dir().join("test_build_prompt_strip_fm");
+        fs::create_dir_all(temp_dir.join("todos")).unwrap();
+
+        let todos = vec![Item {
+            completed: false,
+            priority: Some('A'),
+            creation_date: None,
+            completion_date: None,
+            description: "Test task".to_string(),
+            projects: vec!["myapp".to_string()],
+            contexts: vec![],
+            id: Some("fm-test-1".to_string()),
+            line_number: 1,
+        }];
+
+        let md_path = temp_dir.join("todos/fm-test-1.md");
+        fs::write(&md_path, "---\ncwd: /path/to/repo\n---\n# Details here\n").unwrap();
+
+        let state = create_test_state(todos);
+        let todotxt_dir = temp_dir.to_str().unwrap();
+
+        let (_project, text) = state.build_prompt(todotxt_dir).unwrap();
+        assert!(!text.contains("cwd:"));
+        assert!(!text.contains("---"));
+        assert!(text.contains("# Details here"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_launch_claude_without_cwd_shows_error() {
+        let temp_dir = std::env::temp_dir().join("test_launch_no_cwd");
+        fs::create_dir_all(temp_dir.join("todos")).unwrap();
+
+        let todos = vec![Item {
+            completed: false,
+            priority: Some('A'),
+            creation_date: None,
+            completion_date: None,
+            description: "Test task".to_string(),
+            projects: vec!["proj".to_string()],
+            contexts: vec![],
+            id: Some("no-cwd-1".to_string()),
+            line_number: 1,
+        }];
+
+        // Create md file without cwd in frontmatter
+        let md_path = temp_dir.join("todos/no-cwd-1.md");
+        fs::write(&md_path, "# Just content\n").unwrap();
+
+        let mut state = create_test_state(todos);
+        state.claude_available = true;
+
+        state.launch_claude(temp_dir.to_str().unwrap(), "plan", "clp");
+        assert!(state
+            .status_message
+            .as_deref()
+            .unwrap()
+            .contains("cwd not set"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_parse_frontmatter_cwd_valid() {
+        let content = "---\ncwd: /path/to/repo\n---\n# Content";
+        assert_eq!(
+            parse_frontmatter_cwd(content),
+            Some("/path/to/repo".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_frontmatter_cwd_missing() {
+        let content = "---\ntitle: My Task\n---\n# Content";
+        assert_eq!(parse_frontmatter_cwd(content), None);
+    }
+
+    #[test]
+    fn test_parse_frontmatter_cwd_no_frontmatter() {
+        let content = "# Just a heading\nSome content";
+        assert_eq!(parse_frontmatter_cwd(content), None);
+    }
+
+    #[test]
+    fn test_parse_frontmatter_cwd_empty() {
+        assert_eq!(parse_frontmatter_cwd(""), None);
     }
 
     #[test]

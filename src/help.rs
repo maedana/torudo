@@ -12,8 +12,8 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
     HelpEntry { key: "csp", desc: "Send plan prompt to project's idle crmux session (>= 0.10.0)", indent: true },
     HelpEntry { key: "csi", desc: "Send implement prompt to project's idle crmux session (>= 0.10.0)", indent: true },
     HelpEntry { key: "cgp", desc: "Get plans and import via crmux (>= 0.11.0)", indent: true },
-    HelpEntry { key: "clp", desc: "Launch claude plan in new tmux window (worktree)", indent: true },
-    HelpEntry { key: "cli", desc: "Launch claude implement in new tmux window (worktree)", indent: true },
+    HelpEntry { key: "clp", desc: "Launch claude plan in tmux window (requires cwd in frontmatter)", indent: true },
+    HelpEntry { key: "cli", desc: "Launch claude implement in tmux window (requires cwd in frontmatter)", indent: true },
     HelpEntry { key: "?", desc: "Toggle help", indent: false },
     HelpEntry { key: "q", desc: "Quit", indent: false },
 ];
