@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **gp (Get Plans)**: Import plans from crmux as todo items
+  - `gp`: Open plan selection modal to browse and import plans via crmux
+  - Plans are imported as todo.txt items with project tags and linked markdown files
+  - Duplicate detection prevents importing the same plan twice
+  - Requires crmux >= 0.11.0; keybinding hidden when unavailable
+
+### Changed
+- **crmux detection**: Refactored from boolean `is_available()` to version-aware `detect()` for granular feature gating
+
 ## [0.6.0] - 2026-03-07
 
 ### Changed

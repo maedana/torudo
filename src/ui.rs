@@ -188,11 +188,11 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
     );
 
     let instruction_text = if state.crmux_supports_get_plans() {
-        "jk: Navigate | hl: Change Column | x: Complete | r: Reload | sp: Plan | si: Implement | gp: Get Plans | q: Quit"
+        "hjkl: Nav | x: Complete | r: Reload | sp: Plan | si: Implement | gp: Get Plans | q: Quit"
     } else if state.crmux_available() {
-        "jk: Navigate | hl: Change Column | x: Complete | r: Reload | sp: Plan | si: Implement | q: Quit"
+        "hjkl: Nav | x: Complete | r: Reload | sp: Plan | si: Implement | q: Quit"
     } else {
-        "jk: Navigate | hl: Change Column | x: Complete | r: Reload | q: Quit"
+        "hjkl: Nav | x: Complete | r: Reload | q: Quit"
     };
     let instructions = Paragraph::new(instruction_text)
         .block(Block::default().title("Instructions").borders(Borders::ALL))
