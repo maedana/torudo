@@ -132,19 +132,12 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
         .margin(1)
         .constraints(
             [
-                Constraint::Length(3),
                 Constraint::Min(0),
-                Constraint::Length(1),
                 Constraint::Length(3),
             ]
             .as_ref(),
         )
         .split(size);
-
-    let title = Paragraph::new("Todo.txt Viewer")
-        .block(Block::default().title("Torudo").borders(Borders::ALL))
-        .alignment(Alignment::Center)
-        .style(Style::default().fg(Color::Cyan));
 
     let num_columns = state.project_names.len();
     if num_columns > 0 {
@@ -154,7 +147,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
         let columns = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(column_constraints)
-            .split(chunks[1]);
+            .split(chunks[0]);
 
         for (col_idx, project_name) in state.project_names.iter().enumerate() {
             if let Some(project_todos) = state.grouped_todos.get(project_name) {
@@ -177,30 +170,30 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
         }
     }
 
-    // Status message bar
-    let status = state.status_message.as_ref().map_or_else(
-        || Paragraph::new(""),
-        |msg| {
-            Paragraph::new(msg.as_str())
-                .style(Style::default().fg(Color::Green))
-                .alignment(Alignment::Center)
+    let version = env!("CARGO_PKG_VERSION");
+    let footer_text = state.status_message.as_ref().map_or_else(
+        || {
+            if state.crmux_supports_get_plans() {
+                format!("torudo v{version} | hjkl: Nav | x: Complete | r: Reload | sp: Plan | si: Implement | gp: Get Plans | q: Quit")
+            } else if state.crmux_available() {
+                format!("torudo v{version} | hjkl: Nav | x: Complete | r: Reload | sp: Plan | si: Implement | q: Quit")
+            } else {
+                format!("torudo v{version} | hjkl: Nav | x: Complete | r: Reload | q: Quit")
+            }
         },
+        Clone::clone,
     );
-
-    let instruction_text = if state.crmux_supports_get_plans() {
-        "hjkl: Nav | x: Complete | r: Reload | sp: Plan | si: Implement | gp: Get Plans | q: Quit"
-    } else if state.crmux_available() {
-        "hjkl: Nav | x: Complete | r: Reload | sp: Plan | si: Implement | q: Quit"
+    let footer_style = if state.status_message.is_some() {
+        Style::default().fg(Color::Green)
     } else {
-        "hjkl: Nav | x: Complete | r: Reload | q: Quit"
+        Style::default()
     };
-    let instructions = Paragraph::new(instruction_text)
-        .block(Block::default().title("Instructions").borders(Borders::ALL))
+    let footer = Paragraph::new(footer_text)
+        .block(Block::default().borders(Borders::ALL))
+        .style(footer_style)
         .alignment(Alignment::Center);
 
-    f.render_widget(title, chunks[0]);
-    f.render_widget(status, chunks[2]);
-    f.render_widget(instructions, chunks[3]);
+    f.render_widget(footer, chunks[1]);
 
     // Draw plan modal overlay if open
     if let Some(modal) = &state.plan_modal {
