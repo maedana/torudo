@@ -10,6 +10,7 @@ use std::time::Duration;
 use std::{env, error::Error, io};
 
 mod app_state;
+mod claude;
 mod crmux;
 mod event_handler;
 mod file_watcher;

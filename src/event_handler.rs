@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 pub struct EventHandler {
     last_reload_time: Option<Instant>,
     debounce_duration: Duration,
-    pending_key: Option<char>,
+    pending_keys: Vec<char>,
 }
 
 impl EventHandler {
@@ -16,7 +16,7 @@ impl EventHandler {
         Self {
             last_reload_time: None,
             debounce_duration: Duration::from_millis(200),
-            pending_key: None,
+            pending_keys: Vec::new(),
         }
     }
 
@@ -98,88 +98,354 @@ impl EventHandler {
                 return false;
             }
 
-            // Handle second key of 2-stroke sequence
-            if let Some(first) = self.pending_key.take() {
-                if first == 'g' {
-                    match key.code {
-                        KeyCode::Char('p') if state.crmux_supports_get_plans() => {
-                            if debug_mode {
-                                debug!("Get plans requested (gp)");
-                            }
-                            state.handle_open_plan_modal();
-                        }
-                        _ => {
-                            if debug_mode {
-                                debug!("Unknown g-command: g + {:?}", key.code);
-                            }
-                        }
-                    }
-                    return false;
-                }
-                if first == 's' {
-                    let todotxt_dir = std::path::Path::new(todo_file)
-                        .parent()
-                        .and_then(|p| p.to_str())
-                        .unwrap_or(".");
-                    match key.code {
-                        KeyCode::Char('p') => {
-                            if debug_mode {
-                                debug!("Send plan prompt requested (sp)");
-                            }
-                            state.handle_send_plan(todotxt_dir);
-                        }
-                        KeyCode::Char('i') => {
-                            if debug_mode {
-                                debug!("Send implement prompt requested (si)");
-                            }
-                            state.handle_send_implement(todotxt_dir);
-                        }
-                        _ => {
-                            if debug_mode {
-                                debug!("Unknown send command: s + {:?}", key.code);
-                            }
-                        }
-                    }
-                }
+            // Handle multi-stroke sequences
+            if !self.pending_keys.is_empty() {
+                self.handle_pending_sequence(key.code, state, todo_file, debug_mode);
                 return false;
             }
 
-            match key.code {
-                KeyCode::Char('q') => {
-                    if debug_mode {
-                        debug!("Quit command received");
-                    }
-                    return true; // Signal to quit
-                }
-                KeyCode::Char(c @ ('k' | 'j' | 'h' | 'l')) => {
-                    if debug_mode {
-                        debug!("Navigation key pressed: {c}");
-                    }
-                    state.handle_navigation_key(c);
-                }
-                KeyCode::Char('x') => {
-                    if debug_mode {
-                        debug!("Complete todo command received");
-                    }
-                    state.handle_complete_todo(todo_file);
-                }
-                KeyCode::Char('r') => {
-                    if debug_mode {
-                        debug!("Reload command received");
-                    }
-                    state.handle_reload(todo_file);
-                }
-                KeyCode::Char('s') if state.crmux_available() => {
-                    self.pending_key = Some('s');
-                    state.status_message = Some("s-".to_string());
-                }
-                KeyCode::Char('g') if state.crmux_supports_get_plans() => {
-                    self.pending_key = Some('g');
-                    state.status_message = Some("g-".to_string());
-                }
-                _ => {}
-            }
+            return self.handle_initial_key(key.code, state, todo_file, debug_mode);
         }
         false // Continue running
+    }
+
+    fn handle_pending_sequence(
+        &mut self,
+        code: KeyCode,
+        state: &mut AppState,
+        todo_file: &str,
+        debug_mode: bool,
+    ) {
+        let KeyCode::Char(c) = code else {
+            // Non-char key pressed during sequence - cancel
+            self.pending_keys.clear();
+            state.status_message = None;
+            return;
+        };
+
+        self.pending_keys.push(c);
+        let todotxt_dir = std::path::Path::new(todo_file)
+            .parent()
+            .and_then(|p| p.to_str())
+            .unwrap_or(".");
+
+        match self.pending_keys.as_slice() {
+            ['c', 'p'] => {
+                if debug_mode {
+                    debug!("Send plan prompt requested (cp)");
+                }
+                state.handle_send_plan(todotxt_dir);
+                self.pending_keys.clear();
+            }
+            ['c', 'i'] => {
+                if debug_mode {
+                    debug!("Send implement prompt requested (ci)");
+                }
+                state.handle_send_implement(todotxt_dir);
+                self.pending_keys.clear();
+            }
+            ['c', 'g'] if state.crmux_supports_get_plans() => {
+                if debug_mode {
+                    debug!("Get plans requested (cg)");
+                }
+                state.handle_open_plan_modal();
+                self.pending_keys.clear();
+            }
+            ['c', 'l'] => {
+                // Intermediate state - wait for third key
+                state.status_message =
+                    Some("cl → p: Plan | i: Impl | Esc: Cancel".to_string());
+            }
+            ['c', 'l', 'p'] => {
+                if debug_mode {
+                    debug!("Launch plan requested (clp)");
+                }
+                state.handle_launch_plan(todotxt_dir);
+                self.pending_keys.clear();
+            }
+            ['c', 'l', 'i'] => {
+                if debug_mode {
+                    debug!("Launch implement requested (cli)");
+                }
+                state.handle_launch_implement(todotxt_dir);
+                self.pending_keys.clear();
+            }
+            _ => {
+                if debug_mode {
+                    debug!("Unknown key sequence: {:?}", self.pending_keys);
+                }
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
+        }
+    }
+
+    fn handle_initial_key(
+        &mut self,
+        code: KeyCode,
+        state: &mut AppState,
+        todo_file: &str,
+        debug_mode: bool,
+    ) -> bool {
+        match code {
+            KeyCode::Char('q') => {
+                if debug_mode {
+                    debug!("Quit command received");
+                }
+                return true; // Signal to quit
+            }
+            KeyCode::Char(c @ ('k' | 'j' | 'h' | 'l')) => {
+                if debug_mode {
+                    debug!("Navigation key pressed: {c}");
+                }
+                state.handle_navigation_key(c);
+            }
+            KeyCode::Char('x') => {
+                if debug_mode {
+                    debug!("Complete todo command received");
+                }
+                state.handle_complete_todo(todo_file);
+            }
+            KeyCode::Char('r') => {
+                if debug_mode {
+                    debug!("Reload command received");
+                }
+                state.handle_reload(todo_file);
+            }
+            KeyCode::Char('c') if state.crmux_available() || state.claude_available() => {
+                self.pending_keys.push('c');
+                state.status_message = Some(build_c_submenu(state));
+            }
+            _ => {}
+        }
+        false
+    }
+}
+
+fn build_c_submenu(state: &AppState) -> String {
+    let mut parts = vec!["c →".to_string()];
+    if state.crmux_available() {
+        parts.push("p: Plan".to_string());
+        parts.push("i: Impl".to_string());
+    }
+    if state.crmux_supports_get_plans() {
+        parts.push("g: Get Plans".to_string());
+    }
+    if state.claude_available() {
+        parts.push("l: Launch…".to_string());
+    }
+    parts.push("Esc: Cancel".to_string());
+    parts.join(" | ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::todo::Item;
+    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+
+    fn make_key_event(c: char) -> Event {
+        Event::Key(KeyEvent {
+            code: KeyCode::Char(c),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        })
+    }
+
+    fn create_test_state_with_crmux() -> crate::app_state::AppState {
+        let todos = vec![Item {
+            completed: false,
+            priority: Some('A'),
+            creation_date: None,
+            completion_date: None,
+            description: "Test task".to_string(),
+            projects: vec!["proj".to_string()],
+            contexts: vec![],
+            id: Some("test-id".to_string()),
+            line_number: 1,
+        }];
+        let mut state = crate::app_state::AppState::new(todos, "/tmp/nvim.sock".to_string());
+        state.crmux_version = Some((0, 11, 0));
+        state.claude_available = false;
+        state
+    }
+
+    fn create_test_state_with_claude() -> crate::app_state::AppState {
+        let todos = vec![Item {
+            completed: false,
+            priority: Some('A'),
+            creation_date: None,
+            completion_date: None,
+            description: "Test task".to_string(),
+            projects: vec!["proj".to_string()],
+            contexts: vec![],
+            id: Some("test-id".to_string()),
+            line_number: 1,
+        }];
+        let mut state = crate::app_state::AppState::new(todos, "/tmp/nvim.sock".to_string());
+        state.crmux_version = None;
+        state.claude_available = true;
+        state
+    }
+
+    #[test]
+    fn test_two_stroke_cp_works() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
+        assert!(state.status_message.is_some()); // submenu shown
+
+        handler.handle_keyboard_event(&make_key_event('p'), &mut state, todo_file, false);
+        // cp should trigger handle_send_plan (which sets status)
+        assert!(handler.pending_keys.is_empty());
+    }
+
+    #[test]
+    fn test_two_stroke_ci_works() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('i'), &mut state, todo_file, false);
+        assert!(handler.pending_keys.is_empty());
+    }
+
+    #[test]
+    fn test_two_stroke_cg_works() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
+        assert!(state.status_message.is_some()); // submenu shown
+
+        handler.handle_keyboard_event(&make_key_event('g'), &mut state, todo_file, false);
+        assert!(handler.pending_keys.is_empty());
+    }
+
+    #[test]
+    fn test_cl_intermediate_state() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        state.claude_available = true;
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
+        assert!(state.status_message.is_some());
+
+        handler.handle_keyboard_event(&make_key_event('l'), &mut state, todo_file, false);
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("cl → p: Plan | i: Impl | Esc: Cancel")
+        );
+        assert_eq!(handler.pending_keys.as_slice(), &['c', 'l']);
+    }
+
+    #[test]
+    fn test_three_stroke_clp_triggers_launch_plan() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        state.claude_available = false; // claude not available, should show error
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('l'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('p'), &mut state, todo_file, false);
+
+        assert!(handler.pending_keys.is_empty());
+        // handle_launch_plan was called - when claude is unavailable it sets "claude CLI not found"
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("claude CLI not found")
+        );
+    }
+
+    #[test]
+    fn test_three_stroke_cli_triggers_launch_implement() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        state.claude_available = false;
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('l'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('i'), &mut state, todo_file, false);
+
+        assert!(handler.pending_keys.is_empty());
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("claude CLI not found")
+        );
+    }
+
+    #[test]
+    fn test_invalid_sequence_clq_clears() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        state.claude_available = true;
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('l'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('q'), &mut state, todo_file, false);
+
+        assert!(handler.pending_keys.is_empty());
+        assert!(state.status_message.is_none());
+    }
+
+    #[test]
+    fn test_c_key_shows_submenu() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
+        let msg = state.status_message.as_deref().unwrap();
+        assert!(msg.contains("c →"));
+        assert!(msg.contains("p: Plan"));
+        assert!(msg.contains("i: Impl"));
+        assert_eq!(handler.pending_keys.as_slice(), &['c']);
+    }
+
+    #[test]
+    fn test_c_key_available_with_claude_only() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_claude();
+        let todo_file = "/tmp/dummy.txt";
+
+        // claude available but crmux not - c key should still activate
+        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
+        let msg = state.status_message.as_deref().unwrap();
+        assert!(msg.contains("c →"));
+        assert!(msg.contains("l: Launch…"));
+        assert_eq!(handler.pending_keys.as_slice(), &['c']);
+    }
+
+    #[test]
+    fn test_c_key_unavailable_without_crmux_or_claude() {
+        let mut handler = EventHandler::new();
+        let todos = vec![Item {
+            completed: false,
+            priority: Some('A'),
+            creation_date: None,
+            completion_date: None,
+            description: "Test task".to_string(),
+            projects: vec!["proj".to_string()],
+            contexts: vec![],
+            id: Some("test-id".to_string()),
+            line_number: 1,
+        }];
+        let mut state = crate::app_state::AppState::new(todos, "/tmp/nvim.sock".to_string());
+        state.crmux_version = None;
+        state.claude_available = false;
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
+        assert!(handler.pending_keys.is_empty());
+        assert!(state.status_message.is_none());
     }
 }

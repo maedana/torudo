@@ -173,13 +173,13 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
     let version = env!("CARGO_PKG_VERSION");
     let footer_text = state.status_message.as_ref().map_or_else(
         || {
-            if state.crmux_supports_get_plans() {
-                format!("torudo v{version} | hjkl: Nav | x: Complete | r: Reload | sp: Plan | si: Implement | gp: Get Plans | q: Quit")
-            } else if state.crmux_available() {
-                format!("torudo v{version} | hjkl: Nav | x: Complete | r: Reload | sp: Plan | si: Implement | q: Quit")
+            let base = format!("torudo v{version} | hjkl: Nav | x: Complete | r: Reload");
+            let claude_cmd = if state.crmux_available() || state.claude_available() {
+                " | c: Claude"
             } else {
-                format!("torudo v{version} | hjkl: Nav | x: Complete | r: Reload | q: Quit")
-            }
+                ""
+            };
+            format!("{base}{claude_cmd} | q: Quit")
         },
         Clone::clone,
     );

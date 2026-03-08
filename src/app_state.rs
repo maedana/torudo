@@ -20,6 +20,7 @@ pub struct AppState {
     pub selected_in_column: usize,
     pub nvim_socket: String,
     pub crmux_version: Option<(u32, u32, u32)>,
+    pub claude_available: bool,
     pub status_message: Option<String>,
     pub plan_modal: Option<PlanModal>,
 }
@@ -70,6 +71,7 @@ impl AppState {
         project_names.sort();
 
         let crmux_version = crate::crmux::detect();
+        let claude_available = crate::claude::detect();
 
         Self {
             todos,
@@ -79,6 +81,7 @@ impl AppState {
             selected_in_column: 0,
             nvim_socket,
             crmux_version,
+            claude_available,
             status_message: None,
             plan_modal: None,
         }
@@ -343,12 +346,47 @@ impl AppState {
         self.reload_todos(todo_file);
     }
 
+    pub const fn claude_available(&self) -> bool {
+        self.claude_available
+    }
+
     pub fn handle_send_plan(&mut self, todotxt_dir: &str) {
         self.send_to_crmux(todotxt_dir, Some("plan-mode"), "plan");
     }
 
     pub fn handle_send_implement(&mut self, todotxt_dir: &str) {
         self.send_to_crmux(todotxt_dir, Some("accept-edits"), "implement");
+    }
+
+    pub fn handle_launch_plan(&mut self, todotxt_dir: &str) {
+        self.launch_claude(todotxt_dir, "plan", "Launch Plan");
+    }
+
+    pub fn handle_launch_implement(&mut self, todotxt_dir: &str) {
+        self.launch_claude(todotxt_dir, "auto", "Launch Implement");
+    }
+
+    fn launch_claude(&mut self, todotxt_dir: &str, permission_mode: &str, label: &str) {
+        if !self.claude_available {
+            self.status_message = Some("claude CLI not found".to_string());
+            return;
+        }
+        let Some((_project, text)) = self.build_prompt(todotxt_dir) else {
+            return;
+        };
+        let Some(todo_id) = self.get_current_todo_id().map(str::to_string) else {
+            return;
+        };
+        match crate::claude::launch(&text, permission_mode, &todo_id) {
+            Ok(()) => {
+                self.status_message = Some(format!("Launched {label} session -> {todo_id}"));
+                debug!("Launched {label} session for todo: {todo_id}");
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Failed to launch {label}: {e}"));
+                error!("Failed to launch {label}: {e}");
+            }
+        }
     }
 }
 
@@ -361,6 +399,7 @@ mod tests {
     fn create_test_state(todos: Vec<Item>) -> AppState {
         let mut state = AppState::new(todos, "/tmp/nvim.sock".to_string());
         state.crmux_version = None;
+        state.claude_available = false;
         state
     }
 
@@ -1037,6 +1076,63 @@ mod tests {
             .contains("skipped 1"));
 
         fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_claude_available() {
+        let mut state = create_test_state(vec![]);
+
+        state.claude_available = false;
+        assert!(!state.claude_available());
+
+        state.claude_available = true;
+        assert!(state.claude_available());
+    }
+
+    #[test]
+    fn test_handle_launch_plan_sets_status_when_unavailable() {
+        let todos = vec![Item {
+            completed: false,
+            priority: Some('A'),
+            creation_date: None,
+            completion_date: None,
+            description: "Test task".to_string(),
+            projects: vec!["proj".to_string()],
+            contexts: vec![],
+            id: Some("test-id".to_string()),
+            line_number: 1,
+        }];
+        let mut state = create_test_state(todos);
+        state.claude_available = false;
+
+        state.handle_launch_plan("/tmp");
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("claude CLI not found")
+        );
+    }
+
+    #[test]
+    fn test_handle_launch_implement_sets_status_when_unavailable() {
+        let todos = vec![Item {
+            completed: false,
+            priority: Some('A'),
+            creation_date: None,
+            completion_date: None,
+            description: "Test task".to_string(),
+            projects: vec!["proj".to_string()],
+            contexts: vec![],
+            id: Some("test-id".to_string()),
+            line_number: 1,
+        }];
+        let mut state = create_test_state(todos);
+        state.claude_available = false;
+
+        state.handle_launch_implement("/tmp");
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("claude CLI not found")
+        );
     }
 
     #[test]
