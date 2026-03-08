@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **crmux detection**: Refactored from boolean `is_available()` to version-aware `detect()` for granular feature gating
+- **UI**: Removed header, merged status message into footer with version display (`torudo v0.x.x`)
 
 ## [0.6.0] - 2026-03-07
 
