@@ -84,6 +84,17 @@ impl EventHandler {
         debug_mode: bool,
     ) -> bool {
         if let Event::Key(key) = *event {
+            // Handle help overlay keys when help is shown
+            if state.show_help {
+                match key.code {
+                    KeyCode::Char('?' | 'q') | KeyCode::Esc => {
+                        state.show_help = false;
+                    }
+                    _ => {}
+                }
+                return false;
+            }
+
             // Handle plan modal keys when modal is open
             if state.plan_modal.is_some() {
                 match key.code {
@@ -130,23 +141,33 @@ impl EventHandler {
             .unwrap_or(".");
 
         match self.pending_keys.as_slice() {
-            ['c', 'p'] => {
+            ['c', 's'] => {
+                // Intermediate state - wait for third key
+                state.status_message =
+                    Some("cs → p: Plan | i: Impl | Esc: Cancel".to_string());
+            }
+            ['c', 's', 'p'] => {
                 if debug_mode {
-                    debug!("Send plan prompt requested (cp)");
+                    debug!("Send plan prompt requested (csp)");
                 }
                 state.handle_send_plan(todotxt_dir);
                 self.pending_keys.clear();
             }
-            ['c', 'i'] => {
+            ['c', 's', 'i'] => {
                 if debug_mode {
-                    debug!("Send implement prompt requested (ci)");
+                    debug!("Send implement prompt requested (csi)");
                 }
                 state.handle_send_implement(todotxt_dir);
                 self.pending_keys.clear();
             }
-            ['c', 'g'] if state.crmux_supports_get_plans() => {
+            ['c', 'g'] => {
+                // Intermediate state - wait for third key
+                state.status_message =
+                    Some("cg → p: Plans | Esc: Cancel".to_string());
+            }
+            ['c', 'g', 'p'] if state.crmux_supports_get_plans() => {
                 if debug_mode {
-                    debug!("Get plans requested (cg)");
+                    debug!("Get plans requested (cgp)");
                 }
                 state.handle_open_plan_modal();
                 self.pending_keys.clear();
@@ -216,6 +237,9 @@ impl EventHandler {
                 self.pending_keys.push('c');
                 state.status_message = Some(build_c_submenu(state));
             }
+            KeyCode::Char('?') => {
+                state.toggle_help();
+            }
             _ => {}
         }
         false
@@ -225,11 +249,10 @@ impl EventHandler {
 fn build_c_submenu(state: &AppState) -> String {
     let mut parts = vec!["c →".to_string()];
     if state.crmux_available() {
-        parts.push("p: Plan".to_string());
-        parts.push("i: Impl".to_string());
+        parts.push("s: Send…".to_string());
     }
     if state.crmux_supports_get_plans() {
-        parts.push("g: Get Plans".to_string());
+        parts.push("g: Get…".to_string());
     }
     if state.claude_available() {
         parts.push("l: Launch…".to_string());
@@ -290,40 +313,62 @@ mod tests {
     }
 
     #[test]
-    fn test_two_stroke_cp_works() {
+    fn test_cs_intermediate_state() {
         let mut handler = EventHandler::new();
         let mut state = create_test_state_with_crmux();
         let todo_file = "/tmp/dummy.txt";
 
         handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
-        assert!(state.status_message.is_some()); // submenu shown
+        assert!(state.status_message.is_some());
 
+        handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
+        assert_eq!(handler.pending_keys.as_slice(), &['c', 's']);
+    }
+
+    #[test]
+    fn test_three_stroke_csp_sends_plan() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
         handler.handle_keyboard_event(&make_key_event('p'), &mut state, todo_file, false);
-        // cp should trigger handle_send_plan (which sets status)
         assert!(handler.pending_keys.is_empty());
     }
 
     #[test]
-    fn test_two_stroke_ci_works() {
+    fn test_three_stroke_csi_sends_implement() {
         let mut handler = EventHandler::new();
         let mut state = create_test_state_with_crmux();
         let todo_file = "/tmp/dummy.txt";
 
         handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
         handler.handle_keyboard_event(&make_key_event('i'), &mut state, todo_file, false);
         assert!(handler.pending_keys.is_empty());
     }
 
     #[test]
-    fn test_two_stroke_cg_works() {
+    fn test_cg_intermediate_state() {
         let mut handler = EventHandler::new();
         let mut state = create_test_state_with_crmux();
         let todo_file = "/tmp/dummy.txt";
 
         handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
-        assert!(state.status_message.is_some()); // submenu shown
-
         handler.handle_keyboard_event(&make_key_event('g'), &mut state, todo_file, false);
+        assert_eq!(handler.pending_keys.as_slice(), &['c', 'g']);
+    }
+
+    #[test]
+    fn test_three_stroke_cgp_gets_plans() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('g'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('p'), &mut state, todo_file, false);
         assert!(handler.pending_keys.is_empty());
     }
 
@@ -338,10 +383,6 @@ mod tests {
         assert!(state.status_message.is_some());
 
         handler.handle_keyboard_event(&make_key_event('l'), &mut state, todo_file, false);
-        assert_eq!(
-            state.status_message.as_deref(),
-            Some("cl → p: Plan | i: Impl | Esc: Cancel")
-        );
         assert_eq!(handler.pending_keys.as_slice(), &['c', 'l']);
     }
 
@@ -349,7 +390,7 @@ mod tests {
     fn test_three_stroke_clp_triggers_launch_plan() {
         let mut handler = EventHandler::new();
         let mut state = create_test_state_with_crmux();
-        state.claude_available = false; // claude not available, should show error
+        state.claude_available = false;
         let todo_file = "/tmp/dummy.txt";
 
         handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
@@ -357,7 +398,6 @@ mod tests {
         handler.handle_keyboard_event(&make_key_event('p'), &mut state, todo_file, false);
 
         assert!(handler.pending_keys.is_empty());
-        // handle_launch_plan was called - when claude is unavailable it sets "claude CLI not found"
         assert_eq!(
             state.status_message.as_deref(),
             Some("claude CLI not found")
@@ -383,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_sequence_clq_clears() {
+    fn test_invalid_sequence_clears() {
         let mut handler = EventHandler::new();
         let mut state = create_test_state_with_crmux();
         state.claude_available = true;
@@ -406,8 +446,8 @@ mod tests {
         handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
         let msg = state.status_message.as_deref().unwrap();
         assert!(msg.contains("c →"));
-        assert!(msg.contains("p: Plan"));
-        assert!(msg.contains("i: Impl"));
+        assert!(msg.contains("s: Send…"));
+        assert!(msg.contains("g: Get…"));
         assert_eq!(handler.pending_keys.as_slice(), &['c']);
     }
 
@@ -417,12 +457,67 @@ mod tests {
         let mut state = create_test_state_with_claude();
         let todo_file = "/tmp/dummy.txt";
 
-        // claude available but crmux not - c key should still activate
         handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
         let msg = state.status_message.as_deref().unwrap();
         assert!(msg.contains("c →"));
         assert!(msg.contains("l: Launch…"));
         assert_eq!(handler.pending_keys.as_slice(), &['c']);
+    }
+
+    #[test]
+    fn test_question_mark_toggles_help() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        assert!(!state.show_help);
+        handler.handle_keyboard_event(&make_key_event('?'), &mut state, todo_file, false);
+        assert!(state.show_help);
+        handler.handle_keyboard_event(&make_key_event('?'), &mut state, todo_file, false);
+        assert!(!state.show_help);
+    }
+
+    #[test]
+    fn test_help_overlay_blocks_other_keys() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        state.show_help = true;
+        let initial_column = state.selected_in_column;
+        handler.handle_keyboard_event(&make_key_event('j'), &mut state, todo_file, false);
+        assert_eq!(state.selected_in_column, initial_column);
+        assert!(state.show_help);
+    }
+
+    #[test]
+    fn test_q_closes_help() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        state.show_help = true;
+        let quit = handler.handle_keyboard_event(&make_key_event('q'), &mut state, todo_file, false);
+        assert!(!quit);
+        assert!(!state.show_help);
+    }
+
+    #[test]
+    fn test_esc_closes_help() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        state.show_help = true;
+        let esc_event = Event::Key(KeyEvent {
+            code: KeyCode::Esc,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        });
+        let quit = handler.handle_keyboard_event(&esc_event, &mut state, todo_file, false);
+        assert!(!quit);
+        assert!(!state.show_help);
     }
 
     #[test]

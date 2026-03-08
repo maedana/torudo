@@ -23,6 +23,7 @@ pub struct AppState {
     pub claude_available: bool,
     pub status_message: Option<String>,
     pub plan_modal: Option<PlanModal>,
+    pub show_help: bool,
 }
 
 impl AppState {
@@ -84,6 +85,7 @@ impl AppState {
             claude_available,
             status_message: None,
             plan_modal: None,
+            show_help: false,
         }
     }
 
@@ -179,6 +181,10 @@ impl AppState {
                 Err(e) => error!("Failed to mark todo as complete: {e}"),
             }
         }
+    }
+
+    pub const fn toggle_help(&mut self) {
+        self.show_help = !self.show_help;
     }
 
     pub fn handle_reload(&mut self, todo_file: &str) {

@@ -1,4 +1,5 @@
 use crate::app_state::AppState;
+use crate::help::HELP_ENTRIES;
 use crate::todo::Item;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -179,7 +180,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
             } else {
                 ""
             };
-            format!("{base}{claude_cmd} | q: Quit")
+            format!("{base}{claude_cmd} | ?: Help | q: Quit")
         },
         Clone::clone,
     );
@@ -198,6 +199,11 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
     // Draw plan modal overlay if open
     if let Some(modal) = &state.plan_modal {
         draw_plan_modal(f, modal, size);
+    }
+
+    // Draw help overlay if shown
+    if state.show_help {
+        draw_help_overlay(f, size);
     }
 }
 
@@ -268,4 +274,65 @@ fn draw_plan_modal(
         .style(Style::default())
         .alignment(Alignment::Center);
     f.render_widget(help, inner_chunks[1]);
+}
+
+fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect) {
+    let modal_area = centered_rect(50, 60, area);
+    f.render_widget(Clear, modal_area);
+
+    let block = Block::default()
+        .title("Keyboard Controls")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+
+    let inner = block.inner(modal_area);
+    f.render_widget(block, modal_area);
+
+    let inner_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    let max_key_width = HELP_ENTRIES
+        .iter()
+        .map(|e| e.key.len())
+        .max()
+        .unwrap_or(0);
+
+    let lines: Vec<Line<'_>> = HELP_ENTRIES
+        .iter()
+        .map(|e| {
+            let mut spans = Vec::new();
+            if e.indent {
+                // Use a non-whitespace-only span to prevent trim from eating indent
+                spans.push(Span::styled(
+                    "  ",
+                    Style::default().fg(Color::DarkGray),
+                ));
+                spans.push(Span::styled(
+                    format!("{:<width$}  ", e.key, width = max_key_width),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            } else {
+                spans.push(Span::styled(
+                    format!("{:<width$}    ", e.key, width = max_key_width),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            }
+            spans.push(Span::styled(e.desc, Style::default().fg(Color::White)));
+            Line::from(spans)
+        })
+        .collect();
+
+    let list = Paragraph::new(lines);
+    f.render_widget(list, inner_chunks[0]);
+
+    let footer = Paragraph::new("Press ? or q or Esc to close")
+        .style(Style::default().fg(Color::DarkGray))
+        .alignment(Alignment::Center);
+    f.render_widget(footer, inner_chunks[1]);
 }

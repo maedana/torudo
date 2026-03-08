@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches, Parser};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture},
     execute,
@@ -13,6 +13,7 @@ mod app_state;
 mod claude;
 mod crmux;
 mod event_handler;
+mod help;
 mod file_watcher;
 mod setup;
 mod todo;
@@ -40,7 +41,10 @@ struct Args {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = Args::parse();
+    let matches = Args::command()
+        .after_help(help::cli_help_text())
+        .get_matches();
+    let args = Args::from_arg_matches(&matches).expect("arg parsing should not fail");
 
     let home_dir = env::var("HOME").unwrap();
     let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{home_dir}/todotxt"));
