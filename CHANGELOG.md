@@ -8,14 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **clp/cli cwd from frontmatter**: `clp`/`cli` uses `cwd` from todo detail md frontmatter as working directory (required)
-- **gp (Get Plans)**: Import plans from crmux as todo items
-  - `gp`: Open plan selection modal to browse and import plans via crmux
+- **cgp (Get Plans)**: Import plans from crmux as todo items via `cgp` keybinding
   - Plans are imported as todo.txt items with project tags and linked markdown files
   - Duplicate detection prevents importing the same plan twice
   - Requires crmux >= 0.11.0; keybinding hidden when unavailable
+- **clp/cli (Launch Claude)**: Launch claude in tmux window with `clp` (plan) / `cli` (implement)
+  - Uses `cwd` from todo detail md frontmatter as working directory (required)
 
 ### Changed
+- **Keybindings**: Unified to 3-char `c`-prefixed sequences (`csp`, `csi`, `cgp`, `clp`, `cli`)
 - **crmux detection**: Refactored from boolean `is_available()` to version-aware `detect()` for granular feature gating
 - **UI**: Removed header, merged status message into footer with version display (`torudo v0.x.x`)
 
