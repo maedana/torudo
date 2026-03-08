@@ -17,6 +17,7 @@ A terminal-based todo.txt viewer and manager written in Rust with TUI interface.
 - Task completion with automatic archiving to done.txt
 - **crmux integration**: Send plan/implement prompts to Claude Code sessions via [crmux](https://github.com/maedana/crmux) (>= 0.10.0)
 - **Plan import**: Browse and import plans as todo items via [crmux](https://github.com/maedana/crmux) (>= 0.11.0)
+- **Claude launch**: Launch claude in tmux windows with per-todo working directory via frontmatter `cwd`
 
 ## Demo
 ![gif][1]
@@ -119,6 +120,19 @@ This ensures high-priority items are always visible at the top while preserving 
 ### Vim Integration
 
 If you have Neovim running with a socket, Torudo can automatically open todo detail files when navigating. Each todo item can have an associated markdown file in `$TODOTXT_DIR/todos/{id}.md`.
+
+### Todo Detail Frontmatter
+
+Todo detail files (`todos/{id}.md`) support YAML frontmatter with a `cwd` field to specify the working directory for `clp`/`cli` claude launch:
+
+```markdown
+---
+cwd: /home/user/src/my-project
+---
+# Task details here
+```
+
+The `cwd` field is required for `clp`/`cli` — an error is shown if it is not set.
 
 ## File Structure
 

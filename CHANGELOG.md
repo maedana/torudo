@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **clp/cli cwd from frontmatter**: `clp`/`cli` now reads `cwd` from the todo detail md file's YAML frontmatter to set the working directory for claude launch
+  - Frontmatter format: `---\ncwd: /path/to/repo\n---`
+  - Shows error if `cwd` is not set in frontmatter
+  - Frontmatter is stripped from prompts sent to claude
+  - Removed `git_root()` fallback — explicit cwd is now required
 - **gp (Get Plans)**: Import plans from crmux as todo items
   - `gp`: Open plan selection modal to browse and import plans via crmux
   - Plans are imported as todo.txt items with project tags and linked markdown files
