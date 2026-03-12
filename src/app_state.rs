@@ -4,7 +4,10 @@ use crate::todo::{
     mark_complete, Item,
 };
 use log::{debug, error};
-use std::{collections::HashMap, env, io::Write, os::unix::net::UnixStream, time::Duration};
+use std::{
+    collections::HashMap, env, io::Write, os::unix::net::UnixStream, time::Duration,
+    time::SystemTime,
+};
 
 fn parse_frontmatter_cwd(content: &str) -> Option<String> {
     let content = content.trim();
@@ -36,6 +39,18 @@ fn strip_frontmatter(content: &str) -> &str {
         let rest = &after_first[end + 4..];
         rest.trim_start_matches('\n')
     })
+}
+
+fn sort_plans_by_mtime(plans: &mut [Plan]) {
+    plans.sort_by(|a, b| {
+        let mtime_a = std::fs::metadata(&a.path)
+            .and_then(|m| m.modified())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        let mtime_b = std::fs::metadata(&b.path)
+            .and_then(|m| m.modified())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        mtime_b.cmp(&mtime_a)
+    });
 }
 
 pub struct PlanModal {
@@ -292,10 +307,11 @@ impl AppState {
 
     pub fn handle_open_plan_modal(&mut self) {
         match crate::crmux::get_plans() {
-            Ok(plans) => {
+            Ok(mut plans) => {
                 if plans.is_empty() {
                     self.status_message = Some("No plans found".to_string());
                 } else {
+                    sort_plans_by_mtime(&mut plans);
                     let checked = vec![false; plans.len()];
                     self.plan_modal = Some(PlanModal {
                         plans,
@@ -1334,5 +1350,67 @@ mod tests {
         // Test with empty state
         let empty_state = create_test_state(vec![]);
         empty_state.send_initial_vim_command();
+    }
+
+    #[test]
+    fn test_sort_plans_by_mtime() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_sort_mtime");
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // Create files with different mtimes (write order gives ascending mtime)
+        let path_old = temp_dir.join("old.md");
+        let path_new = temp_dir.join("new.md");
+
+        fs::write(&path_old, "old plan").unwrap();
+        // Ensure different mtime by setting old file's mtime to the past
+        let old_time = filetime::FileTime::from_unix_time(1000, 0);
+        filetime::set_file_mtime(&path_old, old_time).unwrap();
+
+        fs::write(&path_new, "new plan").unwrap();
+
+        let mut plans = vec![
+            Plan {
+                title: "Old Plan".to_string(),
+                project_name: "proj".to_string(),
+                slug: "old".to_string(),
+                path: path_old.to_str().unwrap().to_string(),
+            },
+            Plan {
+                title: "New Plan".to_string(),
+                project_name: "proj".to_string(),
+                slug: "new".to_string(),
+                path: path_new.to_str().unwrap().to_string(),
+            },
+        ];
+
+        sort_plans_by_mtime(&mut plans);
+
+        // New plan should come first (descending mtime)
+        assert_eq!(plans[0].title, "New Plan");
+        assert_eq!(plans[1].title, "Old Plan");
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_sort_plans_by_mtime_missing_file() {
+        let mut plans = vec![
+            Plan {
+                title: "Missing".to_string(),
+                project_name: "proj".to_string(),
+                slug: "missing".to_string(),
+                path: "/nonexistent/path.md".to_string(),
+            },
+            Plan {
+                title: "Also Missing".to_string(),
+                project_name: "proj".to_string(),
+                slug: "also-missing".to_string(),
+                path: "/also/nonexistent.md".to_string(),
+            },
+        ];
+
+        // Should not panic
+        sort_plans_by_mtime(&mut plans);
+        assert_eq!(plans.len(), 2);
     }
 }

@@ -249,6 +249,13 @@ fn draw_plan_modal(
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(inner);
 
+    let visible_height = inner_chunks[0].height as usize;
+    let scroll_offset = if modal.selected >= visible_height {
+        modal.selected - visible_height + 1
+    } else {
+        0
+    };
+
     let lines: Vec<Line<'_>> = modal
         .plans
         .iter()
@@ -267,7 +274,8 @@ fn draw_plan_modal(
         })
         .collect();
 
-    let list = Paragraph::new(lines).wrap(Wrap { trim: true });
+    let list =
+        Paragraph::new(lines).scroll((u16::try_from(scroll_offset).unwrap_or(u16::MAX), 0));
     f.render_widget(list, inner_chunks[0]);
 
     let help = Paragraph::new("j/k: Move | Space: Toggle | Enter: Import | q: Cancel")
