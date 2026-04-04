@@ -1,4 +1,4 @@
-use clap::{CommandFactory, FromArgMatches, Parser};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture},
     execute,
@@ -15,6 +15,8 @@ mod crmux;
 mod event_handler;
 mod help;
 mod file_watcher;
+mod rpc_client;
+mod rpc_server;
 mod setup;
 mod todo;
 mod ui;
@@ -38,6 +40,15 @@ struct Args {
     /// Neovim socket path (set by nvim --listen)
     #[arg(long, env = "NVIM_LISTEN_ADDRESS", default_value = "/tmp/nvim.sock")]
     nvim_listen: String,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Print the currently selected todo's detail markdown to stdout
+    CurrentMd,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -45,6 +56,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         .after_help(help::cli_help_text())
         .get_matches();
     let args = Args::from_arg_matches(&matches).expect("arg parsing should not fail");
+
+    // Handle subcommands before TUI setup
+    if matches!(args.command, Some(Commands::CurrentMd)) {
+        return rpc_client::run_current_md();
+    }
 
     let home_dir = env::var("HOME").unwrap();
     let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{home_dir}/todotxt"));
@@ -91,6 +107,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         todos,
         file_watcher.receiver(),
         &todo_file,
+        &todotxt_dir,
         args.debug,
         args.nvim_listen,
     );
@@ -113,11 +130,21 @@ fn run_app<B: ratatui::backend::Backend>(
     todos: Vec<todo::Item>,
     file_watcher_rx: &std::sync::mpsc::Receiver<notify::Event>,
     todo_file: &str,
+    todotxt_dir: &str,
     debug_mode: bool,
     nvim_socket: String,
 ) -> io::Result<()> {
     let mut state = AppState::new(todos, nvim_socket);
     let mut event_handler = EventHandler::new();
+
+    // Start RPC server (continue without it if bind fails)
+    let rpc_server = match rpc_server::RpcServer::new() {
+        Ok(server) => Some(server),
+        Err(e) => {
+            debug!("Failed to start RPC server: {e}");
+            None
+        }
+    };
 
     // Send initial vim command on startup
     state.send_initial_vim_command();
@@ -134,6 +161,11 @@ fn run_app<B: ratatui::backend::Backend>(
             &mut state,
             debug_mode,
         );
+
+        // Handle RPC requests
+        if let Some(ref server) = rpc_server {
+            server.poll(state.get_current_todo_id(), todotxt_dir);
+        }
 
         // Check keyboard events non-blocking
         if event::poll(Duration::from_millis(100))? {
