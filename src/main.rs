@@ -137,8 +137,7 @@ fn run_app<B: ratatui::backend::Backend>(
     let mut state = AppState::new(todos, nvim_socket);
     let mut event_handler = EventHandler::new();
 
-    // Start RPC server (continue without it if bind fails)
-    let rpc_server = match rpc_server::RpcServer::new() {
+    let rpc_server = match rpc_server::RpcServer::new(todotxt_dir) {
         Ok(server) => Some(server),
         Err(e) => {
             debug!("Failed to start RPC server: {e}");
@@ -162,9 +161,8 @@ fn run_app<B: ratatui::backend::Backend>(
             debug_mode,
         );
 
-        // Handle RPC requests
         if let Some(ref server) = rpc_server {
-            server.poll(state.get_current_todo_id(), todotxt_dir);
+            server.poll(state.get_current_todo_id());
         }
 
         // Check keyboard events non-blocking
