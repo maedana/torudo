@@ -47,8 +47,8 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Print the currently selected todo's detail markdown to stdout
-    CurrentMd,
+    /// Print the currently selected todo as JSON to stdout
+    Current,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -58,8 +58,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::from_arg_matches(&matches).expect("arg parsing should not fail");
 
     // Handle subcommands before TUI setup
-    if matches!(args.command, Some(Commands::CurrentMd)) {
-        return rpc_client::run_current_md();
+    if matches!(args.command, Some(Commands::Current)) {
+        return rpc_client::run_current();
     }
 
     let home_dir = env::var("HOME").unwrap();
@@ -162,7 +162,7 @@ fn run_app<B: ratatui::backend::Backend>(
         );
 
         if let Some(ref server) = rpc_server {
-            server.poll(state.get_current_todo_id());
+            server.poll(state.get_current_todo());
         }
 
         // Check keyboard events non-blocking

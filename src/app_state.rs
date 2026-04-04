@@ -167,11 +167,14 @@ impl AppState {
             }
     }
 
-    pub fn get_current_todo_id(&self) -> Option<&str> {
+    pub fn get_current_todo(&self) -> Option<&Item> {
         let current_project_name = self.project_names.get(self.current_column)?;
         let current_todos = self.grouped_todos.get(current_project_name)?;
-        let selected_todo = current_todos.get(self.selected_in_column)?;
-        selected_todo.id.as_deref()
+        current_todos.get(self.selected_in_column)
+    }
+
+    pub fn get_current_todo_id(&self) -> Option<&str> {
+        self.get_current_todo()?.id.as_deref()
     }
 
     pub fn handle_navigation_key(&mut self, key_char: char) {

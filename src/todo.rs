@@ -1,18 +1,21 @@
 use chrono::NaiveDate;
 use log::debug;
+use serde::Serialize;
 use std::{collections::HashMap, error::Error, fs};
 use uuid::Uuid;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Item {
     pub completed: bool,
     pub priority: Option<char>,
     pub creation_date: Option<NaiveDate>,
     pub completion_date: Option<NaiveDate>,
+    #[serde(rename = "title")]
     pub description: String,
     pub projects: Vec<String>,
     pub contexts: Vec<String>,
     pub id: Option<String>,
+    #[serde(skip)]
     pub line_number: usize,
 }
 

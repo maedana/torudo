@@ -3,7 +3,9 @@ use std::io::{Read, Write};
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 
-pub const METHOD_GET_CURRENT_MD: &str = "get_current_md";
+use crate::todo;
+
+pub const METHOD_GET_CURRENT: &str = "get_current";
 
 const MAX_REQUEST_SIZE: usize = 4096;
 
@@ -102,7 +104,7 @@ impl RpcServer {
     }
 
     /// Poll for incoming RPC requests (non-blocking).
-    pub fn poll(&self, current_todo_id: Option<&str>) {
+    pub fn poll(&self, current_todo: Option<&todo::Item>) {
         let stream = match self.listener.accept() {
             Ok((stream, _)) => stream,
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => return,
@@ -111,12 +113,12 @@ impl RpcServer {
                 return;
             }
         };
-        Self::handle_connection(stream, current_todo_id, &self.todotxt_dir);
+        Self::handle_connection(stream, current_todo, &self.todotxt_dir);
     }
 
     fn handle_connection(
         mut stream: std::os::unix::net::UnixStream,
-        current_todo_id: Option<&str>,
+        current_todo: Option<&todo::Item>,
         todotxt_dir: &str,
     ) {
         let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(500)));
@@ -137,12 +139,10 @@ impl RpcServer {
         debug!("RPC request: method={method}, msgid={msgid}");
 
         let response = match method.as_str() {
-            METHOD_GET_CURRENT_MD => {
-                match handle_get_current_md(current_todo_id, todotxt_dir) {
-                    Ok(content) => encode_response(msgid, None, Some(&content)),
-                    Err(e) => encode_response(msgid, Some(&e), None),
-                }
-            }
+            METHOD_GET_CURRENT => match handle_get_current(current_todo, todotxt_dir) {
+                Ok(json) => encode_response(msgid, None, Some(&json)),
+                Err(e) => encode_response(msgid, Some(&e), None),
+            },
             _ => encode_response(msgid, Some(&format!("unknown method: {method}")), None),
         };
 
@@ -157,14 +157,21 @@ impl Drop for RpcServer {
     }
 }
 
-fn handle_get_current_md(
-    current_todo_id: Option<&str>,
+fn handle_get_current(
+    current_todo: Option<&todo::Item>,
     todotxt_dir: &str,
 ) -> Result<String, String> {
-    let todo_id = current_todo_id.ok_or("no todo selected")?;
-    let file_path = format!("{todotxt_dir}/todos/{todo_id}.md");
-    std::fs::read_to_string(&file_path)
-        .map_err(|e| format!("failed to read {file_path}: {e}"))
+    let item = current_todo.ok_or("no todo selected")?;
+    let mut json = serde_json::to_value(item).map_err(|e| format!("serialize error: {e}"))?;
+
+    if let Some(todo_id) = &item.id {
+        let md_path = format!("{todotxt_dir}/todos/{todo_id}.md");
+        if let Ok(content) = std::fs::read_to_string(&md_path) {
+            json["md"] = serde_json::Value::String(content);
+        }
+    }
+
+    serde_json::to_string_pretty(&json).map_err(|e| format!("serialize error: {e}"))
 }
 
 #[cfg(test)]
@@ -196,10 +203,10 @@ mod tests {
 
     #[test]
     fn test_encode_decode_request_roundtrip() {
-        let encoded = encode_request(1, METHOD_GET_CURRENT_MD);
+        let encoded = encode_request(1, METHOD_GET_CURRENT);
         let (msgid, method, params) = decode_request(&encoded).unwrap();
         assert_eq!(msgid, 1);
-        assert_eq!(method, METHOD_GET_CURRENT_MD);
+        assert_eq!(method, METHOD_GET_CURRENT);
         assert!(params.as_array().unwrap().is_empty());
     }
 
@@ -226,19 +233,43 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_get_current_md_success() {
+    fn test_handle_get_current_with_md() {
         let dir = tempfile::tempdir().unwrap();
         let todos_dir = dir.path().join("todos");
         std::fs::create_dir(&todos_dir).unwrap();
-        std::fs::write(todos_dir.join("abc-123.md"), "# My Todo\nDetails here").unwrap();
+        std::fs::write(todos_dir.join("abc-123.md"), "# Details").unwrap();
 
-        let result = handle_get_current_md(Some("abc-123"), dir.path().to_str().unwrap());
-        assert_eq!(result.unwrap(), "# My Todo\nDetails here");
+        let item = todo::Item::parse("(A) My task +project @home id:abc-123", 0);
+        let result = handle_get_current(Some(&item), dir.path().to_str().unwrap()).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["title"], "My task");
+        assert_eq!(json["priority"], "A");
+        assert_eq!(json["id"], "abc-123");
+        assert_eq!(json["md"], "# Details");
+        assert_eq!(json["projects"], serde_json::json!(["project"]));
+        assert_eq!(json["contexts"], serde_json::json!(["home"]));
+        assert_eq!(json["completed"], false);
     }
 
     #[test]
-    fn test_handle_get_current_md_no_selection() {
-        let result = handle_get_current_md(None, "/tmp");
+    fn test_handle_get_current_without_md() {
+        let dir = tempfile::tempdir().unwrap();
+        let todos_dir = dir.path().join("todos");
+        std::fs::create_dir(&todos_dir).unwrap();
+
+        let item = todo::Item::parse("Simple task id:xyz-789", 0);
+        let result = handle_get_current(Some(&item), dir.path().to_str().unwrap()).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["title"], "Simple task");
+        assert_eq!(json["id"], "xyz-789");
+        assert!(json.get("md").is_none());
+    }
+
+    #[test]
+    fn test_handle_get_current_no_selection() {
+        let result = handle_get_current(None, "/tmp");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("no todo selected"));
     }
@@ -262,18 +293,22 @@ mod tests {
             todotxt_dir: dir.path().to_str().unwrap().to_string(),
         };
 
+        let item = todo::Item::parse("Test todo id:test-id", 0);
+
         let mut client = UnixStream::connect(&sock_path).unwrap();
-        let req_buf = encode_request(42, METHOD_GET_CURRENT_MD);
+        let req_buf = encode_request(42, METHOD_GET_CURRENT);
         client.write_all(&req_buf).unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
 
-        server.poll(Some("test-id"));
+        server.poll(Some(&item));
 
         let mut resp_buf = Vec::new();
         client.read_to_end(&mut resp_buf).unwrap();
         let (error, result) = decode_response(&resp_buf).unwrap();
         assert!(error.is_none());
-        assert_eq!(result.unwrap(), "# Test Content");
+        let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(json["title"], "Test todo");
+        assert_eq!(json["md"], "# Test Content");
     }
 
     #[test]
@@ -291,27 +326,18 @@ mod tests {
             todotxt_dir: dir.path().to_str().unwrap().to_string(),
         };
 
+        let item = todo::Item::parse("x id:x", 0);
+
         let mut client = UnixStream::connect(&sock_path).unwrap();
         let req_buf = encode_request(1, "nonexistent");
         client.write_all(&req_buf).unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
 
-        server.poll(Some("x"));
+        server.poll(Some(&item));
 
         let mut resp_buf = Vec::new();
         client.read_to_end(&mut resp_buf).unwrap();
         let (error, _result) = decode_response(&resp_buf).unwrap();
         assert!(error.unwrap().contains("unknown method"));
-    }
-
-    #[test]
-    fn test_handle_get_current_md_file_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        let todos_dir = dir.path().join("todos");
-        std::fs::create_dir(&todos_dir).unwrap();
-
-        let result = handle_get_current_md(Some("nonexistent"), dir.path().to_str().unwrap());
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("failed to read"));
     }
 }
