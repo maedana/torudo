@@ -1,4 +1,5 @@
 use crate::crmux::Plan;
+use crate::url::{extract_urls, open_urls};
 use crate::todo::{
     add_missing_ids, append_todo, group_todos_by_project_owned, has_todo_with_id, load_todos,
     mark_complete, Item,
@@ -245,13 +246,18 @@ impl AppState {
 
     pub fn handle_open_urls(&mut self) {
         if let Some(todo) = self.get_current_todo() {
-            let urls = crate::url::extract_urls(&todo.description);
+            let urls = extract_urls(&todo.description);
             if urls.is_empty() {
                 self.status_message = Some("No URLs found".to_string());
             } else {
                 let count = urls.len();
-                crate::url::open_urls(&urls);
-                self.status_message = Some(format!("Opened {count} URL(s)"));
+                let failures = open_urls(&urls);
+                if failures == 0 {
+                    self.status_message = Some(format!("Opened {count} URL(s)"));
+                } else {
+                    self.status_message =
+                        Some(format!("Opened {} URL(s), {failures} failed", count - failures));
+                }
             }
         }
     }

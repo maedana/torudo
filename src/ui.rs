@@ -1,7 +1,7 @@
 use crate::app_state::AppState;
 use crate::help::HELP_ENTRIES;
 use crate::todo::Item;
-use crate::url::{extract_urls, strip_urls};
+use crate::url::strip_urls;
 use unicode_width::UnicodeWidthChar;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Flex, Layout, Rect},
@@ -27,11 +27,10 @@ pub fn create_todo_spans(todo: &Item) -> Vec<Span<'static>> {
             Style::default().fg(color).add_modifier(Modifier::BOLD),
         ));
     }
-    let has_urls = !extract_urls(&todo.description).is_empty();
+    let (display_text, has_urls) = strip_urls(&todo.description);
     if has_urls {
         spans.push(Span::styled("🔗 ", Style::default().fg(Color::Blue)));
     }
-    let display_text = strip_urls(&todo.description);
     spans.push(Span::raw(display_text));
     for context in &todo.contexts {
         spans.push(Span::styled(

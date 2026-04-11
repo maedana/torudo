@@ -1,24 +1,38 @@
+fn is_url(word: &str) -> bool {
+    word.starts_with("https://") || word.starts_with("http://")
+}
+
 /// Extract all URLs (http:// or https://) from text.
 pub fn extract_urls(text: &str) -> Vec<String> {
     text.split_whitespace()
-        .filter(|word| word.starts_with("https://") || word.starts_with("http://"))
+        .filter(|word| is_url(word))
         .map(String::from)
         .collect()
 }
 
 /// Remove all URLs from text and clean up extra whitespace.
-pub fn strip_urls(text: &str) -> String {
-    text.split_whitespace()
-        .filter(|word| !word.starts_with("https://") && !word.starts_with("http://"))
-        .collect::<Vec<_>>()
-        .join(" ")
+/// Returns `(stripped_text, had_urls)`.
+pub fn strip_urls(text: &str) -> (String, bool) {
+    let mut had_urls = false;
+    let stripped: Vec<&str> = text
+        .split_whitespace()
+        .filter(|word| {
+            if is_url(word) {
+                had_urls = true;
+                false
+            } else {
+                true
+            }
+        })
+        .collect();
+    (stripped.join(" "), had_urls)
 }
 
-/// Open all URLs in the default browser.
-pub fn open_urls(urls: &[String]) {
-    for url in urls {
-        let _ = opener::open(url);
-    }
+/// Open all URLs in the default browser. Returns the number of failures.
+pub fn open_urls(urls: &[String]) -> usize {
+    urls.iter()
+        .filter(|url| opener::open(url).is_err())
+        .count()
 }
 
 #[cfg(test)]
@@ -72,14 +86,14 @@ mod tests {
 
     #[test]
     fn strip_urls_no_url() {
-        assert_eq!(strip_urls("just plain text"), "just plain text");
+        assert_eq!(strip_urls("just plain text"), ("just plain text".to_string(), false));
     }
 
     #[test]
     fn strip_urls_single() {
         assert_eq!(
             strip_urls("check https://example.com/path please"),
-            "check please"
+            ("check please".to_string(), true)
         );
     }
 
@@ -87,7 +101,7 @@ mod tests {
     fn strip_urls_at_end() {
         assert_eq!(
             strip_urls("link is https://example.com"),
-            "link is"
+            ("link is".to_string(), true)
         );
     }
 
@@ -95,7 +109,7 @@ mod tests {
     fn strip_urls_at_start() {
         assert_eq!(
             strip_urls("https://example.com is the link"),
-            "is the link"
+            ("is the link".to_string(), true)
         );
     }
 
@@ -103,12 +117,12 @@ mod tests {
     fn strip_urls_multiple() {
         assert_eq!(
             strip_urls("see https://a.com and https://b.com/path end"),
-            "see and end"
+            ("see and end".to_string(), true)
         );
     }
 
     #[test]
     fn strip_urls_only_url() {
-        assert_eq!(strip_urls("https://example.com"), "");
+        assert_eq!(strip_urls("https://example.com"), (String::new(), true));
     }
 }
