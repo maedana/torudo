@@ -78,8 +78,8 @@ pub fn draw_project_column(
     column_area: ratatui::layout::Rect,
     is_active_column: bool,
     selected_in_column: usize,
-    scroll_offset: &mut usize,
-) {
+    scroll_offset: usize,
+) -> usize {
     let border_style = if is_active_column {
         Style::default().fg(Color::Yellow)
     } else {
@@ -95,41 +95,37 @@ pub fn draw_project_column(
     f.render_widget(project_block, column_area);
 
     if project_todos.is_empty() {
-        return;
+        return scroll_offset;
     }
 
     let available_width = inner_area.width.saturating_sub(4);
     let available_height = inner_area.height;
 
-    // Calculate heights for all todos
     let heights: Vec<u16> = project_todos
         .iter()
         .map(|todo| calc_todo_height(todo, available_width))
         .collect();
 
     // Adjust scroll_offset so selected item is visible (only for active column)
+    let mut offset = scroll_offset;
     if is_active_column {
-        // Scroll up if selected is above viewport
-        if selected_in_column < *scroll_offset {
-            *scroll_offset = selected_in_column;
+        if selected_in_column < offset {
+            offset = selected_in_column;
         }
 
-        // Scroll down if selected is below viewport
-        loop {
-            let used: u16 = heights[*scroll_offset..=selected_in_column]
-                .iter()
-                .sum();
+        while offset < selected_in_column {
+            let used: u16 = heights[offset..=selected_in_column].iter().sum();
             if used <= available_height {
                 break;
             }
-            *scroll_offset += 1;
+            offset += 1;
         }
     }
 
-    // Determine visible range starting from scroll_offset
+    // Determine visible range
     let mut used_height: u16 = 0;
-    let mut visible_end = *scroll_offset;
-    for &h in &heights[*scroll_offset..] {
+    let mut visible_end = offset;
+    for &h in &heights[offset..] {
         if used_height + h > available_height {
             break;
         }
@@ -137,8 +133,8 @@ pub fn draw_project_column(
         visible_end += 1;
     }
 
-    let visible_todos = &project_todos[*scroll_offset..visible_end];
-    let visible_heights = &heights[*scroll_offset..visible_end];
+    let visible_todos = &project_todos[offset..visible_end];
+    let visible_heights = &heights[offset..visible_end];
 
     let constraints: Vec<Constraint> = visible_heights
         .iter()
@@ -151,7 +147,7 @@ pub fn draw_project_column(
         .split(inner_area);
 
     for (i, todo) in visible_todos.iter().enumerate() {
-        let actual_idx = *scroll_offset + i;
+        let actual_idx = offset + i;
         let spans = create_todo_spans(todo);
         let is_selected = is_active_column && actual_idx == selected_in_column;
         let (todo_style, background_style) = get_todo_styles(is_selected, todo.completed);
@@ -167,6 +163,8 @@ pub fn draw_project_column(
 
         f.render_widget(todo_paragraph, todo_layout[i]);
     }
+
+    offset
 }
 
 pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
@@ -203,24 +201,24 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
                     usize::MAX
                 };
 
-                let mut col_scroll = if is_active_column {
+                let col_scroll = if is_active_column {
                     state.scroll_offset
                 } else {
                     0
                 };
 
-                draw_project_column(
+                let new_scroll = draw_project_column(
                     f,
                     project_todos,
                     project_name,
                     columns[col_idx],
                     is_active_column,
                     selected_for_this_column,
-                    &mut col_scroll,
+                    col_scroll,
                 );
 
                 if is_active_column {
-                    state.scroll_offset = col_scroll;
+                    state.scroll_offset = new_scroll;
                 }
             }
         }
