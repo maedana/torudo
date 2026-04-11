@@ -1,6 +1,7 @@
 use crate::app_state::AppState;
 use crate::help::HELP_ENTRIES;
 use crate::todo::Item;
+use unicode_width::UnicodeWidthChar;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Flex, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -54,8 +55,6 @@ pub fn get_todo_styles(is_selected: bool, is_completed: bool) -> (Style, Style) 
 }
 
 fn count_wrapped_lines(text: &str, max_width: usize) -> usize {
-    use unicode_width::UnicodeWidthChar;
-
     if text.is_empty() || max_width == 0 {
         return 1;
     }
