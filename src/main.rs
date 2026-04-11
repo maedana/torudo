@@ -162,7 +162,7 @@ fn run_app<B: ratatui::backend::Backend>(
 
     loop {
         terminal.draw(|f| {
-            draw_ui(f, &state);
+            draw_ui(f, &mut state);
         })?;
 
         // Handle file watcher events

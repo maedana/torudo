@@ -66,6 +66,7 @@ pub struct AppState {
     pub project_names: Vec<String>,
     pub current_column: usize,
     pub selected_in_column: usize,
+    pub scroll_offset: usize,
     pub nvim_socket: String,
     pub crmux_version: Option<(u32, u32, u32)>,
     pub claude_available: bool,
@@ -129,6 +130,7 @@ impl AppState {
             project_names,
             current_column: 0,
             selected_in_column: 0,
+            scroll_offset: 0,
             nvim_socket,
             crmux_version,
             claude_available,
@@ -208,6 +210,7 @@ impl AppState {
                 if self.current_column > 0 {
                     self.current_column -= 1;
                     self.selected_in_column = 0;
+                    self.scroll_offset = 0;
                     if let Some(todo_id) = self.get_current_todo_id() {
                         self.send_vim_command(todo_id);
                     }
@@ -217,6 +220,7 @@ impl AppState {
                 if self.current_column < visible.len().saturating_sub(1) {
                     self.current_column += 1;
                     self.selected_in_column = 0;
+                    self.scroll_offset = 0;
                     if let Some(todo_id) = self.get_current_todo_id() {
                         self.send_vim_command(todo_id);
                     }

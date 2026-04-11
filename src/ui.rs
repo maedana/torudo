@@ -55,6 +55,22 @@ pub fn get_todo_styles(is_selected: bool, is_completed: bool) -> (Style, Style) 
     (todo_style, background_style)
 }
 
+fn calc_todo_height(todo: &Item, available_width: u16) -> u16 {
+    let spans = create_todo_spans(todo);
+    let total_text_len: usize = spans.iter().map(|span| span.content.chars().count()).sum();
+
+    if available_width > 10 {
+        let effective_width = available_width.saturating_sub(2);
+        let lines = u16::try_from(total_text_len)
+            .unwrap_or(u16::MAX)
+            .div_ceil(effective_width)
+            .max(1);
+        (lines + 2).min(8) // +2 for borders, cap at 8
+    } else {
+        4
+    }
+}
+
 pub fn draw_project_column(
     f: &mut ratatui::Frame,
     project_todos: &[Item],
@@ -62,6 +78,7 @@ pub fn draw_project_column(
     column_area: ratatui::layout::Rect,
     is_active_column: bool,
     selected_in_column: usize,
+    scroll_offset: &mut usize,
 ) {
     let border_style = if is_active_column {
         Style::default().fg(Color::Yellow)
@@ -77,56 +94,82 @@ pub fn draw_project_column(
     let inner_area = project_block.inner(column_area);
     f.render_widget(project_block, column_area);
 
-    // Calculate dynamic height for each todo based on text length
-    let available_width = inner_area.width.saturating_sub(4); // Account for borders
-    let todo_constraints: Vec<Constraint> = project_todos
-        .iter()
-        .map(|todo| {
-            // Create spans to get accurate text length including priority and context
-            let spans = create_todo_spans(todo);
-            let total_text_len: usize = spans.iter().map(|span| span.content.chars().count()).sum();
+    if project_todos.is_empty() {
+        return;
+    }
 
-            let lines_needed = if available_width > 10 {
-                // More conservative calculation for better text wrapping
-                let effective_width = available_width.saturating_sub(2); // Account for padding
-                let lines =
-                    u16::try_from(total_text_len).unwrap_or(u16::MAX).div_ceil(effective_width).max(1);
-                lines + 2 // +2 for borders
-            } else {
-                4 // Fallback minimum height
-            };
-            Constraint::Length(lines_needed.min(8)) // Cap at 8 lines to prevent excessive height
-        })
+    let available_width = inner_area.width.saturating_sub(4);
+    let available_height = inner_area.height;
+
+    // Calculate heights for all todos
+    let heights: Vec<u16> = project_todos
+        .iter()
+        .map(|todo| calc_todo_height(todo, available_width))
         .collect();
 
-    if !todo_constraints.is_empty() {
-        let todo_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(todo_constraints)
-            .split(inner_area);
-
-        for (todo_idx, todo) in project_todos.iter().enumerate() {
-            if todo_idx < todo_layout.len() {
-                let spans = create_todo_spans(todo);
-                let is_selected = is_active_column && todo_idx == selected_in_column;
-                let (todo_style, background_style) = get_todo_styles(is_selected, todo.completed);
-
-                let todo_paragraph = Paragraph::new(Line::from(spans))
-                    .block(
-                        Block::default()
-                            .borders(Borders::ALL)
-                            .border_style(todo_style),
-                    )
-                    .style(background_style)
-                    .wrap(Wrap { trim: true });
-
-                f.render_widget(todo_paragraph, todo_layout[todo_idx]);
-            }
+    // Adjust scroll_offset so selected item is visible (only for active column)
+    if is_active_column {
+        // Scroll up if selected is above viewport
+        if selected_in_column < *scroll_offset {
+            *scroll_offset = selected_in_column;
         }
+
+        // Scroll down if selected is below viewport
+        loop {
+            let used: u16 = heights[*scroll_offset..=selected_in_column]
+                .iter()
+                .sum();
+            if used <= available_height {
+                break;
+            }
+            *scroll_offset += 1;
+        }
+    }
+
+    // Determine visible range starting from scroll_offset
+    let mut used_height: u16 = 0;
+    let mut visible_end = *scroll_offset;
+    for &h in &heights[*scroll_offset..] {
+        if used_height + h > available_height {
+            break;
+        }
+        used_height += h;
+        visible_end += 1;
+    }
+
+    let visible_todos = &project_todos[*scroll_offset..visible_end];
+    let visible_heights = &heights[*scroll_offset..visible_end];
+
+    let constraints: Vec<Constraint> = visible_heights
+        .iter()
+        .map(|&h| Constraint::Length(h))
+        .collect();
+
+    let todo_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(inner_area);
+
+    for (i, todo) in visible_todos.iter().enumerate() {
+        let actual_idx = *scroll_offset + i;
+        let spans = create_todo_spans(todo);
+        let is_selected = is_active_column && actual_idx == selected_in_column;
+        let (todo_style, background_style) = get_todo_styles(is_selected, todo.completed);
+
+        let todo_paragraph = Paragraph::new(Line::from(spans))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(todo_style),
+            )
+            .style(background_style)
+            .wrap(Wrap { trim: true });
+
+        f.render_widget(todo_paragraph, todo_layout[i]);
     }
 }
 
-pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
+pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
     let size = f.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -160,6 +203,12 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
                     usize::MAX
                 };
 
+                let mut col_scroll = if is_active_column {
+                    state.scroll_offset
+                } else {
+                    0
+                };
+
                 draw_project_column(
                     f,
                     project_todos,
@@ -167,7 +216,12 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
                     columns[col_idx],
                     is_active_column,
                     selected_for_this_column,
+                    &mut col_scroll,
                 );
+
+                if is_active_column {
+                    state.scroll_offset = col_scroll;
+                }
             }
         }
     }
