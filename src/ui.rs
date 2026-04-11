@@ -1,7 +1,6 @@
 use crate::app_state::AppState;
 use crate::help::HELP_ENTRIES;
 use crate::todo::Item;
-use unicode_width::UnicodeWidthStr;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Flex, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -54,17 +53,54 @@ pub fn get_todo_styles(is_selected: bool, is_completed: bool) -> (Style, Style) 
     (todo_style, background_style)
 }
 
+fn count_wrapped_lines(text: &str, max_width: usize) -> usize {
+    use unicode_width::UnicodeWidthChar;
+
+    if text.is_empty() || max_width == 0 {
+        return 1;
+    }
+
+    let mut lines = 1;
+    let mut line_width: usize = 0;
+
+    for word in text.split(' ') {
+        let word_width: usize = word.chars().map(|c| c.width().unwrap_or(0)).sum();
+
+        if line_width > 0 {
+            // Try to fit word on current line (+ 1 for the space separator)
+            if line_width + 1 + word_width <= max_width {
+                line_width += 1 + word_width;
+                continue;
+            }
+            // Word doesn't fit, start new line
+            lines += 1;
+            line_width = 0;
+        }
+
+        // Place word on current (possibly new) line, breaking by char if needed
+        for ch in word.chars() {
+            let ch_width = ch.width().unwrap_or(0);
+            if line_width + ch_width > max_width && line_width > 0 {
+                lines += 1;
+                line_width = ch_width;
+            } else {
+                line_width += ch_width;
+            }
+        }
+    }
+
+    lines
+}
+
 fn calc_todo_height(todo: &Item, available_width: u16) -> u16 {
     let spans = create_todo_spans(todo);
-    let total_display_width: usize = spans.iter().map(|span| span.content.width()).sum();
+    let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
 
     if available_width > 10 {
-        let effective_width = available_width.saturating_sub(2);
-        let lines = u16::try_from(total_display_width)
-            .unwrap_or(u16::MAX)
-            .div_ceil(effective_width)
-            .max(1);
-        (lines + 2).min(8) // +2 for borders, cap at 8
+        let effective_width = usize::from(available_width.saturating_sub(2));
+        let lines = count_wrapped_lines(&text, effective_width);
+        let lines_u16 = u16::try_from(lines).unwrap_or(u16::MAX);
+        (lines_u16 + 2).min(8) // +2 for borders, cap at 8
     } else {
         4
     }
@@ -414,20 +450,32 @@ mod tests {
         eprintln!("content line count: {}", content_lines.len());
     }
 
-    #[test]
-    fn calc_todo_height_matches_actual_render() {
-        let desc = "あいうえおかきくけこさしすせそ";
-        let width: u16 = 20;
+    fn assert_height_matches_render(desc: &str, width: u16) {
         let calc_h = calc_todo_height(&make_item(desc), width);
-
-        let lines = render_paragraph_to_lines(desc, width, 10);
+        let lines = render_paragraph_to_lines(desc, width, 14);
         let actual_content_lines = lines.iter().filter(|l| !l.is_empty()).count() as u16;
-        let actual_h = actual_content_lines + 2; // +2 for borders
+        let actual_h = actual_content_lines + 2;
 
+        eprintln!("desc={desc}");
+        eprintln!("lines={lines:?}");
         eprintln!("calc_h={calc_h}, actual_h={actual_h}, content_lines={actual_content_lines}");
         assert_eq!(
             calc_h, actual_h,
-            "calculated height should match actual rendered height"
+            "height mismatch for \"{desc}\" at width={width}"
+        );
+    }
+
+    #[test]
+    fn calc_todo_height_matches_actual_render_cjk() {
+        assert_height_matches_render("あいうえおかきくけこさしすせそ", 20);
+    }
+
+    #[test]
+    fn calc_todo_height_matches_actual_render_with_spaces() {
+        // Word wrapping at spaces can produce more lines than simple ceil division
+        assert_height_matches_render(
+            "[要望] テストの確認のために結果投稿のレスポンスにURLが欲しい [#12345] https://example.com/projects/52/tasks/12345",
+            30,
         );
     }
 }
