@@ -72,7 +72,7 @@ pub struct AppState {
     pub status_message: Option<String>,
     pub plan_modal: Option<PlanModal>,
     pub show_help: bool,
-    pub hidden_projects: HashSet<String>,
+    hidden_projects: HashSet<String>,
 }
 
 impl AppState {
@@ -115,7 +115,7 @@ impl AppState {
         }
     }
 
-    pub fn new(todos: Vec<Item>, nvim_socket: String) -> Self {
+    pub fn new(todos: Vec<Item>, nvim_socket: String, hidden_projects: HashSet<String>) -> Self {
         let grouped_todos = group_todos_by_project_owned(&todos);
         let mut project_names: Vec<String> = grouped_todos.keys().cloned().collect();
         project_names.sort();
@@ -135,7 +135,7 @@ impl AppState {
             status_message: None,
             plan_modal: None,
             show_help: false,
-            hidden_projects: HashSet::new(),
+            hidden_projects,
         }
     }
 
@@ -255,9 +255,9 @@ impl AppState {
         let visible = self.visible_project_names();
         if let Some(project_name) = visible.get(self.current_column) {
             self.hidden_projects.insert(project_name.clone());
-            let new_visible = self.visible_project_names();
-            if self.current_column >= new_visible.len() {
-                self.current_column = new_visible.len().saturating_sub(1);
+            let new_visible_len = visible.len() - 1;
+            if self.current_column >= new_visible_len {
+                self.current_column = new_visible_len.saturating_sub(1);
             }
             self.selected_in_column = 0;
         }
@@ -274,10 +274,6 @@ impl AppState {
         let mut names: Vec<&String> = self.hidden_projects.iter().collect();
         names.sort();
         Some(format!("Hidden: {}", names.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")))
-    }
-
-    pub fn set_hidden_projects(&mut self, hidden: HashSet<String>) {
-        self.hidden_projects = hidden;
     }
 
     pub fn handle_reload(&mut self, todo_file: &str) {
@@ -506,7 +502,7 @@ mod tests {
     use std::fs;
 
     fn create_test_state(todos: Vec<Item>) -> AppState {
-        let mut state = AppState::new(todos, "/tmp/nvim.sock".to_string());
+        let mut state = AppState::new(todos, "/tmp/nvim.sock".to_string(), HashSet::new());
         state.crmux_version = None;
         state.claude_available = false;
         state
@@ -564,7 +560,7 @@ mod tests {
     #[test]
     fn test_app_state_new() {
         let todos = create_test_todos();
-        let state = AppState::new(todos.clone(), "/tmp/nvim.sock".to_string());
+        let state = AppState::new(todos.clone(), "/tmp/nvim.sock".to_string(), HashSet::new());
 
         assert_eq!(state.todos.len(), 4);
         assert_eq!(state.current_column, 0);
@@ -1531,10 +1527,9 @@ mod tests {
     fn test_new_with_initial_hidden() {
         let todos = create_test_todos();
         let hidden: HashSet<String> = vec!["No Project".to_string()].into_iter().collect();
-        let mut state = AppState::new(todos, "/tmp/nvim.sock".to_string());
+        let mut state = AppState::new(todos, "/tmp/nvim.sock".to_string(), hidden);
         state.crmux_version = None;
         state.claude_available = false;
-        state.set_hidden_projects(hidden);
 
         let visible = state.visible_project_names();
         assert_eq!(visible.len(), 3);

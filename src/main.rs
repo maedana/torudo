@@ -119,7 +119,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         &todotxt_dir,
         args.debug,
         args.nvim_listen,
-        hidden_projects,
+        &hidden_projects,
     );
 
     disable_raw_mode()?;
@@ -144,10 +144,9 @@ fn run_app<B: ratatui::backend::Backend>(
     todotxt_dir: &str,
     debug_mode: bool,
     nvim_socket: String,
-    hidden_projects: std::collections::HashSet<String>,
+    hidden_projects: &std::collections::HashSet<String>,
 ) -> io::Result<()> {
-    let mut state = AppState::new(todos, nvim_socket);
-    state.set_hidden_projects(hidden_projects);
+    let mut state = AppState::new(todos, nvim_socket, hidden_projects.clone());
     let mut event_handler = EventHandler::new();
 
     let rpc_server = match rpc_server::RpcServer::new(todotxt_dir) {
