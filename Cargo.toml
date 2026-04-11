@@ -16,20 +16,21 @@ name = "torudo"
 path = "src/main.rs"
 
 [dependencies]
-ratatui = "0.28"
-crossterm = "0.28"
+ratatui = "0.30"
+crossterm = "0.29"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4"] }
-notify = "6.0"
+notify = "8.0"
 clap = { version = "4.0", features = ["derive", "env"] }
 log = "0.4"
-env_logger = "0.10"
+env_logger = "0.11"
 rmpv = "1"
 rmp = "0.8"
 rmp-serde = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 libc = "0.2"
+unicode-width = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

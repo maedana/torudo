@@ -136,8 +136,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_app<B: ratatui::backend::Backend>(
-    terminal: &mut Terminal<B>,
+fn run_app(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     todos: Vec<todo::Item>,
     file_watcher_rx: &std::sync::mpsc::Receiver<notify::Event>,
     todo_file: &str,

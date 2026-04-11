@@ -1,8 +1,9 @@
 use crate::app_state::AppState;
 use crate::help::HELP_ENTRIES;
 use crate::todo::Item;
+use unicode_width::UnicodeWidthStr;
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Flex, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
@@ -12,8 +13,6 @@ pub fn create_todo_spans(todo: &Item) -> Vec<Span<'_>> {
     let mut spans = Vec::new();
     if todo.completed {
         spans.push(Span::styled("✓ ", Style::default().fg(Color::Green)));
-    } else {
-        spans.push(Span::raw("  "));
     }
     if let Some(priority) = todo.priority {
         let color = match priority {
@@ -57,11 +56,11 @@ pub fn get_todo_styles(is_selected: bool, is_completed: bool) -> (Style, Style) 
 
 fn calc_todo_height(todo: &Item, available_width: u16) -> u16 {
     let spans = create_todo_spans(todo);
-    let total_text_len: usize = spans.iter().map(|span| span.content.chars().count()).sum();
+    let total_display_width: usize = spans.iter().map(|span| span.content.width()).sum();
 
     if available_width > 10 {
         let effective_width = available_width.saturating_sub(2);
-        let lines = u16::try_from(total_text_len)
+        let lines = u16::try_from(total_display_width)
             .unwrap_or(u16::MAX)
             .div_ceil(effective_width)
             .max(1);
@@ -98,7 +97,7 @@ pub fn draw_project_column(
         return scroll_offset;
     }
 
-    let available_width = inner_area.width.saturating_sub(4);
+    let available_width = inner_area.width;
     let available_height = inner_area.height;
 
     let heights: Vec<u16> = project_todos
@@ -144,6 +143,7 @@ pub fn draw_project_column(
     let todo_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints(constraints)
+        .flex(Flex::Start)
         .split(inner_area);
 
     for (i, todo) in visible_todos.iter().enumerate() {
@@ -336,6 +336,100 @@ fn draw_plan_modal(
         .style(Style::default())
         .alignment(Alignment::Center);
     f.render_widget(help, inner_chunks[1]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::todo::Item;
+
+    fn make_item(description: &str) -> Item {
+        Item {
+            completed: false,
+            priority: None,
+            creation_date: None,
+            completion_date: None,
+            description: description.to_string(),
+            projects: vec![],
+            contexts: vec![],
+            id: None,
+            line_number: 0,
+        }
+    }
+
+    #[test]
+    fn calc_todo_height_cjk_short() {
+        // "テスト" = 6 display cells
+        // width=30 → effective_width=28 → ceil(6/28)=1 → height=3
+        let item = make_item("テスト");
+        assert_eq!(calc_todo_height(&item, 30), 3);
+    }
+
+    #[test]
+    fn calc_todo_height_cjk_wraps() {
+        // 15 CJK chars = 30 display cells
+        // width=20 → effective_width=18 → ceil(30/18)=2 → height=4
+        let item = make_item("あいうえおかきくけこさしすせそ");
+        assert_eq!(calc_todo_height(&item, 20), 4);
+    }
+
+    fn render_paragraph_to_lines(description: &str, width: u16, height: u16) -> Vec<String> {
+        use ratatui::backend::TestBackend;
+
+        let item = make_item(description);
+        let spans = create_todo_spans(&item);
+
+        let area = Rect::new(0, 0, width, height);
+        let backend = TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|f| {
+                let p = Paragraph::new(Line::from(spans))
+                    .block(Block::default().borders(Borders::ALL))
+                    .wrap(Wrap { trim: true });
+                f.render_widget(p, area);
+            })
+            .unwrap();
+
+        let buf = terminal.backend().buffer().clone();
+        (1..height - 1)
+            .map(|y| {
+                let row: String = (1..width - 1)
+                    .map(|x| buf.cell((x, y)).unwrap().symbol().to_string())
+                    .collect();
+                row.trim_end().to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn render_cjk_paragraph_actual_lines() {
+        // Render into a width that should produce 2 wrapped lines
+        let lines = render_paragraph_to_lines("あいうえおかきくけこさしすせそ", 20, 6);
+        eprintln!("rendered lines: {lines:?}");
+        assert!(!lines[0].is_empty(), "first content row should not be blank");
+
+        let content_lines: Vec<_> = lines.iter().filter(|l| !l.is_empty()).collect();
+        eprintln!("content line count: {}", content_lines.len());
+    }
+
+    #[test]
+    fn calc_todo_height_matches_actual_render() {
+        let desc = "あいうえおかきくけこさしすせそ";
+        let width: u16 = 20;
+        let calc_h = calc_todo_height(&make_item(desc), width);
+
+        let lines = render_paragraph_to_lines(desc, width, 10);
+        let actual_content_lines = lines.iter().filter(|l| !l.is_empty()).count() as u16;
+        let actual_h = actual_content_lines + 2; // +2 for borders
+
+        eprintln!("calc_h={calc_h}, actual_h={actual_h}, content_lines={actual_content_lines}");
+        assert_eq!(
+            calc_h, actual_h,
+            "calculated height should match actual rendered height"
+        );
+    }
 }
 
 fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect) {
