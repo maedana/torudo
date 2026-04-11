@@ -243,6 +243,19 @@ impl AppState {
         }
     }
 
+    pub fn handle_open_urls(&mut self) {
+        if let Some(todo) = self.get_current_todo() {
+            let urls = crate::url::extract_urls(&todo.description);
+            if urls.is_empty() {
+                self.status_message = Some("No URLs found".to_string());
+            } else {
+                let count = urls.len();
+                crate::url::open_urls(&urls);
+                self.status_message = Some(format!("Opened {count} URL(s)"));
+            }
+        }
+    }
+
     pub const fn toggle_help(&mut self) {
         self.show_help = !self.show_help;
     }

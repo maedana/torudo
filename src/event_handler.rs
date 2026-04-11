@@ -237,6 +237,12 @@ impl EventHandler {
                 self.pending_keys.push('c');
                 state.status_message = Some(build_c_submenu(state));
             }
+            KeyCode::Char('o') => {
+                if debug_mode {
+                    debug!("Open URLs command received");
+                }
+                state.handle_open_urls();
+            }
             KeyCode::Char('v') => {
                 if debug_mode {
                     debug!("Hide project command received");

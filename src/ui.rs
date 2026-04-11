@@ -1,6 +1,7 @@
 use crate::app_state::AppState;
 use crate::help::HELP_ENTRIES;
 use crate::todo::Item;
+use crate::url::{extract_urls, strip_urls};
 use unicode_width::UnicodeWidthChar;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Flex, Layout, Rect},
@@ -9,7 +10,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
-pub fn create_todo_spans(todo: &Item) -> Vec<Span<'_>> {
+pub fn create_todo_spans(todo: &Item) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     if todo.completed {
         spans.push(Span::styled("✓ ", Style::default().fg(Color::Green)));
@@ -26,7 +27,12 @@ pub fn create_todo_spans(todo: &Item) -> Vec<Span<'_>> {
             Style::default().fg(color).add_modifier(Modifier::BOLD),
         ));
     }
-    spans.push(Span::raw(&todo.description));
+    let has_urls = !extract_urls(&todo.description).is_empty();
+    if has_urls {
+        spans.push(Span::styled("🔗 ", Style::default().fg(Color::Blue)));
+    }
+    let display_text = strip_urls(&todo.description);
+    spans.push(Span::raw(display_text));
     for context in &todo.contexts {
         spans.push(Span::styled(
             format!(" @{context}"),
@@ -255,7 +261,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
     let version = env!("CARGO_PKG_VERSION");
     let footer_text = state.status_message.as_ref().map_or_else(
         || {
-            let base = format!("torudo v{version} | hjkl: Nav | x: Complete | r: Reload");
+            let base = format!("torudo v{version} | hjkl: Nav | x: Complete | o: Open URL | r: Reload");
             let claude_cmd = if state.crmux_available() || state.claude_available() {
                 " | c: Claude"
             } else {

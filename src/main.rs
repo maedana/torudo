@@ -20,6 +20,7 @@ mod rpc_server;
 mod setup;
 mod todo;
 mod ui;
+mod url;
 
 use app_state::AppState;
 use event_handler::EventHandler;

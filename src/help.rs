@@ -7,6 +7,7 @@ pub struct HelpEntry {
 pub const HELP_ENTRIES: &[HelpEntry] = &[
     HelpEntry { key: "hjkl", desc: "Navigate between columns and todos", indent: false },
     HelpEntry { key: "x", desc: "Complete selected todo", indent: false },
+    HelpEntry { key: "o", desc: "Open URLs in selected todo", indent: false },
     HelpEntry { key: "r", desc: "Reload todo.txt", indent: false },
     HelpEntry { key: "c", desc: "Claude submenu (requires crmux or claude CLI)", indent: false },
     HelpEntry { key: "csp", desc: "Send plan prompt to project's idle crmux session (>= 0.10.0)", indent: true },
