@@ -6,7 +6,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Flex, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Paragraph},
 };
 
 pub fn create_todo_spans(todo: &Item) -> Vec<Span<'_>> {
@@ -54,39 +54,26 @@ pub fn get_todo_styles(is_selected: bool, is_completed: bool) -> (Style, Style) 
     (todo_style, background_style)
 }
 
-fn count_wrapped_lines(text: &str, max_width: usize) -> usize {
+fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
     if text.is_empty() || max_width == 0 {
-        return 1;
+        return vec![String::new()];
     }
 
-    let mut lines = 1;
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
     let mut line_width: usize = 0;
 
-    for word in text.split(' ') {
-        let word_width: usize = word.chars().map(|c| c.width().unwrap_or(0)).sum();
-
-        if line_width > 0 {
-            // Try to fit word on current line (+ 1 for the space separator)
-            if line_width + 1 + word_width <= max_width {
-                line_width += 1 + word_width;
-                continue;
-            }
-            // Word doesn't fit, start new line
-            lines += 1;
+    for ch in text.chars() {
+        let ch_width = ch.width().unwrap_or(0);
+        if line_width + ch_width > max_width && line_width > 0 {
+            lines.push(current_line);
+            current_line = String::new();
             line_width = 0;
         }
-
-        // Place word on current (possibly new) line, breaking by char if needed
-        for ch in word.chars() {
-            let ch_width = ch.width().unwrap_or(0);
-            if line_width + ch_width > max_width && line_width > 0 {
-                lines += 1;
-                line_width = ch_width;
-            } else {
-                line_width += ch_width;
-            }
-        }
+        current_line.push(ch);
+        line_width += ch_width;
     }
+    lines.push(current_line);
 
     lines
 }
@@ -97,7 +84,7 @@ fn calc_todo_height(todo: &Item, available_width: u16) -> u16 {
 
     if available_width > 10 {
         let effective_width = usize::from(available_width.saturating_sub(2));
-        let lines = count_wrapped_lines(&text, effective_width);
+        let lines = wrap_text(&text, effective_width).len();
         let lines_u16 = u16::try_from(lines).unwrap_or(u16::MAX);
         (lines_u16 + 2).min(8) // +2 for borders, cap at 8
     } else {
@@ -184,17 +171,23 @@ pub fn draw_project_column(
     for (i, todo) in visible_todos.iter().enumerate() {
         let actual_idx = offset + i;
         let spans = create_todo_spans(todo);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         let is_selected = is_active_column && actual_idx == selected_in_column;
         let (todo_style, background_style) = get_todo_styles(is_selected, todo.completed);
 
-        let todo_paragraph = Paragraph::new(Line::from(spans))
+        let effective_width = usize::from(todo_layout[i].width.saturating_sub(2));
+        let wrapped_lines: Vec<Line<'_>> = wrap_text(&text, effective_width)
+            .into_iter()
+            .map(Line::from)
+            .collect();
+
+        let todo_paragraph = Paragraph::new(wrapped_lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(todo_style),
             )
-            .style(background_style)
-            .wrap(Wrap { trim: true });
+            .style(background_style);
 
         f.render_widget(todo_paragraph, todo_layout[i]);
     }
@@ -418,11 +411,17 @@ mod tests {
         let backend = TestBackend::new(width, height);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
 
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        let effective_width = usize::from(width.saturating_sub(2));
+        let wrapped_lines: Vec<Line<'_>> = wrap_text(&text, effective_width)
+            .into_iter()
+            .map(Line::from)
+            .collect();
+
         terminal
             .draw(|f| {
-                let p = Paragraph::new(Line::from(spans))
-                    .block(Block::default().borders(Borders::ALL))
-                    .wrap(Wrap { trim: true });
+                let p = Paragraph::new(wrapped_lines)
+                    .block(Block::default().borders(Borders::ALL));
                 f.render_widget(p, area);
             })
             .unwrap();
