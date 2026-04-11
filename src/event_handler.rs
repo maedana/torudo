@@ -237,6 +237,18 @@ impl EventHandler {
                 self.pending_keys.push('c');
                 state.status_message = Some(build_c_submenu(state));
             }
+            KeyCode::Char('v') => {
+                if debug_mode {
+                    debug!("Hide project command received");
+                }
+                state.hide_current_project();
+            }
+            KeyCode::Char('V') => {
+                if debug_mode {
+                    debug!("Show all projects command received");
+                }
+                state.show_all_projects();
+            }
             KeyCode::Char('?') => {
                 state.toggle_help();
             }

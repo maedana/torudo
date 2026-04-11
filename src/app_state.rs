@@ -5,7 +5,8 @@ use crate::todo::{
 };
 use log::{debug, error};
 use std::{
-    collections::HashMap, env, io::Write, os::unix::net::UnixStream, time::Duration,
+    collections::{HashMap, HashSet},
+    env, io::Write, os::unix::net::UnixStream, time::Duration,
     time::SystemTime,
 };
 
@@ -71,6 +72,7 @@ pub struct AppState {
     pub status_message: Option<String>,
     pub plan_modal: Option<PlanModal>,
     pub show_help: bool,
+    pub hidden_projects: HashSet<String>,
 }
 
 impl AppState {
@@ -133,6 +135,7 @@ impl AppState {
             status_message: None,
             plan_modal: None,
             show_help: false,
+            hidden_projects: HashSet::new(),
         }
     }
 
@@ -152,10 +155,11 @@ impl AppState {
         self.project_names = self.grouped_todos.keys().cloned().collect();
         self.project_names.sort();
 
-        if self.current_column >= self.project_names.len() {
-            self.current_column = self.project_names.len().saturating_sub(1);
+        let visible = self.visible_project_names();
+        if self.current_column >= visible.len() {
+            self.current_column = visible.len().saturating_sub(1);
         }
-        if let Some(current_project_name) = self.project_names.get(self.current_column)
+        if let Some(current_project_name) = visible.get(self.current_column)
             && let Some(current_todos) = self.grouped_todos.get(current_project_name) {
                 if self.selected_in_column >= current_todos.len() {
                     self.selected_in_column = current_todos.len().saturating_sub(1);
@@ -168,7 +172,8 @@ impl AppState {
     }
 
     pub fn get_current_todo(&self) -> Option<&Item> {
-        let current_project_name = self.project_names.get(self.current_column)?;
+        let visible = self.visible_project_names();
+        let current_project_name = visible.get(self.current_column)?;
         let current_todos = self.grouped_todos.get(current_project_name)?;
         current_todos.get(self.selected_in_column)
     }
@@ -179,6 +184,7 @@ impl AppState {
 
     pub fn handle_navigation_key(&mut self, key_char: char) {
         self.status_message = None;
+        let visible = self.visible_project_names();
         match key_char {
             'k' => {
                 if self.selected_in_column > 0 {
@@ -189,7 +195,7 @@ impl AppState {
                 }
             }
             'j' => {
-                if let Some(current_project_name) = self.project_names.get(self.current_column)
+                if let Some(current_project_name) = visible.get(self.current_column)
                     && let Some(current_todos) = self.grouped_todos.get(current_project_name)
                         && self.selected_in_column < current_todos.len().saturating_sub(1) {
                             self.selected_in_column += 1;
@@ -208,7 +214,7 @@ impl AppState {
                 }
             }
             'l' => {
-                if self.current_column < self.project_names.len().saturating_sub(1) {
+                if self.current_column < visible.len().saturating_sub(1) {
                     self.current_column += 1;
                     self.selected_in_column = 0;
                     if let Some(todo_id) = self.get_current_todo_id() {
@@ -237,6 +243,43 @@ impl AppState {
         self.show_help = !self.show_help;
     }
 
+    pub fn visible_project_names(&self) -> Vec<String> {
+        self.project_names
+            .iter()
+            .filter(|name| !self.hidden_projects.contains(name.as_str()))
+            .cloned()
+            .collect()
+    }
+
+    pub fn hide_current_project(&mut self) {
+        let visible = self.visible_project_names();
+        if let Some(project_name) = visible.get(self.current_column) {
+            self.hidden_projects.insert(project_name.clone());
+            let new_visible = self.visible_project_names();
+            if self.current_column >= new_visible.len() {
+                self.current_column = new_visible.len().saturating_sub(1);
+            }
+            self.selected_in_column = 0;
+        }
+    }
+
+    pub fn show_all_projects(&mut self) {
+        self.hidden_projects.clear();
+    }
+
+    pub fn hidden_projects_display(&self) -> Option<String> {
+        if self.hidden_projects.is_empty() {
+            return None;
+        }
+        let mut names: Vec<&String> = self.hidden_projects.iter().collect();
+        names.sort();
+        Some(format!("Hidden: {}", names.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")))
+    }
+
+    pub fn set_hidden_projects(&mut self, hidden: HashSet<String>) {
+        self.hidden_projects = hidden;
+    }
+
     pub fn handle_reload(&mut self, todo_file: &str) {
         debug!("Manual reload requested");
         if let Err(e) = add_missing_ids(todo_file) {
@@ -251,19 +294,21 @@ impl AppState {
         }
     }
 
-    pub fn get_current_project_name(&self) -> Option<&str> {
-        self.project_names.get(self.current_column).map(String::as_str)
+    pub fn get_current_project_name(&self) -> Option<String> {
+        let visible = self.visible_project_names();
+        visible.get(self.current_column).cloned()
     }
 
-    fn get_current_todo_description(&self) -> Option<&str> {
-        let project_name = self.project_names.get(self.current_column)?;
+    fn get_current_todo_description(&self) -> Option<String> {
+        let visible = self.visible_project_names();
+        let project_name = visible.get(self.current_column)?;
         let todos = self.grouped_todos.get(project_name)?;
         let todo = todos.get(self.selected_in_column)?;
-        Some(&todo.description)
+        Some(todo.description.clone())
     }
 
     fn build_prompt(&self, todotxt_dir: &str) -> Option<(String, String)> {
-        let project = self.get_current_project_name()?.to_string();
+        let project = self.get_current_project_name()?;
         let todo_id = self.get_current_todo_id()?;
         let description = self.get_current_todo_description()?;
 
@@ -888,11 +933,11 @@ mod tests {
         let mut state = create_test_state(todos);
 
         // First column is "No Project"
-        assert_eq!(state.get_current_project_name(), Some("No Project"));
+        assert_eq!(state.get_current_project_name(), Some("No Project".to_string()));
 
         // Navigate to "personal"
         state.handle_navigation_key('l');
-        assert_eq!(state.get_current_project_name(), Some("personal"));
+        assert_eq!(state.get_current_project_name(), Some("personal".to_string()));
     }
 
     #[test]
@@ -1415,5 +1460,84 @@ mod tests {
         // Should not panic
         sort_plans_by_mtime(&mut plans);
         assert_eq!(plans.len(), 2);
+    }
+
+    #[test]
+    fn test_hide_project() {
+        let todos = create_test_todos();
+        let mut state = create_test_state(todos);
+
+        // Initially all 4 projects visible
+        assert_eq!(state.visible_project_names().len(), 4);
+
+        // Hide "No Project"
+        assert_eq!(state.current_column, 0);
+        assert_eq!(state.project_names[state.current_column], "No Project");
+        state.hide_current_project();
+
+        // Should now show 3 projects
+        let visible = state.visible_project_names();
+        assert_eq!(visible.len(), 3);
+        assert!(!visible.contains(&"No Project".to_string()));
+
+        // hidden_projects should contain "No Project"
+        assert!(state.hidden_projects.contains("No Project"));
+    }
+
+    #[test]
+    fn test_show_all_projects() {
+        let todos = create_test_todos();
+        let mut state = create_test_state(todos);
+
+        // Hide a project
+        state.hide_current_project();
+        assert_eq!(state.visible_project_names().len(), 3);
+
+        // Show all
+        state.show_all_projects();
+        assert_eq!(state.visible_project_names().len(), 4);
+        assert!(state.hidden_projects.is_empty());
+    }
+
+    #[test]
+    fn test_hide_project_adjusts_column() {
+        let todos = create_test_todos();
+        let mut state = create_test_state(todos);
+
+        // Navigate to last column
+        state.current_column = state.project_names.len() - 1;
+        state.hide_current_project();
+
+        // current_column should be adjusted
+        let visible = state.visible_project_names();
+        assert!(state.current_column < visible.len());
+    }
+
+    #[test]
+    fn test_hidden_projects_display() {
+        let todos = create_test_todos();
+        let mut state = create_test_state(todos);
+
+        // No hidden projects
+        assert_eq!(state.hidden_projects_display(), None);
+
+        // Hide "No Project"
+        state.hide_current_project();
+        let display = state.hidden_projects_display().unwrap();
+        assert!(display.contains("No Project"));
+    }
+
+    #[test]
+    fn test_new_with_initial_hidden() {
+        let todos = create_test_todos();
+        let hidden: HashSet<String> = vec!["No Project".to_string()].into_iter().collect();
+        let mut state = AppState::new(todos, "/tmp/nvim.sock".to_string());
+        state.crmux_version = None;
+        state.claude_available = false;
+        state.set_hidden_projects(hidden);
+
+        let visible = state.visible_project_names();
+        assert_eq!(visible.len(), 3);
+        assert!(!visible.contains(&"No Project".to_string()));
     }
 }

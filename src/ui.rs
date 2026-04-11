@@ -140,7 +140,8 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
         )
         .split(size);
 
-    let num_columns = state.project_names.len();
+    let visible_projects = state.visible_project_names();
+    let num_columns = visible_projects.len();
     if num_columns > 0 {
         let column_constraints: Vec<Constraint> = (0..num_columns)
             .map(|_| Constraint::Percentage(100 / u16::try_from(num_columns).unwrap_or(1)))
@@ -150,7 +151,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
             .constraints(column_constraints)
             .split(chunks[0]);
 
-        for (col_idx, project_name) in state.project_names.iter().enumerate() {
+        for (col_idx, project_name) in visible_projects.iter().enumerate() {
             if let Some(project_todos) = state.grouped_todos.get(project_name) {
                 let is_active_column = col_idx == state.current_column;
                 let selected_for_this_column = if is_active_column {
@@ -180,7 +181,8 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &AppState) {
             } else {
                 ""
             };
-            format!("{base}{claude_cmd} | ?: Help | q: Quit")
+            let hidden = state.hidden_projects_display().map_or_else(String::new, |h| format!(" | {h}"));
+            format!("{base}{claude_cmd} | v: Hide | V: Show all | ?: Help | q: Quit{hidden}")
         },
         Clone::clone,
     );

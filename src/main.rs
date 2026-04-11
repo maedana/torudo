@@ -41,6 +41,10 @@ struct Args {
     #[arg(long, env = "NVIM_LISTEN_ADDRESS", default_value = "/tmp/nvim.sock")]
     nvim_listen: String,
 
+    /// Comma-separated list of projects to hide by default
+    #[arg(long)]
+    hide_projects: Option<String>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -102,6 +106,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         debug!("Loaded {} todos from file", todos.len());
     }
 
+    let hidden_projects: std::collections::HashSet<String> = args
+        .hide_projects
+        .map(|s| s.split(',').map(|p| p.trim().to_string()).collect())
+        .unwrap_or_default();
+
     let result = run_app(
         &mut terminal,
         todos,
@@ -110,6 +119,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         &todotxt_dir,
         args.debug,
         args.nvim_listen,
+        hidden_projects,
     );
 
     disable_raw_mode()?;
@@ -125,6 +135,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     todos: Vec<todo::Item>,
@@ -133,8 +144,10 @@ fn run_app<B: ratatui::backend::Backend>(
     todotxt_dir: &str,
     debug_mode: bool,
     nvim_socket: String,
+    hidden_projects: std::collections::HashSet<String>,
 ) -> io::Result<()> {
     let mut state = AppState::new(todos, nvim_socket);
+    state.set_hidden_projects(hidden_projects);
     let mut event_handler = EventHandler::new();
 
     let rpc_server = match rpc_server::RpcServer::new(todotxt_dir) {
