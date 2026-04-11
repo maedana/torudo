@@ -20,6 +20,7 @@ mod rpc_server;
 mod setup;
 mod todo;
 mod ui;
+mod update;
 mod url;
 
 use app_state::AppState;
@@ -54,6 +55,15 @@ struct Args {
 enum Commands {
     /// Print the currently selected todo as JSON to stdout
     Current,
+    /// Update torudo to the latest version
+    Update {
+        /// Skip version check and force re-download
+        #[arg(long)]
+        force: bool,
+        /// Check for updates without installing
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -65,6 +75,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Handle subcommands before TUI setup
     if matches!(args.command, Some(Commands::Current)) {
         return rpc_client::run_current();
+    }
+    if let Some(Commands::Update { force, check }) = args.command {
+        handle_update(force, check);
+        return Ok(());
     }
 
     let home_dir = env::var("HOME").unwrap();
@@ -185,5 +199,37 @@ fn run_app(
                 return Ok(()); // Quit was requested
             }
         }
+    }
+}
+
+fn handle_update(force: bool, check: bool) {
+    let current = env!("CARGO_PKG_VERSION");
+    println!("torudo v{current} - checking for updates...");
+
+    if check {
+        match update::fetch_latest_version() {
+            Ok(latest) => match update::check_update_needed(current, &latest) {
+                update::UpdateStatus::AlreadyLatest(v) => {
+                    println!("Already up to date (latest: {v})");
+                }
+                update::UpdateStatus::UpdateAvailable(v) => {
+                    println!("Update available: {v}");
+                    println!("Run `torudo update` to install");
+                }
+            },
+            Err(e) => eprintln!("Failed to check for updates: {e}"),
+        }
+        return;
+    }
+
+    let result = if force {
+        update::perform_update_force()
+    } else {
+        update::perform_update()
+    };
+
+    match result {
+        Ok(status) => println!("{status}"),
+        Err(e) => eprintln!("Update failed: {e}"),
     }
 }
