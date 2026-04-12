@@ -311,20 +311,10 @@ impl EventHandler {
 
 fn build_s_submenu(state: &AppState) -> String {
     let mut parts = vec!["s →".to_string()];
-    if state.view_mode != ViewMode::Todo {
-        parts.push("t: Todo".to_string());
-    }
-    if state.view_mode != ViewMode::Ref {
-        parts.push("r: Ref".to_string());
-    }
-    if state.view_mode != ViewMode::Inbox {
-        parts.push("i: Inbox".to_string());
-    }
-    if state.view_mode != ViewMode::Someday {
-        parts.push("s: Someday".to_string());
-    }
-    if state.view_mode != ViewMode::Waiting {
-        parts.push("w: Waiting".to_string());
+    for mode in ViewMode::ALL {
+        if *mode != state.view_mode {
+            parts.push(format!("{}: {}", mode.shortcut_key(), mode.label()));
+        }
     }
     parts.push("Esc: Cancel".to_string());
     parts.join(" | ")
@@ -682,6 +672,37 @@ mod tests {
         let msg = state.status_message.as_deref().unwrap();
         assert!(msg.contains("t: Todo")); // Inboxモードからはtodoが表示される
         assert!(!msg.contains("i: Inbox")); // 現在のモードは非表示
+    }
+
+    #[test]
+    fn test_s_submenu_order_matches_tab_order_from_todo() {
+        // タブ順 (ViewMode::ALL) は Inbox, Todo, Waiting, Ref, Someday
+        // Todoモードから s を押すと、Todoを除いた順 = Inbox, Waiting, Ref, Someday
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        assert_eq!(state.view_mode, ViewMode::Todo);
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
+        assert_eq!(
+            state.status_message.as_deref().unwrap(),
+            "s → | i: Inbox | w: Waiting | r: Ref | s: Someday | Esc: Cancel"
+        );
+    }
+
+    #[test]
+    fn test_s_submenu_order_matches_tab_order_from_inbox() {
+        // Inboxモードから s を押すと、Inboxを除いた順 = Todo, Waiting, Ref, Someday
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        state.view_mode = ViewMode::Inbox;
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
+        assert_eq!(
+            state.status_message.as_deref().unwrap(),
+            "s → | t: Todo | w: Waiting | r: Ref | s: Someday | Esc: Cancel"
+        );
     }
 
     #[test]

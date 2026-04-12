@@ -98,6 +98,16 @@ impl ViewMode {
             Self::Waiting => "Waiting",
         }
     }
+
+    pub const fn shortcut_key(self) -> char {
+        match self {
+            Self::Todo => 't',
+            Self::Ref => 'r',
+            Self::Inbox => 'i',
+            Self::Someday => 's',
+            Self::Waiting => 'w',
+        }
+    }
 }
 
 pub fn count_items_in_file(path: &str) -> usize {
