@@ -214,7 +214,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
         )
         .split(size);
 
-    let visible_projects = state.visible_project_names();
+    let visible_projects = state.project_names.clone();
     let num_columns = visible_projects.len();
     if num_columns > 0 {
         let column_constraints: Vec<Constraint> = (0..num_columns)
@@ -273,11 +273,10 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
         } else {
             ""
         };
-        let hidden = state.hidden_projects_display().map_or_else(String::new, |h| format!(" | {h}"));
         if state.view_mode == ViewMode::Ref {
             spans.insert(0, Span::styled("[REF] ", Style::default().fg(Color::Cyan)));
         }
-        spans.push(Span::raw(format!(" | hjkl: Nav | x: Complete | o: Open URL | r: Ref | Tab: Mode{claude_cmd} | v: Hide | V: Show all | ?: Help | q: Quit{hidden}")));
+        spans.push(Span::raw(format!(" | hjkl: Nav | x: Complete | o: Open URL | r: Ref | Tab: Mode{claude_cmd} | ?: Help | q: Quit")));
         spans
     };
     let footer = Paragraph::new(Line::from(footer_spans))

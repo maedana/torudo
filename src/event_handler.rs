@@ -248,18 +248,6 @@ impl EventHandler {
                 }
                 state.handle_open_urls();
             }
-            KeyCode::Char('v') => {
-                if debug_mode {
-                    debug!("Hide project command received");
-                }
-                state.hide_current_project();
-            }
-            KeyCode::Char('V') => {
-                if debug_mode {
-                    debug!("Show all projects command received");
-                }
-                state.show_all_projects();
-            }
             KeyCode::Char('?') => {
                 state.toggle_help();
             }
@@ -311,7 +299,7 @@ mod tests {
             id: Some("test-id".to_string()),
             line_number: 1,
         }];
-        let mut state = crate::app_state::AppState::new(todos, "/tmp/nvim.sock".to_string(), std::collections::HashSet::new(), "/tmp/todotxt".to_string());
+        let mut state = crate::app_state::AppState::new(todos, "/tmp/nvim.sock".to_string(), "/tmp/todotxt".to_string());
         state.crmux_version = Some((0, 11, 0));
         state.claude_available = false;
         state
@@ -329,7 +317,7 @@ mod tests {
             id: Some("test-id".to_string()),
             line_number: 1,
         }];
-        let mut state = crate::app_state::AppState::new(todos, "/tmp/nvim.sock".to_string(), std::collections::HashSet::new(), "/tmp/todotxt".to_string());
+        let mut state = crate::app_state::AppState::new(todos, "/tmp/nvim.sock".to_string(), "/tmp/todotxt".to_string());
         state.crmux_version = None;
         state.claude_available = true;
         state
@@ -557,7 +545,7 @@ mod tests {
             id: Some("test-id".to_string()),
             line_number: 1,
         }];
-        let mut state = crate::app_state::AppState::new(todos, "/tmp/nvim.sock".to_string(), std::collections::HashSet::new(), "/tmp/todotxt".to_string());
+        let mut state = crate::app_state::AppState::new(todos, "/tmp/nvim.sock".to_string(), "/tmp/todotxt".to_string());
         state.crmux_version = None;
         state.claude_available = false;
         let todo_file = "/tmp/dummy.txt";
