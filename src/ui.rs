@@ -255,6 +255,11 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
                 }
             }
         }
+    } else {
+        let paragraph = Paragraph::new("No items")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::DarkGray));
+        f.render_widget(paragraph, chunks[0]);
     }
 
     let version = env!("CARGO_PKG_VERSION");
@@ -268,8 +273,12 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
                 Style::default().fg(Color::Yellow),
             ));
         }
-        if state.view_mode == ViewMode::Ref {
-            spans.insert(0, Span::styled("[REF] ", Style::default().fg(Color::Cyan)));
+        match state.view_mode {
+            ViewMode::Ref => spans.insert(0, Span::styled("[REF] ", Style::default().fg(Color::Cyan))),
+            ViewMode::Inbox => spans.insert(0, Span::styled("[INBOX] ", Style::default().fg(Color::Cyan))),
+            ViewMode::Someday => spans.insert(0, Span::styled("[SOMEDAY] ", Style::default().fg(Color::Cyan))),
+            ViewMode::Waiting => spans.insert(0, Span::styled("[WAITING] ", Style::default().fg(Color::Cyan))),
+            ViewMode::Todo => {}
         }
         let is_todo = state.view_mode == ViewMode::Todo;
         let has_claude = state.crmux_available() || state.claude_available();

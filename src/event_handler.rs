@@ -119,6 +119,7 @@ impl EventHandler {
         false // Continue running
     }
 
+    #[allow(clippy::too_many_lines)]
     fn handle_pending_sequence(
         &mut self,
         code: KeyCode,
@@ -206,6 +207,70 @@ impl EventHandler {
                 self.pending_keys.clear();
                 state.status_message = None;
             }
+            ['m', 'i'] => {
+                if debug_mode {
+                    debug!("Switch to inbox mode (mi)");
+                }
+                state.set_view_mode(ViewMode::Inbox);
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
+            ['m', 's'] => {
+                if debug_mode {
+                    debug!("Switch to someday mode (ms)");
+                }
+                state.set_view_mode(ViewMode::Someday);
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
+            ['m', 'w'] => {
+                if debug_mode {
+                    debug!("Switch to waiting mode (mw)");
+                }
+                state.set_view_mode(ViewMode::Waiting);
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
+            ['s', 't'] => {
+                if debug_mode {
+                    debug!("Send to todo (st)");
+                }
+                state.handle_send_to(ViewMode::Todo);
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
+            ['s', 'r'] => {
+                if debug_mode {
+                    debug!("Send to ref (sr)");
+                }
+                state.handle_send_to(ViewMode::Ref);
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
+            ['s', 'i'] => {
+                if debug_mode {
+                    debug!("Send to inbox (si)");
+                }
+                state.handle_send_to(ViewMode::Inbox);
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
+            ['s', 's'] => {
+                if debug_mode {
+                    debug!("Send to someday (ss)");
+                }
+                state.handle_send_to(ViewMode::Someday);
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
+            ['s', 'w'] => {
+                if debug_mode {
+                    debug!("Send to waiting (sw)");
+                }
+                state.handle_send_to(ViewMode::Waiting);
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
             _ => {
                 if debug_mode {
                     debug!("Unknown key sequence: {:?}", self.pending_keys);
@@ -242,15 +307,13 @@ impl EventHandler {
                 }
                 state.handle_complete_todo(todo_file);
             }
-            KeyCode::Char('r') if state.view_mode == ViewMode::Todo => {
-                if debug_mode {
-                    debug!("Move to ref command received");
-                }
-                state.handle_move_to_ref(todo_file);
+            KeyCode::Char('s') => {
+                self.pending_keys.push('s');
+                state.status_message = Some(build_s_submenu(state));
             }
             KeyCode::Char('m') => {
                 self.pending_keys.push('m');
-                state.status_message = Some("m → t: Todo | r: Ref | Esc: Cancel".to_string());
+                state.status_message = Some("m → t: Todo | r: Ref | i: Inbox | s: Someday | w: Waiting | Esc: Cancel".to_string());
             }
             KeyCode::Char('c') if state.view_mode == ViewMode::Todo && (state.crmux_available() || state.claude_available()) => {
                 self.pending_keys.push('c');
@@ -269,6 +332,27 @@ impl EventHandler {
         }
         false
     }
+}
+
+fn build_s_submenu(state: &AppState) -> String {
+    let mut parts = vec!["s →".to_string()];
+    if state.view_mode != ViewMode::Todo {
+        parts.push("t: Todo".to_string());
+    }
+    if state.view_mode != ViewMode::Ref {
+        parts.push("r: Ref".to_string());
+    }
+    if state.view_mode != ViewMode::Inbox {
+        parts.push("i: Inbox".to_string());
+    }
+    if state.view_mode != ViewMode::Someday {
+        parts.push("s: Someday".to_string());
+    }
+    if state.view_mode != ViewMode::Waiting {
+        parts.push("w: Waiting".to_string());
+    }
+    parts.push("Esc: Cancel".to_string());
+    parts.join(" | ")
 }
 
 fn build_c_submenu(state: &AppState) -> String {
@@ -543,6 +627,77 @@ mod tests {
         let quit = handler.handle_keyboard_event(&esc_event, &mut state, todo_file, false);
         assert!(!quit);
         assert!(!state.show_help);
+    }
+
+    #[test]
+    fn test_mode_switch_to_inbox() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('m'), &mut state, todo_file, false);
+        let msg = state.status_message.as_deref().unwrap();
+        assert!(msg.contains("i: Inbox"));
+        assert!(msg.contains("s: Someday"));
+        assert!(msg.contains("w: Waiting"));
+
+        handler.handle_keyboard_event(&make_key_event('i'), &mut state, todo_file, false);
+        assert!(handler.pending_keys.is_empty());
+        assert_eq!(state.view_mode, ViewMode::Inbox);
+    }
+
+    #[test]
+    fn test_mode_switch_to_someday() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('m'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
+        assert!(handler.pending_keys.is_empty());
+        assert_eq!(state.view_mode, ViewMode::Someday);
+    }
+
+    #[test]
+    fn test_mode_switch_to_waiting() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('m'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('w'), &mut state, todo_file, false);
+        assert!(handler.pending_keys.is_empty());
+        assert_eq!(state.view_mode, ViewMode::Waiting);
+    }
+
+    #[test]
+    fn test_s_submenu_shows_targets() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        // Todoモードからsを押すと、Todo以外が表示される
+        handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
+        let msg = state.status_message.as_deref().unwrap();
+        assert!(msg.contains("s →"));
+        assert!(!msg.contains("t: Todo")); // 現在のモードは表示しない
+        assert!(msg.contains("r: Ref"));
+        assert!(msg.contains("i: Inbox"));
+        assert!(msg.contains("s: Someday"));
+        assert!(msg.contains("w: Waiting"));
+    }
+
+    #[test]
+    fn test_s_submenu_from_inbox_mode() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        state.view_mode = ViewMode::Inbox;
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
+        let msg = state.status_message.as_deref().unwrap();
+        assert!(msg.contains("t: Todo")); // Inboxモードからはtodoが表示される
+        assert!(!msg.contains("i: Inbox")); // 現在のモードは非表示
     }
 
     #[test]

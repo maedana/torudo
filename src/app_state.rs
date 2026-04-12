@@ -65,6 +65,21 @@ pub struct PlanModal {
 pub enum ViewMode {
     Todo,
     Ref,
+    Inbox,
+    Someday,
+    Waiting,
+}
+
+impl ViewMode {
+    pub const fn filename(self) -> &'static str {
+        match self {
+            Self::Todo => "todo.txt",
+            Self::Ref => "ref.txt",
+            Self::Inbox => "inbox.txt",
+            Self::Someday => "someday.txt",
+            Self::Waiting => "waiting.txt",
+        }
+    }
 }
 
 pub struct AppState {
@@ -275,10 +290,7 @@ impl AppState {
     }
 
     pub fn active_file(&self) -> String {
-        match self.view_mode {
-            ViewMode::Todo => format!("{}/todo.txt", self.todotxt_dir),
-            ViewMode::Ref => format!("{}/ref.txt", self.todotxt_dir),
-        }
+        format!("{}/{}", self.todotxt_dir, self.view_mode.filename())
     }
 
     pub fn set_view_mode(&mut self, mode: ViewMode) {
@@ -302,19 +314,21 @@ impl AppState {
         self.scroll_offset = 0;
     }
 
-    pub fn handle_move_to_ref(&mut self, todo_file: &str) {
-        if self.view_mode != ViewMode::Todo {
+    pub fn handle_send_to(&mut self, target_mode: ViewMode) {
+        if target_mode == self.view_mode {
             return;
         }
+        let source_file = self.active_file();
         if let Some(todo_id) = self.get_current_todo_id() {
-            let ref_file = format!("{}/ref.txt", self.todotxt_dir);
-            debug!("Attempting to move todo to ref.txt: {todo_id}");
-            match move_to_file(todo_file, &ref_file, todo_id) {
+            let target_name = target_mode.filename();
+            let target_file = format!("{}/{target_name}", self.todotxt_dir);
+            debug!("Attempting to move item to {target_name}: {todo_id}");
+            match move_to_file(&source_file, &target_file, todo_id) {
                 Ok(()) => {
-                    debug!("Successfully moved todo to ref.txt: {todo_id}");
-                    self.reload_todos(todo_file);
+                    debug!("Successfully moved item to {target_name}: {todo_id}");
+                    self.reload_todos(&source_file);
                 }
-                Err(e) => error!("Failed to move todo to ref.txt: {e}"),
+                Err(e) => error!("Failed to move item to {target_name}: {e}"),
             }
         }
     }
@@ -900,6 +914,15 @@ mod tests {
 
         state.view_mode = ViewMode::Ref;
         assert_eq!(state.active_file(), "/tmp/todotxt/ref.txt");
+
+        state.view_mode = ViewMode::Inbox;
+        assert_eq!(state.active_file(), "/tmp/todotxt/inbox.txt");
+
+        state.view_mode = ViewMode::Someday;
+        assert_eq!(state.active_file(), "/tmp/todotxt/someday.txt");
+
+        state.view_mode = ViewMode::Waiting;
+        assert_eq!(state.active_file(), "/tmp/todotxt/waiting.txt");
     }
 
     #[test]
