@@ -393,10 +393,10 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         let test_file = temp_dir.join("test_todo.txt");
 
-        let content = r#"(A) Call Mom +family @phone
+        let content = r"(A) Call Mom +family @phone
 Buy groceries +personal @errands
 x 2024-01-15 (B) Review report +work @office
-Learn Rust +learning @coding id:rust-001"#;
+Learn Rust +learning @coding id:rust-001";
 
         fs::write(&test_file, content).unwrap();
 
@@ -484,9 +484,9 @@ Learn Rust +learning @coding id:rust-001"#;
         let temp_dir = std::env::temp_dir();
         let test_file = temp_dir.join("test_add_ids.txt");
 
-        let content = r#"(A) Call Mom +family @phone
+        let content = r"(A) Call Mom +family @phone
 Buy groceries +personal @errands id:existing-001
-Learn Rust +learning @coding"#;
+Learn Rust +learning @coding";
 
         fs::write(&test_file, content).unwrap();
 
@@ -518,9 +518,9 @@ Learn Rust +learning @coding"#;
         let temp_dir = std::env::temp_dir();
         let todo_file = temp_dir.join("test_complete_todo.txt");
 
-        let content = r#"(A) Call Mom +family @phone id:task-001
+        let content = r"(A) Call Mom +family @phone id:task-001
 Buy groceries +personal @errands id:task-002
-Learn Rust +learning @coding id:task-003"#;
+Learn Rust +learning @coding id:task-003";
 
         fs::write(&todo_file, content).unwrap();
 
@@ -529,18 +529,20 @@ Learn Rust +learning @coding id:task-003"#;
 
         // Check todo.txt - should have 2 remaining tasks
         let remaining_content = fs::read_to_string(&todo_file).unwrap();
-        let remaining_lines: Vec<&str> = remaining_content
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .collect();
-        assert_eq!(remaining_lines.len(), 2);
+        assert_eq!(
+            remaining_content
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .count(),
+            2
+        );
         assert!(!remaining_content.contains("task-002"));
 
         // Check done.txt - should have 1 completed task
         let done_file = temp_dir.join("done.txt");
         assert!(done_file.exists(), "done.txt should be created");
         let done_content = fs::read_to_string(&done_file).unwrap();
-        assert!(done_content.contains("x"));
+        assert!(done_content.contains('x'));
         assert!(done_content.contains("Buy groceries +personal @errands id:task-002"));
         assert!(done_content.contains(&chrono::Local::now().format("%Y-%m-%d").to_string()));
 
@@ -627,9 +629,10 @@ Learn Rust +learning @coding id:task-003"#;
 
         // source should have 2 remaining lines
         let remaining = fs::read_to_string(&source_file).unwrap();
-        let remaining_lines: Vec<&str> =
-            remaining.lines().filter(|l| !l.trim().is_empty()).collect();
-        assert_eq!(remaining_lines.len(), 2);
+        assert_eq!(
+            remaining.lines().filter(|l| !l.trim().is_empty()).count(),
+            2
+        );
         assert!(!remaining.contains("task-002"));
         assert!(remaining.contains("task-001"));
         assert!(remaining.contains("task-003"));
@@ -666,9 +669,10 @@ Learn Rust +learning @coding id:task-003"#;
 
         // source should be empty (no non-empty lines)
         let remaining = fs::read_to_string(&source_file).unwrap();
-        let remaining_lines: Vec<&str> =
-            remaining.lines().filter(|l| !l.trim().is_empty()).collect();
-        assert_eq!(remaining_lines.len(), 0);
+        assert_eq!(
+            remaining.lines().filter(|l| !l.trim().is_empty()).count(),
+            0
+        );
 
         fs::remove_dir_all(&temp_dir).ok();
     }
@@ -720,8 +724,7 @@ Learn Rust +learning @coding id:task-003"#;
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         assert!(
             done_content.starts_with(&format!("x (A) {today} 2024-01-10")),
-            "Expected format: 'x (A) {today} 2024-01-10...', but got: {}",
-            done_content
+            "Expected format: 'x (A) {today} 2024-01-10...', but got: {done_content}"
         );
 
         fs::remove_dir_all(&temp_dir).ok();

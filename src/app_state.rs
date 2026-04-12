@@ -669,7 +669,7 @@ mod tests {
     fn test_app_state_new() {
         let todos = create_test_todos();
         let state = AppState::new(
-            todos.clone(),
+            todos,
             "/tmp/nvim.sock".to_string(),
             "/tmp/todotxt".to_string(),
         );
@@ -805,7 +805,7 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         let test_file = temp_dir.join("test_app_state_reload.txt");
 
-        let initial_content = r#"(A) Initial task +work @office id:initial-1"#;
+        let initial_content = r"(A) Initial task +work @office id:initial-1";
         fs::write(&test_file, initial_content).unwrap();
 
         let initial_todos = vec![Item {
@@ -824,8 +824,8 @@ mod tests {
         assert_eq!(state.todos.len(), 1);
 
         // Update file content
-        let new_content = r#"(A) Initial task +work @office id:initial-1
-(B) New task +personal @home id:new-1"#;
+        let new_content = r"(A) Initial task +work @office id:initial-1
+(B) New task +personal @home id:new-1";
         fs::write(&test_file, new_content).unwrap();
 
         // Reload and verify
@@ -841,8 +841,8 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         let test_file = temp_dir.join("test_app_state_complete.txt");
 
-        let content = r#"(A) Task to complete +work @office id:complete-me
-(B) Other task +work @office id:keep-me"#;
+        let content = r"(A) Task to complete +work @office id:complete-me
+(B) Other task +work @office id:keep-me";
         fs::write(&test_file, content).unwrap();
 
         let todos = vec![
@@ -885,8 +885,13 @@ mod tests {
         assert_eq!(state.todos.len(), 1);
 
         // Verify the remaining todo is not the one we completed
-        let remaining_ids: Vec<String> = state.todos.iter().filter_map(|t| t.id.clone()).collect();
-        assert!(!remaining_ids.contains(&current_id));
+        assert!(
+            !state
+                .todos
+                .iter()
+                .filter_map(|t| t.id.as_ref())
+                .any(|id| id == &current_id)
+        );
 
         // Check that done.txt was created
         let done_file = temp_dir.join("done.txt");

@@ -401,6 +401,63 @@ fn draw_plan_modal(f: &mut ratatui::Frame, modal: &crate::app_state::PlanModal, 
     f.render_widget(help, inner_chunks[1]);
 }
 
+fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect, view_mode: ViewMode, has_claude: bool) {
+    let modal_area = centered_rect(50, 60, area);
+    f.render_widget(Clear, modal_area);
+
+    let block = Block::default()
+        .title("Keyboard Controls")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+
+    let inner = block.inner(modal_area);
+    f.render_widget(block, modal_area);
+
+    let inner_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    let is_todo = view_mode == ViewMode::Todo;
+    let entries = help::visible_entries(is_todo, has_claude);
+
+    let max_key_width = entries.iter().map(|e| e.key.len()).max().unwrap_or(0);
+
+    let lines: Vec<Line<'_>> = entries
+        .iter()
+        .map(|e| {
+            let mut spans = Vec::new();
+            if e.indent {
+                // Use a non-whitespace-only span to prevent trim from eating indent
+                spans.push(Span::styled("  ", Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(
+                    format!("{:<width$}  ", e.key, width = max_key_width),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            } else {
+                spans.push(Span::styled(
+                    format!("{:<width$}    ", e.key, width = max_key_width),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            }
+            spans.push(Span::styled(e.desc, Style::default().fg(Color::White)));
+            Line::from(spans)
+        })
+        .collect();
+
+    let list = Paragraph::new(lines);
+    f.render_widget(list, inner_chunks[0]);
+
+    let footer = Paragraph::new("Press ? or q or Esc to close")
+        .style(Style::default().fg(Color::DarkGray))
+        .alignment(Alignment::Center);
+    f.render_widget(footer, inner_chunks[1]);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -481,14 +538,15 @@ mod tests {
             "first content row should not be blank"
         );
 
-        let content_lines: Vec<_> = lines.iter().filter(|l| !l.is_empty()).collect();
-        eprintln!("content line count: {}", content_lines.len());
+        let content_line_count = lines.iter().filter(|l| !l.is_empty()).count();
+        eprintln!("content line count: {content_line_count}");
     }
 
     fn assert_height_matches_render(desc: &str, width: u16) {
         let calc_h = calc_todo_height(&make_item(desc), width);
         let lines = render_paragraph_to_lines(desc, width, 14);
-        let actual_content_lines = lines.iter().filter(|l| !l.is_empty()).count() as u16;
+        let actual_content_lines =
+            u16::try_from(lines.iter().filter(|l| !l.is_empty()).count()).unwrap();
         let actual_h = actual_content_lines + 2;
 
         eprintln!("desc={desc}");
@@ -513,61 +571,4 @@ mod tests {
             30,
         );
     }
-}
-
-fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect, view_mode: ViewMode, has_claude: bool) {
-    let modal_area = centered_rect(50, 60, area);
-    f.render_widget(Clear, modal_area);
-
-    let block = Block::default()
-        .title("Keyboard Controls")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan));
-
-    let inner = block.inner(modal_area);
-    f.render_widget(block, modal_area);
-
-    let inner_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1)])
-        .split(inner);
-
-    let is_todo = view_mode == ViewMode::Todo;
-    let entries = help::visible_entries(is_todo, has_claude);
-
-    let max_key_width = entries.iter().map(|e| e.key.len()).max().unwrap_or(0);
-
-    let lines: Vec<Line<'_>> = entries
-        .iter()
-        .map(|e| {
-            let mut spans = Vec::new();
-            if e.indent {
-                // Use a non-whitespace-only span to prevent trim from eating indent
-                spans.push(Span::styled("  ", Style::default().fg(Color::DarkGray)));
-                spans.push(Span::styled(
-                    format!("{:<width$}  ", e.key, width = max_key_width),
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ));
-            } else {
-                spans.push(Span::styled(
-                    format!("{:<width$}    ", e.key, width = max_key_width),
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ));
-            }
-            spans.push(Span::styled(e.desc, Style::default().fg(Color::White)));
-            Line::from(spans)
-        })
-        .collect();
-
-    let list = Paragraph::new(lines);
-    f.render_widget(list, inner_chunks[0]);
-
-    let footer = Paragraph::new("Press ? or q or Esc to close")
-        .style(Style::default().fg(Color::DarkGray))
-        .alignment(Alignment::Center);
-    f.render_widget(footer, inner_chunks[1]);
 }
