@@ -203,7 +203,6 @@ fn run_app(
         // Handle file watcher events
         event_handler.handle_file_watcher_events(
             file_watcher_rx,
-            todo_file,
             &mut state,
             debug_mode,
         );

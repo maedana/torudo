@@ -23,18 +23,18 @@ impl EventHandler {
     pub fn handle_file_watcher_events(
         &mut self,
         file_watcher_rx: &mpsc::Receiver<NotifyEvent>,
-        todo_file: &str,
         state: &mut AppState,
         debug_mode: bool,
     ) {
         let mut should_reload = false;
         while let Ok(event) = file_watcher_rx.try_recv() {
             // Check if event is related to todo.txt
-            let todo_file_path = std::path::Path::new(todo_file);
+            let active_file = state.active_file();
+            let active_file_path = std::path::Path::new(&active_file);
             let is_todo_file_event = event
                 .paths
                 .iter()
-                .any(|path| path.file_name() == todo_file_path.file_name());
+                .any(|path| path.file_name() == active_file_path.file_name());
 
             if is_todo_file_event {
                 if debug_mode {
@@ -68,7 +68,8 @@ impl EventHandler {
                 if debug_mode {
                     debug!("Executing debounced reload of todos");
                 }
-                state.handle_reload(todo_file);
+                let active = state.active_file();
+                state.reload_todos(&active);
                 self.last_reload_time = Some(now);
             } else if debug_mode {
                 debug!("Skipping reload due to debounce (too recent)");
@@ -221,17 +222,23 @@ impl EventHandler {
                 }
                 state.handle_navigation_key(c);
             }
-            KeyCode::Char('x') => {
+            KeyCode::Char('x') if state.view_mode == crate::app_state::ViewMode::Todo => {
                 if debug_mode {
                     debug!("Complete todo command received");
                 }
                 state.handle_complete_todo(todo_file);
             }
-            KeyCode::Char('r') => {
+            KeyCode::Char('r') if state.view_mode == crate::app_state::ViewMode::Todo => {
                 if debug_mode {
-                    debug!("Reload command received");
+                    debug!("Move to ref command received");
                 }
-                state.handle_reload(todo_file);
+                state.handle_move_to_ref(todo_file);
+            }
+            KeyCode::Tab => {
+                if debug_mode {
+                    debug!("Toggle view mode");
+                }
+                state.handle_toggle_mode();
             }
             KeyCode::Char('c') if state.crmux_available() || state.claude_available() => {
                 self.pending_keys.push('c');

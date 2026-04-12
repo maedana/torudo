@@ -274,7 +274,10 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
             ""
         };
         let hidden = state.hidden_projects_display().map_or_else(String::new, |h| format!(" | {h}"));
-        spans.push(Span::raw(format!(" | hjkl: Nav | x: Complete | o: Open URL | r: Reload{claude_cmd} | v: Hide | V: Show all | ?: Help | q: Quit{hidden}")));
+        if state.view_mode == crate::app_state::ViewMode::Ref {
+            spans.insert(0, Span::styled("[REF] ", Style::default().fg(Color::Cyan)));
+        }
+        spans.push(Span::raw(format!(" | hjkl: Nav | x: Complete | o: Open URL | r: Ref | Tab: Mode{claude_cmd} | v: Hide | V: Show all | ?: Help | q: Quit{hidden}")));
         spans
     };
     let footer = Paragraph::new(Line::from(footer_spans))

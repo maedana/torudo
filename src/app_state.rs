@@ -2,7 +2,7 @@ use crate::crmux::Plan;
 use crate::url::{extract_urls, open_urls};
 use crate::todo::{
     add_missing_ids, append_todo, group_todos_by_project_owned, has_todo_with_id, load_todos,
-    mark_complete, Item,
+    mark_complete, move_to_file, Item,
 };
 use log::{debug, error};
 use std::{
@@ -61,6 +61,12 @@ pub struct PlanModal {
     pub checked: Vec<bool>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViewMode {
+    Todo,
+    Ref,
+}
+
 pub struct AppState {
     pub todos: Vec<Item>,
     pub grouped_todos: HashMap<String, Vec<Item>>,
@@ -77,6 +83,7 @@ pub struct AppState {
     pub show_help: bool,
     hidden_projects: HashSet<String>,
     pub update_available: Option<String>,
+    pub view_mode: ViewMode,
 }
 
 impl AppState {
@@ -141,6 +148,7 @@ impl AppState {
             show_help: false,
             hidden_projects,
             update_available: None,
+            view_mode: ViewMode::Todo,
         }
     }
 
@@ -301,12 +309,50 @@ impl AppState {
         Some(format!("Hidden: {}", names.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")))
     }
 
-    pub fn handle_reload(&mut self, todo_file: &str) {
-        debug!("Manual reload requested");
-        if let Err(e) = add_missing_ids(todo_file) {
-            error!("Failed to add missing IDs during reload: {e}");
+    pub fn active_file(&self) -> String {
+        match self.view_mode {
+            ViewMode::Todo => format!("{}/todo.txt", self.todotxt_dir),
+            ViewMode::Ref => format!("{}/ref.txt", self.todotxt_dir),
         }
-        self.reload_todos(todo_file);
+    }
+
+    pub fn handle_toggle_mode(&mut self) {
+        self.view_mode = match self.view_mode {
+            ViewMode::Todo => ViewMode::Ref,
+            ViewMode::Ref => ViewMode::Todo,
+        };
+        let file = self.active_file();
+        // Create file if it doesn't exist
+        if !std::path::Path::new(&file).exists()
+            && let Err(e) = std::fs::write(&file, "")
+        {
+            error!("Failed to create {file}: {e}");
+            return;
+        }
+        if let Err(e) = add_missing_ids(&file) {
+            error!("Failed to add missing IDs: {e}");
+        }
+        self.reload_todos(&file);
+        self.current_column = 0;
+        self.selected_in_column = 0;
+        self.scroll_offset = 0;
+    }
+
+    pub fn handle_move_to_ref(&mut self, todo_file: &str) {
+        if self.view_mode != ViewMode::Todo {
+            return;
+        }
+        if let Some(todo_id) = self.get_current_todo_id() {
+            let ref_file = format!("{}/ref.txt", self.todotxt_dir);
+            debug!("Attempting to move todo to ref.txt: {todo_id}");
+            match move_to_file(todo_file, &ref_file, todo_id) {
+                Ok(()) => {
+                    debug!("Successfully moved todo to ref.txt: {todo_id}");
+                    self.reload_todos(todo_file);
+                }
+                Err(e) => error!("Failed to move todo to ref.txt: {e}"),
+            }
+        }
     }
 
     pub fn send_initial_vim_command(&self) {
@@ -813,38 +859,83 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_reload() {
-        let temp_dir = std::env::temp_dir();
-        let test_file = temp_dir.join("test_app_state_manual_reload.txt");
+    fn test_handle_toggle_mode() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_toggle_mode");
+        fs::create_dir_all(&temp_dir).unwrap();
 
-        let content = r#"(A) Task without ID +work @office
-(B) Task with ID +personal @home id:existing-1"#;
-        fs::write(&test_file, content).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        let ref_file = temp_dir.join("ref.txt");
 
-        let todos = vec![Item {
-            completed: false,
-            priority: Some('A'),
-            creation_date: None,
-            completion_date: None,
-            description: "Task without ID".to_string(),
-            projects: vec!["work".to_string()],
-            contexts: vec!["office".to_string()],
-            id: None,
-            line_number: 1,
-        }];
+        fs::write(&todo_file, "(A) Todo item +work id:todo-1").unwrap();
+        fs::write(&ref_file, "Ref item +misc id:ref-1").unwrap();
 
+        let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = AppState::new(
+            todos,
+            String::new(),
+            HashSet::new(),
+            temp_dir.to_str().unwrap().to_string(),
+        );
+
+        assert_eq!(state.view_mode, ViewMode::Todo);
+        assert_eq!(state.todos.len(), 1);
+        assert_eq!(state.todos[0].description, "Todo item");
+
+        // Toggle to ref mode
+        state.handle_toggle_mode();
+        assert_eq!(state.view_mode, ViewMode::Ref);
+        assert_eq!(state.todos.len(), 1);
+        assert_eq!(state.todos[0].description, "Ref item");
+        assert_eq!(state.current_column, 0);
+        assert_eq!(state.selected_in_column, 0);
+
+        // Toggle back to todo mode
+        state.handle_toggle_mode();
+        assert_eq!(state.view_mode, ViewMode::Todo);
+        assert_eq!(state.todos.len(), 1);
+        assert_eq!(state.todos[0].description, "Todo item");
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_handle_toggle_mode_creates_ref_file() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_toggle_create");
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let todo_file = temp_dir.join("todo.txt");
+        let ref_file = temp_dir.join("ref.txt");
+        fs::remove_file(&ref_file).ok();
+
+        fs::write(&todo_file, "Todo item +work id:todo-1").unwrap();
+
+        let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = AppState::new(
+            todos,
+            String::new(),
+            HashSet::new(),
+            temp_dir.to_str().unwrap().to_string(),
+        );
+
+        // Toggle to ref mode - should create ref.txt
+        state.handle_toggle_mode();
+        assert!(ref_file.exists());
+        assert_eq!(state.view_mode, ViewMode::Ref);
+        assert_eq!(state.todos.len(), 0);
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_active_file() {
+        let todos = create_test_todos();
         let mut state = create_test_state(todos);
+        state.todotxt_dir = "/tmp/todotxt".to_string();
 
-        // Manual reload should add missing IDs and reload todos
-        state.handle_reload(test_file.to_str().unwrap());
+        assert_eq!(state.active_file(), "/tmp/todotxt/todo.txt");
 
-        // Should have loaded both todos
-        assert_eq!(state.todos.len(), 2);
-
-        // Both todos should now have IDs
-        assert!(state.todos.iter().all(|todo| todo.id.is_some()));
-
-        fs::remove_file(&test_file).ok();
+        state.view_mode = ViewMode::Ref;
+        assert_eq!(state.active_file(), "/tmp/todotxt/ref.txt");
     }
 
     #[test]

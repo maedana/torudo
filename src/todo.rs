@@ -196,6 +196,52 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
     Ok(())
 }
 
+pub fn move_to_file(source_file: &str, dest_file: &str, todo_id: &str) -> Result<(), Box<dyn Error>> {
+    let content = fs::read_to_string(source_file)?;
+    let lines: Vec<&str> = content.lines().collect();
+    let mut new_lines = Vec::new();
+    let mut moved_line = None;
+
+    for (line_num, line) in lines.iter().enumerate() {
+        if line.trim().is_empty() {
+            new_lines.push(line.to_string());
+            continue;
+        }
+
+        let todo = Item::parse(line, line_num + 1);
+        if let Some(id) = &todo.id
+            && id == todo_id
+        {
+            moved_line = Some(line.to_string());
+            continue;
+        }
+        new_lines.push(line.to_string());
+    }
+
+    if let Some(line) = moved_line {
+        let mut dest_content = if std::path::Path::new(dest_file).exists() {
+            fs::read_to_string(dest_file)?
+        } else {
+            String::new()
+        };
+
+        if !dest_content.is_empty() && !dest_content.ends_with('\n') {
+            dest_content.push('\n');
+        }
+        dest_content.push_str(&line);
+        dest_content.push('\n');
+
+        fs::write(dest_file, dest_content)?;
+
+        let new_source_content = new_lines.join("\n");
+        fs::write(source_file, new_source_content)?;
+
+        debug!("Moved todo to {dest_file}: {line}");
+    }
+
+    Ok(())
+}
+
 pub fn has_todo_with_id(file_path: &str, id: &str) -> bool {
     let Ok(content) = fs::read_to_string(file_path) else {
         return false;
@@ -560,6 +606,98 @@ Learn Rust +learning @coding id:task-003"#;
     #[test]
     fn test_has_todo_with_id_nonexistent_file() {
         assert!(!has_todo_with_id("/nonexistent/path/todo.txt", "any-id"));
+    }
+
+    #[test]
+    fn test_move_to_file() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_move_to_file");
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let source_file = temp_dir.join("todo.txt");
+        let dest_file = temp_dir.join("ref.txt");
+
+        // Clean up before test
+        fs::remove_file(&dest_file).ok();
+
+        let content = "(A) Call Mom +family @phone id:task-001\nBuy groceries +personal @errands id:task-002\nLearn Rust +learning @coding id:task-003";
+        fs::write(&source_file, content).unwrap();
+
+        move_to_file(
+            source_file.to_str().unwrap(),
+            dest_file.to_str().unwrap(),
+            "task-002",
+        )
+        .unwrap();
+
+        // source should have 2 remaining lines
+        let remaining = fs::read_to_string(&source_file).unwrap();
+        let remaining_lines: Vec<&str> = remaining.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(remaining_lines.len(), 2);
+        assert!(!remaining.contains("task-002"));
+        assert!(remaining.contains("task-001"));
+        assert!(remaining.contains("task-003"));
+
+        // dest should have the moved line as-is
+        let dest_content = fs::read_to_string(&dest_file).unwrap();
+        assert!(dest_content.contains("Buy groceries +personal @errands id:task-002"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_move_to_file_dest_not_exists() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_move_dest_new");
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let source_file = temp_dir.join("todo.txt");
+        let dest_file = temp_dir.join("ref.txt");
+        fs::remove_file(&dest_file).ok();
+
+        let content = "Task one id:task-001";
+        fs::write(&source_file, content).unwrap();
+
+        move_to_file(
+            source_file.to_str().unwrap(),
+            dest_file.to_str().unwrap(),
+            "task-001",
+        )
+        .unwrap();
+
+        assert!(dest_file.exists());
+        let dest_content = fs::read_to_string(&dest_file).unwrap();
+        assert!(dest_content.contains("Task one id:task-001"));
+
+        // source should be empty (no non-empty lines)
+        let remaining = fs::read_to_string(&source_file).unwrap();
+        let remaining_lines: Vec<&str> = remaining.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(remaining_lines.len(), 0);
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_move_to_file_appends_to_existing_dest() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_move_append");
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let source_file = temp_dir.join("todo.txt");
+        let dest_file = temp_dir.join("ref.txt");
+
+        fs::write(&source_file, "New item id:task-002").unwrap();
+        fs::write(&dest_file, "Existing item id:task-001\n").unwrap();
+
+        move_to_file(
+            source_file.to_str().unwrap(),
+            dest_file.to_str().unwrap(),
+            "task-002",
+        )
+        .unwrap();
+
+        let dest_content = fs::read_to_string(&dest_file).unwrap();
+        assert!(dest_content.contains("Existing item id:task-001"));
+        assert!(dest_content.contains("New item id:task-002"));
+
+        fs::remove_dir_all(&temp_dir).ok();
     }
 
     #[test]
