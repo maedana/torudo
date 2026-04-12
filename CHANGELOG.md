@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`--todotxt-dir` CLI option**: Specify todotxt directory via command line (priority: CLI > `TODOTXT_DIR` env var > `~/todotxt`)
 - **URL support**: URLs in todo descriptions are stripped from display with 🔗 icon indicator, press `o` to open all URLs in browser
 - **`torudo update` subcommand**: Self-update via GitHub Releases (`--check` to check only, `--force` to force re-download)
+- **Project column hide/show**: `v` to hide current project column, `V` to show all hidden projects
 - **Vertical scrolling**: Project columns now scroll when todos overflow the visible area
 ### Fixed
 - CJK text rendering and wrapping issues
