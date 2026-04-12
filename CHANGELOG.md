@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GTD modes**: Added Inbox, Someday, and Waiting modes alongside existing Todo and Ref modes, each backed by its own file (`inbox.txt`, `someday.txt`, `waiting.txt`)
 - **Tab bar UI**: Top tab bar shows all modes with per-mode item counts using ratatui `Tabs` widget; counts refresh on reload and on external file changes via file watcher
 - **`s` (send to) prefix**: Send the selected item to any mode's file — `si` (send to inbox), `ss` (someday), `sw` (waiting), `sr` (ref), `st` (todo)
+- **`torudo inbox add` subcommand**: Capture items to `inbox.txt` from external tools (launchers, shell scripts, editor bindings) without the TUI running. Auto-generates a UUID id (or preserves an explicit `id:xxx`) and prints the added item as JSON in the same format as `torudo current`. The running TUI picks up the new item via file watcher
 
 ### Changed
 - **Mode switching**: Use `Tab` (next) / `Shift+Tab` (previous) to cycle modes; the previous `m` prefix is gone
