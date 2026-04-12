@@ -15,6 +15,9 @@ A terminal-based todo.txt viewer and manager written in Rust with TUI interface.
 - Real-time file watching for automatic updates
 - Support for todo.txt format with priorities, projects, and contexts
 - Task completion with automatic archiving to done.txt
+- **URL support**: URLs stripped from display with 🔗 indicator, press `o` to open all URLs in browser
+- **Project hide/show**: `v` to hide project column, `V` to show all
+- **Self-update**: `torudo update` to update via GitHub Releases
 - **crmux integration**: Send plan/implement prompts to Claude Code sessions via [crmux](https://github.com/maedana/crmux) (>= 0.10.0)
 - **Plan import**: Browse and import plans as todo items via [crmux](https://github.com/maedana/crmux) (>= 0.11.0)
 - **Claude launch**: Launch claude in tmux windows with per-todo working directory via frontmatter `cwd`
@@ -77,6 +80,19 @@ torudo -d
 
 # Specify Neovim socket path
 torudo --nvim-listen /tmp/my-nvim.sock
+```
+
+### Updating
+
+```bash
+# Check for updates
+torudo update --check
+
+# Update to latest version
+torudo update
+
+# Force re-download
+torudo update --force
 ```
 
 ### Keyboard Controls

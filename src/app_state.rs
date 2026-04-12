@@ -75,6 +75,7 @@ pub struct AppState {
     pub plan_modal: Option<PlanModal>,
     pub show_help: bool,
     hidden_projects: HashSet<String>,
+    pub update_available: Option<String>,
 }
 
 impl AppState {
@@ -139,6 +140,7 @@ impl AppState {
             plan_modal: None,
             show_help: false,
             hidden_projects,
+            update_available: None,
         }
     }
 

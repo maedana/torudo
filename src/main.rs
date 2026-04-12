@@ -172,6 +172,20 @@ fn run_app(
         }
     };
 
+    // Background version check
+    let update_result: std::sync::Arc<std::sync::Mutex<Option<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
+    {
+        let update_result = std::sync::Arc::clone(&update_result);
+        std::thread::spawn(move || {
+            if let Ok(version) = update::fetch_latest_version()
+                && let Ok(mut result) = update_result.lock()
+            {
+                *result = Some(version);
+            }
+        });
+    }
+
     // Send initial vim command on startup
     state.send_initial_vim_command();
 
@@ -190,6 +204,19 @@ fn run_app(
 
         if let Some(ref server) = rpc_server {
             server.poll(state.get_current_todo());
+        }
+
+        // Check for background update result
+        if state.update_available.is_none()
+            && let Ok(mut result) = update_result.try_lock()
+            && let Some(version) = result.take()
+        {
+            let current = env!("CARGO_PKG_VERSION");
+            if let update::UpdateStatus::UpdateAvailable(v) =
+                update::check_update_needed(current, &version)
+            {
+                state.update_available = Some(v);
+            }
         }
 
         // Check keyboard events non-blocking

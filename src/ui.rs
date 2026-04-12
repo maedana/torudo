@@ -258,27 +258,27 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
     }
 
     let version = env!("CARGO_PKG_VERSION");
-    let footer_text = state.status_message.as_ref().map_or_else(
-        || {
-            let base = format!("torudo v{version} | hjkl: Nav | x: Complete | o: Open URL | r: Reload");
-            let claude_cmd = if state.crmux_available() || state.claude_available() {
-                " | c: Claude"
-            } else {
-                ""
-            };
-            let hidden = state.hidden_projects_display().map_or_else(String::new, |h| format!(" | {h}"));
-            format!("{base}{claude_cmd} | v: Hide | V: Show all | ?: Help | q: Quit{hidden}")
-        },
-        Clone::clone,
-    );
-    let footer_style = if state.status_message.is_some() {
-        Style::default().fg(Color::Green)
+    let footer_spans: Vec<Span<'_>> = if let Some(ref msg) = state.status_message {
+        vec![Span::styled(msg.clone(), Style::default().fg(Color::Green))]
     } else {
-        Style::default()
+        let mut spans = vec![Span::raw(format!("torudo v{version}"))];
+        if let Some(ref v) = state.update_available {
+            spans.push(Span::styled(
+                format!(" ({v} available! Run: torudo update)"),
+                Style::default().fg(Color::Yellow),
+            ));
+        }
+        let claude_cmd = if state.crmux_available() || state.claude_available() {
+            " | c: Claude"
+        } else {
+            ""
+        };
+        let hidden = state.hidden_projects_display().map_or_else(String::new, |h| format!(" | {h}"));
+        spans.push(Span::raw(format!(" | hjkl: Nav | x: Complete | o: Open URL | r: Reload{claude_cmd} | v: Hide | V: Show all | ?: Help | q: Quit{hidden}")));
+        spans
     };
-    let footer = Paragraph::new(footer_text)
+    let footer = Paragraph::new(Line::from(footer_spans))
         .block(Block::default().borders(Borders::ALL))
-        .style(footer_style)
         .alignment(Alignment::Center);
 
     f.render_widget(footer, chunks[1]);
