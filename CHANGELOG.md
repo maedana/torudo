@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **GTD modes**: Added Inbox, Someday, and Waiting modes alongside existing Todo and Ref modes, each backed by its own file (`inbox.txt`, `someday.txt`, `waiting.txt`)
+- **Tab bar UI**: Top tab bar shows all modes with per-mode item counts using ratatui `Tabs` widget; counts refresh on reload and on external file changes via file watcher
+- **`s` (send to) prefix**: Send the selected item to any mode's file — `si` (send to inbox), `ss` (someday), `sw` (waiting), `sr` (ref), `st` (todo)
+
+### Changed
+- **Mode switching**: Use `Tab` (next) / `Shift+Tab` (previous) to cycle modes; the previous `m` prefix is gone
+- **Mode order**: Reordered to GTD workflow — Inbox, Todo, Waiting, Ref, Someday
+- **Selection indicator**: Replaced the DarkGray background highlight on the selected todo and active project column with a bold yellow `> ` marker, matching crmux's focus style
+- **Footer**: Shortened labels (`Complete`→`Done`, `Open URL`→`URL`), dropped spaces after colons, merged `Tab/S-Tab:Mode` into a single entry placed next to `hjkl` so navigation keys sit together
+
+### Removed
+- **`r` key** (move to ref.txt) — replaced by `sr` (send to ref) under the new `s` prefix
+
+### Fixed
+- Extra closing parenthesis in project column titles (e.g., `aegis (1))` → `aegis (1)`), a regression introduced when `main.rs` was split into modules
+
 ## [0.10.0] - 2026-04-12
 
 ### Added
