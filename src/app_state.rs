@@ -201,6 +201,9 @@ impl AppState {
     }
 
     pub fn reload_todos(&mut self, todo_file: &str) {
+        if let Err(e) = add_missing_ids(todo_file) {
+            error!("Failed to add missing IDs on reload: {e}");
+        }
         match load_todos(todo_file) {
             Ok(new_todos) => {
                 debug!("Reloaded {} todos from file", new_todos.len());
@@ -362,9 +365,6 @@ impl AppState {
         {
             error!("Failed to create {file}: {e}");
             return;
-        }
-        if let Err(e) = add_missing_ids(&file) {
-            error!("Failed to add missing IDs: {e}");
         }
         self.reload_todos(&file);
         self.current_column = 0;
@@ -832,6 +832,36 @@ mod tests {
         state.reload_todos(test_file.to_str().unwrap());
         assert_eq!(state.todos.len(), 2);
         assert_eq!(state.project_names.len(), 2); // "personal", "work"
+
+        fs::remove_file(&test_file).ok();
+    }
+
+    #[test]
+    fn test_reload_todos_assigns_missing_ids() {
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("test_app_state_reload_assigns_ids.txt");
+
+        // Start with a file containing a line WITHOUT id:
+        let initial_content = "(A) Fresh task +work @office";
+        fs::write(&test_file, initial_content).unwrap();
+
+        let mut state = create_test_state(vec![]);
+        state.reload_todos(test_file.to_str().unwrap());
+
+        // The file on disk should now contain id:<uuid> for the missing line
+        let written = fs::read_to_string(&test_file).unwrap();
+        assert!(
+            written.contains("id:"),
+            "expected file to contain id: tag after reload, got: {written}"
+        );
+
+        // And the loaded Item should have Some(id)
+        assert_eq!(state.todos.len(), 1);
+        assert!(
+            state.todos[0].id.is_some(),
+            "expected loaded todo to have an id, got: {:?}",
+            state.todos[0].id
+        );
 
         fs::remove_file(&test_file).ok();
     }
