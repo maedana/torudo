@@ -39,10 +39,6 @@ cargo build --release
 
 ## Configuration
 
-### Environment Variables
-
-- `TODOTXT_DIR`: Directory containing your todo.txt file (default: `~/todotxt`)
-
 ### Command Line Options
 
 - `--todotxt-dir <PATH>`: Directory containing your todo.txt file (default: `~/todotxt`, fallback: `TODOTXT_DIR` env var)
