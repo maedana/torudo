@@ -204,6 +204,15 @@ cargo clippy
 cargo fmt
 ```
 
+## Roadmap
+
+Ideas that are on the table but not yet implemented. Order does not imply priority.
+
+- Support for topydo-style `t:YYYY-MM-DD` threshold dates — hide items until the given date arrives, usable as a GTD tickler
+- Support for `due:YYYY-MM-DD` due dates
+- Show PR status for todos linked to a git working tree (new frontmatter field pointing at the working tree path)
+- `torudo w sync` subcommand: when invoked from inside a git working tree, automatically fill the currently selected todo's frontmatter with that path (no more hand-editing)
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
