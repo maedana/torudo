@@ -43,6 +43,10 @@ struct Args {
     #[arg(long, env = "NVIM_LISTEN_ADDRESS", default_value = "/tmp/nvim.sock")]
     nvim_listen: String,
 
+    /// Path to the todotxt directory
+    #[arg(long, env = "TODOTXT_DIR")]
+    todotxt_dir: Option<String>,
+
     /// Comma-separated list of projects to hide by default
     #[arg(long)]
     hide_projects: Option<String>,
@@ -81,8 +85,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let home_dir = env::var("HOME").unwrap();
-    let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{home_dir}/todotxt"));
+    let todotxt_dir = args.todotxt_dir.unwrap_or_else(|| {
+        let home_dir = env::var("HOME").unwrap();
+        format!("{home_dir}/todotxt")
+    });
     let todo_file = format!("{todotxt_dir}/todo.txt");
 
     // Setup debug mode
@@ -161,7 +167,7 @@ fn run_app(
     nvim_socket: String,
     hidden_projects: &std::collections::HashSet<String>,
 ) -> io::Result<()> {
-    let mut state = AppState::new(todos, nvim_socket, hidden_projects.clone());
+    let mut state = AppState::new(todos, nvim_socket, hidden_projects.clone(), todotxt_dir.to_string());
     let mut event_handler = EventHandler::new();
 
     let rpc_server = match rpc_server::RpcServer::new(todotxt_dir) {

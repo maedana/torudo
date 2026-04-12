@@ -45,6 +45,7 @@ cargo build --release
 
 ### Command Line Options
 
+- `--todotxt-dir <PATH>`: Directory containing your todo.txt file (default: `~/todotxt`, fallback: `TODOTXT_DIR` env var)
 - `--nvim-listen <PATH>`: Neovim socket path set by `nvim --listen` (default: `/tmp/nvim.sock`, fallback: `NVIM_LISTEN_ADDRESS` env var)
 
 ## Usage
@@ -64,6 +65,9 @@ This ensures you have control over where your todo files are stored.
 ```bash
 # Run torudo (looks for todo.txt in $TODOTXT_DIR or ~/todotxt)
 torudo
+
+# Specify todotxt directory
+torudo --todotxt-dir ~/my-todos
 
 # Run with debug mode for detailed logging
 torudo -d

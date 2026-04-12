@@ -7,7 +7,7 @@ use crate::todo::{
 use log::{debug, error};
 use std::{
     collections::{HashMap, HashSet},
-    env, io::Write, os::unix::net::UnixStream, time::Duration,
+    io::Write, os::unix::net::UnixStream, time::Duration,
     time::SystemTime,
 };
 
@@ -69,6 +69,7 @@ pub struct AppState {
     pub selected_in_column: usize,
     pub scroll_offset: usize,
     pub nvim_socket: String,
+    pub todotxt_dir: String,
     pub crmux_version: Option<(u32, u32, u32)>,
     pub claude_available: bool,
     pub status_message: Option<String>,
@@ -107,9 +108,7 @@ impl AppState {
     }
 
     fn send_vim_command(&self, todo_id: &str) {
-        let home_dir = env::var("HOME").unwrap();
-        let todotxt_dir = env::var("TODOTXT_DIR").unwrap_or_else(|_| format!("{home_dir}/todotxt"));
-        let file_path = format!("{todotxt_dir}/todos/{todo_id}.md");
+        let file_path = format!("{}/todos/{todo_id}.md", self.todotxt_dir);
         let cmd = format!("e {file_path}");
 
         match self.send_nvim_rpc_command(&cmd) {
@@ -118,7 +117,7 @@ impl AppState {
         }
     }
 
-    pub fn new(todos: Vec<Item>, nvim_socket: String, hidden_projects: HashSet<String>) -> Self {
+    pub fn new(todos: Vec<Item>, nvim_socket: String, hidden_projects: HashSet<String>, todotxt_dir: String) -> Self {
         let grouped_todos = group_todos_by_project_owned(&todos);
         let mut project_names: Vec<String> = grouped_todos.keys().cloned().collect();
         project_names.sort();
@@ -134,6 +133,7 @@ impl AppState {
             selected_in_column: 0,
             scroll_offset: 0,
             nvim_socket,
+            todotxt_dir,
             crmux_version,
             claude_available,
             status_message: None,
@@ -527,7 +527,7 @@ mod tests {
     use std::fs;
 
     fn create_test_state(todos: Vec<Item>) -> AppState {
-        let mut state = AppState::new(todos, "/tmp/nvim.sock".to_string(), HashSet::new());
+        let mut state = AppState::new(todos, "/tmp/nvim.sock".to_string(), HashSet::new(), "/tmp/todotxt".to_string());
         state.crmux_version = None;
         state.claude_available = false;
         state
@@ -585,7 +585,7 @@ mod tests {
     #[test]
     fn test_app_state_new() {
         let todos = create_test_todos();
-        let state = AppState::new(todos.clone(), "/tmp/nvim.sock".to_string(), HashSet::new());
+        let state = AppState::new(todos.clone(), "/tmp/nvim.sock".to_string(), HashSet::new(), "/tmp/todotxt".to_string());
 
         assert_eq!(state.todos.len(), 4);
         assert_eq!(state.current_column, 0);
@@ -1552,7 +1552,7 @@ mod tests {
     fn test_new_with_initial_hidden() {
         let todos = create_test_todos();
         let hidden: HashSet<String> = vec!["No Project".to_string()].into_iter().collect();
-        let mut state = AppState::new(todos, "/tmp/nvim.sock".to_string(), hidden);
+        let mut state = AppState::new(todos, "/tmp/nvim.sock".to_string(), hidden, "/tmp/todotxt".to_string());
         state.crmux_version = None;
         state.claude_available = false;
 
