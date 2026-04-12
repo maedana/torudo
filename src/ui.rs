@@ -113,7 +113,7 @@ pub fn draw_project_column(
     };
 
     let project_block = Block::default()
-        .title(format!("{project_name} ({}))", project_todos.len()))
+        .title(format!("{project_name} ({})", project_todos.len()))
         .borders(Borders::ALL)
         .border_style(border_style);
 
