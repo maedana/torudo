@@ -7,6 +7,8 @@ A terminal-based todo.txt viewer and manager written in Rust with TUI interface.
 ## Features
 
 - Project-based column view with priority sorting
+- **GTD modes** (Inbox, Todo, Waiting, Ref, Someday) switchable with `Tab` / `Shift+Tab`
+- **External capture** via `torudo inbox add "..."` — add items to the inbox from scripts, launchers, or editor bindings without the TUI running
 - Vim integration and real-time file watching
 - URL detection (🔗) and browser open (`o`)
 - Self-update via GitHub Releases (`torudo update`)
@@ -71,6 +73,23 @@ torudo -d
 # Specify Neovim socket path
 torudo --nvim-listen /tmp/my-nvim.sock
 ```
+
+### Capturing to Inbox from Outside the TUI
+
+The `torudo inbox add` subcommand appends a new item to `inbox.txt` without requiring the TUI to be running. It is meant for quick capture from launchers, shell scripts, editor keybindings, or anywhere you don't want to open the full UI.
+
+```bash
+# Capture a new task into the inbox
+torudo inbox add "(A) Buy milk +grocery @home"
+
+# Pipe the output through jq to grab the generated id
+torudo inbox add "Draft blog post +writing" | jq -r .id
+
+# Preserve an explicit id (otherwise a UUID is generated)
+torudo inbox add "Fix #123 id:my-custom-id"
+```
+
+The command prints the added item as JSON in the same format as `torudo current`. When a TUI session is running, the file watcher picks up the change and the Inbox tab updates automatically.
 
 ### Updating
 
@@ -142,14 +161,24 @@ The `cwd` field is required for `clp`/`cli` — an error is shown if it is not s
 
 ## File Structure
 
+Torudo keeps one todo.txt-format file per GTD mode plus a `done.txt` archive. Each file holds plain todo.txt lines; `todos/{id}.md` holds optional long-form detail for individual items.
+
 ```
 ~/todotxt/
-├── todo.txt          # Main todo file
-├── done.txt          # Completed todos
+├── inbox.txt         # Inbox — capture target (also `torudo inbox add`)
+├── todo.txt          # Todo / Next actions (the only mode where `x` completes)
+├── waiting.txt       # Waiting for
+├── ref.txt           # Reference material
+├── someday.txt       # Someday / maybe
+├── done.txt          # Archive of items completed from todo.txt
 └── todos/            # Individual todo detail files
     ├── abc123.md
     └── def456.md
 ```
+
+Only `todo.txt` is created at first launch; the other mode files are created lazily the first time something lands in them (e.g. via the `s` send-to prefix or `torudo inbox add`). Completing an item with `x` works only in Todo mode; to complete an item from another mode, send it to Todo first with `st`.
+
+**If you prefer the classic todo.txt / done.txt workflow**, just stay in Todo mode and ignore the other tabs — none of the GTD mode files are created until you write to them, and every existing key (`x`, `hjkl`, `o`, …) behaves exactly as before. GTD is opt-in, not required.
 
 ## Development
 
