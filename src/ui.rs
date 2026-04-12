@@ -1,5 +1,5 @@
 use crate::app_state::{AppState, ViewMode};
-use crate::help::HELP_ENTRIES;
+use crate::help::{self, HELP_ENTRIES};
 use crate::todo::Item;
 use crate::url::strip_urls;
 use unicode_width::UnicodeWidthChar;
@@ -268,15 +268,17 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
                 Style::default().fg(Color::Yellow),
             ));
         }
-        let claude_cmd = if state.crmux_available() || state.claude_available() {
-            " | c: Claude"
-        } else {
-            ""
-        };
         if state.view_mode == ViewMode::Ref {
             spans.insert(0, Span::styled("[REF] ", Style::default().fg(Color::Cyan)));
         }
-        spans.push(Span::raw(format!(" | hjkl: Nav | x: Complete | o: Open URL | r: Ref | Tab: Mode{claude_cmd} | ?: Help | q: Quit")));
+        let is_todo = state.view_mode == ViewMode::Todo;
+        let footer_str = help::footer_entries(is_todo)
+            .iter()
+            .filter(|(key, _)| *key != "c" || state.crmux_available() || state.claude_available())
+            .map(|(key, desc)| format!("{key}: {desc}"))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        spans.push(Span::raw(format!(" | {footer_str}")));
         spans
     };
     let footer = Paragraph::new(Line::from(footer_spans))
@@ -292,7 +294,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
 
     // Draw help overlay if shown
     if state.show_help {
-        draw_help_overlay(f, size);
+        draw_help_overlay(f, size, state.view_mode);
     }
 }
 
@@ -485,7 +487,7 @@ mod tests {
     }
 }
 
-fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect) {
+fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect, view_mode: ViewMode) {
     let modal_area = centered_rect(50, 60, area);
     f.render_widget(Clear, modal_area);
 
@@ -502,13 +504,19 @@ fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect) {
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(inner);
 
-    let max_key_width = HELP_ENTRIES
+    let is_todo = view_mode == ViewMode::Todo;
+    let entries: Vec<&crate::help::HelpEntry> = HELP_ENTRIES
+        .iter()
+        .filter(|e| !e.todo_only || is_todo)
+        .collect();
+
+    let max_key_width = entries
         .iter()
         .map(|e| e.key.len())
         .max()
         .unwrap_or(0);
 
-    let lines: Vec<Line<'_>> = HELP_ENTRIES
+    let lines: Vec<Line<'_>> = entries
         .iter()
         .map(|e| {
             let mut spans = Vec::new();

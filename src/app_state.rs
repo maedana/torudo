@@ -281,13 +281,12 @@ impl AppState {
         }
     }
 
-    pub fn handle_toggle_mode(&mut self) {
-        self.view_mode = match self.view_mode {
-            ViewMode::Todo => ViewMode::Ref,
-            ViewMode::Ref => ViewMode::Todo,
-        };
+    pub fn set_view_mode(&mut self, mode: ViewMode) {
+        if self.view_mode == mode {
+            return;
+        }
+        self.view_mode = mode;
         let file = self.active_file();
-        // Create file if it doesn't exist
         if !std::path::Path::new(&file).exists()
             && let Err(e) = std::fs::write(&file, "")
         {
@@ -822,7 +821,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_toggle_mode() {
+    fn test_set_view_mode() {
         let temp_dir = std::env::temp_dir().join("torudo_test_toggle_mode");
         fs::create_dir_all(&temp_dir).unwrap();
 
@@ -843,25 +842,29 @@ mod tests {
         assert_eq!(state.todos.len(), 1);
         assert_eq!(state.todos[0].description, "Todo item");
 
-        // Toggle to ref mode
-        state.handle_toggle_mode();
+        // Switch to ref mode
+        state.set_view_mode(ViewMode::Ref);
         assert_eq!(state.view_mode, ViewMode::Ref);
         assert_eq!(state.todos.len(), 1);
         assert_eq!(state.todos[0].description, "Ref item");
         assert_eq!(state.current_column, 0);
         assert_eq!(state.selected_in_column, 0);
 
-        // Toggle back to todo mode
-        state.handle_toggle_mode();
+        // Switch back to todo mode
+        state.set_view_mode(ViewMode::Todo);
         assert_eq!(state.view_mode, ViewMode::Todo);
         assert_eq!(state.todos.len(), 1);
         assert_eq!(state.todos[0].description, "Todo item");
+
+        // Same mode is no-op
+        state.set_view_mode(ViewMode::Todo);
+        assert_eq!(state.view_mode, ViewMode::Todo);
 
         fs::remove_dir_all(&temp_dir).ok();
     }
 
     #[test]
-    fn test_handle_toggle_mode_creates_ref_file() {
+    fn test_set_view_mode_creates_ref_file() {
         let temp_dir = std::env::temp_dir().join("torudo_test_toggle_create");
         fs::create_dir_all(&temp_dir).unwrap();
 
@@ -878,8 +881,8 @@ mod tests {
             temp_dir.to_str().unwrap().to_string(),
         );
 
-        // Toggle to ref mode - should create ref.txt
-        state.handle_toggle_mode();
+        // Switch to ref mode - should create ref.txt
+        state.set_view_mode(ViewMode::Ref);
         assert!(ref_file.exists());
         assert_eq!(state.view_mode, ViewMode::Ref);
         assert_eq!(state.todos.len(), 0);

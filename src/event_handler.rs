@@ -190,6 +190,22 @@ impl EventHandler {
                 state.handle_launch_implement(todotxt_dir);
                 self.pending_keys.clear();
             }
+            ['m', 't'] => {
+                if debug_mode {
+                    debug!("Switch to todo mode (mt)");
+                }
+                state.set_view_mode(ViewMode::Todo);
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
+            ['m', 'r'] => {
+                if debug_mode {
+                    debug!("Switch to ref mode (mr)");
+                }
+                state.set_view_mode(ViewMode::Ref);
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
             _ => {
                 if debug_mode {
                     debug!("Unknown key sequence: {:?}", self.pending_keys);
@@ -232,13 +248,11 @@ impl EventHandler {
                 }
                 state.handle_move_to_ref(todo_file);
             }
-            KeyCode::Tab => {
-                if debug_mode {
-                    debug!("Toggle view mode");
-                }
-                state.handle_toggle_mode();
+            KeyCode::Char('m') => {
+                self.pending_keys.push('m');
+                state.status_message = Some("m → t: Todo | r: Ref | Esc: Cancel".to_string());
             }
-            KeyCode::Char('c') if state.crmux_available() || state.claude_available() => {
+            KeyCode::Char('c') if state.view_mode == ViewMode::Todo && (state.crmux_available() || state.claude_available()) => {
                 self.pending_keys.push('c');
                 state.status_message = Some(build_c_submenu(state));
             }
