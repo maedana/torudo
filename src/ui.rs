@@ -10,6 +10,8 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthChar;
 
+const SELECTED_ICON: &str = "> ";
+
 pub fn create_todo_spans(todo: &Item) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     if todo.completed {
@@ -41,22 +43,14 @@ pub fn create_todo_spans(todo: &Item) -> Vec<Span<'static>> {
     spans
 }
 
-pub fn get_todo_styles(is_selected: bool, is_completed: bool) -> (Style, Style) {
-    let todo_style = if is_selected {
+pub fn get_todo_border_style(is_selected: bool, is_completed: bool) -> Style {
+    if is_selected {
         Style::default().fg(Color::Yellow)
     } else if is_completed {
         Style::default().fg(Color::DarkGray)
     } else {
         Style::default().fg(Color::White)
-    };
-
-    let background_style = if is_selected {
-        Style::default().bg(Color::DarkGray)
-    } else {
-        Style::default()
-    };
-
-    (todo_style, background_style)
+    }
 }
 
 fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
@@ -112,8 +106,21 @@ pub fn draw_project_column(
         Style::default().fg(Color::White)
     };
 
+    let title_line = if is_active_column {
+        Line::from(vec![
+            Span::styled(
+                SELECTED_ICON,
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!("{project_name} ({})", project_todos.len())),
+        ])
+    } else {
+        Line::from(format!("{project_name} ({})", project_todos.len()))
+    };
     let project_block = Block::default()
-        .title(format!("{project_name} ({})", project_todos.len()))
+        .title(title_line)
         .borders(Borders::ALL)
         .border_style(border_style);
 
@@ -178,7 +185,7 @@ pub fn draw_project_column(
         let spans = create_todo_spans(todo);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         let is_selected = is_active_column && actual_idx == selected_in_column;
-        let (todo_style, background_style) = get_todo_styles(is_selected, todo.completed);
+        let border_style = get_todo_border_style(is_selected, todo.completed);
 
         let effective_width = usize::from(todo_layout[i].width.saturating_sub(2));
         let wrapped_lines: Vec<Line<'_>> = wrap_text(&text, effective_width)
@@ -186,13 +193,18 @@ pub fn draw_project_column(
             .map(Line::from)
             .collect();
 
-        let todo_paragraph = Paragraph::new(wrapped_lines)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(todo_style),
-            )
-            .style(background_style);
+        let mut block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(border_style);
+        if is_selected {
+            block = block.title(Span::styled(
+                SELECTED_ICON,
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
+        let todo_paragraph = Paragraph::new(wrapped_lines).block(block);
 
         f.render_widget(todo_paragraph, todo_layout[i]);
     }
