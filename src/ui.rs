@@ -12,6 +12,15 @@ use unicode_width::UnicodeWidthChar;
 
 const SELECTED_ICON: &str = "> ";
 
+fn selected_icon_span() -> Span<'static> {
+    Span::styled(
+        SELECTED_ICON,
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )
+}
+
 pub fn create_todo_spans(todo: &Item) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     if todo.completed {
@@ -106,18 +115,11 @@ pub fn draw_project_column(
         Style::default().fg(Color::White)
     };
 
+    let title_text = format!("{project_name} ({})", project_todos.len());
     let title_line = if is_active_column {
-        Line::from(vec![
-            Span::styled(
-                SELECTED_ICON,
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(format!("{project_name} ({})", project_todos.len())),
-        ])
+        Line::from(vec![selected_icon_span(), Span::raw(title_text)])
     } else {
-        Line::from(format!("{project_name} ({})", project_todos.len()))
+        Line::from(title_text)
     };
     let project_block = Block::default()
         .title(title_line)
@@ -197,12 +199,7 @@ pub fn draw_project_column(
             .borders(Borders::ALL)
             .border_style(border_style);
         if is_selected {
-            block = block.title(Span::styled(
-                SELECTED_ICON,
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ));
+            block = block.title(selected_icon_span());
         }
         let todo_paragraph = Paragraph::new(wrapped_lines).block(block);
 
