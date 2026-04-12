@@ -252,6 +252,30 @@ pub fn has_todo_with_id(file_path: &str, id: &str) -> bool {
         .any(|line| line.split_whitespace().any(|word| word == id_tag))
 }
 
+/// Render an `Item` as pretty JSON, merging in the contents of
+/// `{todotxt_dir}/todos/{id}.md` as the `md` field when present.
+pub fn item_to_json(item: &Item, todotxt_dir: &str) -> Result<String, String> {
+    let mut json = serde_json::to_value(item).map_err(|e| format!("serialize error: {e}"))?;
+    if let Some(todo_id) = &item.id {
+        let md_path = format!("{todotxt_dir}/todos/{todo_id}.md");
+        if let Ok(content) = fs::read_to_string(&md_path) {
+            json["md"] = serde_json::Value::String(content);
+        }
+    }
+    serde_json::to_string_pretty(&json).map_err(|e| format!("serialize error: {e}"))
+}
+
+pub fn add_item(file_path: &str, text: &str) -> Result<Item, Box<dyn Error>> {
+    let probe = Item::parse(text, 0);
+    let final_line = if probe.id.is_some() {
+        text.to_string()
+    } else {
+        format!("{text} id:{}", Uuid::new_v4())
+    };
+    append_todo(file_path, &final_line)?;
+    Ok(Item::parse(&final_line, 0))
+}
+
 pub fn append_todo(file_path: &str, line: &str) -> Result<(), Box<dyn Error>> {
     let mut content = if std::path::Path::new(file_path).exists() {
         fs::read_to_string(file_path)?
@@ -726,6 +750,151 @@ Learn Rust +learning @coding id:task-003";
             done_content.starts_with(&format!("x (A) {today} 2024-01-10")),
             "Expected format: 'x (A) {today} 2024-01-10...', but got: {done_content}"
         );
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_item_to_json_without_md() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_item_to_json_no_md");
+        fs::create_dir_all(temp_dir.join("todos")).unwrap();
+
+        let item = Item::parse("(B) Simple task +proj @ctx id:xyz-789", 0);
+        let json_str = item_to_json(&item, temp_dir.to_str().unwrap()).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(json["title"], "Simple task");
+        assert_eq!(json["priority"], "B");
+        assert_eq!(json["id"], "xyz-789");
+        assert_eq!(json["projects"], serde_json::json!(["proj"]));
+        assert_eq!(json["contexts"], serde_json::json!(["ctx"]));
+        assert!(json.get("md").is_none());
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_item_to_json_with_md() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_item_to_json_with_md");
+        let todos_dir = temp_dir.join("todos");
+        fs::create_dir_all(&todos_dir).unwrap();
+        fs::write(todos_dir.join("abc-123.md"), "# Details").unwrap();
+
+        let item = Item::parse("(A) My task +project @home id:abc-123", 0);
+        let json_str = item_to_json(&item, temp_dir.to_str().unwrap()).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(json["md"], "# Details");
+        assert_eq!(json["id"], "abc-123");
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_item_to_json_without_id_skips_md_lookup() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_item_to_json_no_id");
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let item = Item::parse("No id todo", 0);
+        let json_str = item_to_json(&item, temp_dir.to_str().unwrap()).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(json["title"], "No id todo");
+        assert!(json.get("md").is_none());
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_add_item_generates_uuid_when_missing() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_add_item_uuid");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let inbox = temp_dir.join("inbox.txt");
+        fs::remove_file(&inbox).ok();
+
+        let item = add_item(inbox.to_str().unwrap(), "Buy milk").unwrap();
+
+        assert_eq!(item.description, "Buy milk");
+        let id = item.id.expect("id should be auto-generated");
+        // UUID v4 は 36 文字（ハイフン含む）
+        assert_eq!(id.len(), 36);
+
+        let content = fs::read_to_string(&inbox).unwrap();
+        assert!(content.contains("Buy milk"));
+        assert!(content.contains(&format!("id:{id}")));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_add_item_preserves_existing_id() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_add_item_keep_id");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let inbox = temp_dir.join("inbox.txt");
+        fs::remove_file(&inbox).ok();
+
+        let item = add_item(inbox.to_str().unwrap(), "Buy milk id:fixed-123").unwrap();
+
+        assert_eq!(item.id.as_deref(), Some("fixed-123"));
+
+        let content = fs::read_to_string(&inbox).unwrap();
+        // id:fixed-123 がちょうど1回だけ現れる（新規 UUID で上書き/重複しない）
+        assert_eq!(content.matches("id:fixed-123").count(), 1);
+        assert_eq!(content.matches("id:").count(), 1);
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_add_item_creates_file_if_missing() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_add_item_new_file");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let inbox = temp_dir.join("inbox.txt");
+        fs::remove_file(&inbox).ok();
+        assert!(!inbox.exists());
+
+        add_item(inbox.to_str().unwrap(), "First item").unwrap();
+
+        assert!(inbox.exists());
+        let content = fs::read_to_string(&inbox).unwrap();
+        assert!(content.contains("First item"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_add_item_parses_priority_projects_contexts() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_add_item_parse");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let inbox = temp_dir.join("inbox.txt");
+        fs::remove_file(&inbox).ok();
+
+        let item = add_item(inbox.to_str().unwrap(), "(A) Buy milk +grocery @home").unwrap();
+
+        assert_eq!(item.priority, Some('A'));
+        assert_eq!(item.projects, vec!["grocery".to_string()]);
+        assert_eq!(item.contexts, vec!["home".to_string()]);
+        assert!(item.id.is_some());
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_add_item_appends_to_existing_content() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_add_item_append");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let inbox = temp_dir.join("inbox.txt");
+
+        // 末尾改行なしの既存内容
+        fs::write(&inbox, "Existing line id:old-1").unwrap();
+
+        add_item(inbox.to_str().unwrap(), "New line").unwrap();
+
+        let content = fs::read_to_string(&inbox).unwrap();
+        let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("Existing line"));
+        assert!(lines[1].contains("New line"));
 
         fs::remove_dir_all(&temp_dir).ok();
     }

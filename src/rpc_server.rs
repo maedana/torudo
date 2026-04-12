@@ -162,16 +162,7 @@ fn handle_get_current(
     todotxt_dir: &str,
 ) -> Result<String, String> {
     let item = current_todo.ok_or("no todo selected")?;
-    let mut json = serde_json::to_value(item).map_err(|e| format!("serialize error: {e}"))?;
-
-    if let Some(todo_id) = &item.id {
-        let md_path = format!("{todotxt_dir}/todos/{todo_id}.md");
-        if let Ok(content) = std::fs::read_to_string(&md_path) {
-            json["md"] = serde_json::Value::String(content);
-        }
-    }
-
-    serde_json::to_string_pretty(&json).map_err(|e| format!("serialize error: {e}"))
+    todo::item_to_json(item, todotxt_dir)
 }
 
 #[cfg(test)]

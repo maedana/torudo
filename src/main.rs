@@ -64,6 +64,27 @@ enum Commands {
         #[arg(long)]
         check: bool,
     },
+    /// Inbox operations
+    Inbox {
+        #[command(subcommand)]
+        action: InboxAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum InboxAction {
+    /// Add a new item to inbox.txt and print it as JSON
+    Add {
+        /// Todo text (priority, projects, contexts, id are all supported)
+        text: String,
+    },
+}
+
+fn resolve_todotxt_dir(cli: Option<String>) -> String {
+    cli.unwrap_or_else(|| {
+        let home_dir = env::var("HOME").unwrap();
+        format!("{home_dir}/todotxt")
+    })
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -80,11 +101,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         handle_update(force, check);
         return Ok(());
     }
+    if let Some(Commands::Inbox {
+        action: InboxAction::Add { text },
+    }) = &args.command
+    {
+        let todotxt_dir = resolve_todotxt_dir(args.todotxt_dir.clone());
+        let inbox_path = format!("{todotxt_dir}/inbox.txt");
+        let item = todo::add_item(&inbox_path, text)?;
+        let json =
+            todo::item_to_json(&item, &todotxt_dir).map_err(|e| -> Box<dyn Error> { e.into() })?;
+        println!("{json}");
+        return Ok(());
+    }
 
-    let todotxt_dir = args.todotxt_dir.unwrap_or_else(|| {
-        let home_dir = env::var("HOME").unwrap();
-        format!("{home_dir}/todotxt")
-    });
+    let todotxt_dir = resolve_todotxt_dir(args.todotxt_dir);
     let todo_file = format!("{todotxt_dir}/todo.txt");
 
     // Setup debug mode
