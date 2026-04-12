@@ -214,7 +214,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
         )
         .split(size);
 
-    let visible_projects = state.project_names.clone();
+    let visible_projects = &state.project_names;
     let num_columns = visible_projects.len();
     if num_columns > 0 {
         let column_constraints: Vec<Constraint> = (0..num_columns)

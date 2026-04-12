@@ -166,7 +166,7 @@ impl AppState {
         self.project_names = self.grouped_todos.keys().cloned().collect();
         self.project_names.sort();
 
-        let visible = self.project_names.clone();
+        let visible = &self.project_names;
         if self.current_column >= visible.len() {
             self.current_column = visible.len().saturating_sub(1);
         }
@@ -183,7 +183,7 @@ impl AppState {
     }
 
     pub fn get_current_todo(&self) -> Option<&Item> {
-        let visible = self.project_names.clone();
+        let visible = &self.project_names;
         let current_project_name = visible.get(self.current_column)?;
         let current_todos = self.grouped_todos.get(current_project_name)?;
         current_todos.get(self.selected_in_column)
@@ -195,7 +195,7 @@ impl AppState {
 
     pub fn handle_navigation_key(&mut self, key_char: char) {
         self.status_message = None;
-        let visible = self.project_names.clone();
+        let visible = &self.project_names;
         match key_char {
             'k' => {
                 if self.selected_in_column > 0 {
@@ -327,13 +327,11 @@ impl AppState {
     }
 
     pub fn get_current_project_name(&self) -> Option<String> {
-        let visible = self.project_names.clone();
-        visible.get(self.current_column).cloned()
+        self.project_names.get(self.current_column).cloned()
     }
 
     fn get_current_todo_description(&self) -> Option<String> {
-        let visible = self.project_names.clone();
-        let project_name = visible.get(self.current_column)?;
+        let project_name = self.project_names.get(self.current_column)?;
         let todos = self.grouped_todos.get(project_name)?;
         let todo = todos.get(self.selected_in_column)?;
         Some(todo.description.clone())
