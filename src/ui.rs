@@ -2,13 +2,13 @@ use crate::app_state::{AppState, ViewMode};
 use crate::help;
 use crate::todo::Item;
 use crate::url::strip_urls;
-use unicode_width::UnicodeWidthChar;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Flex, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Tabs},
 };
+use unicode_width::UnicodeWidthChar;
 
 pub fn create_todo_spans(todo: &Item) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
@@ -208,7 +208,11 @@ fn draw_tab_bar(f: &mut ratatui::Frame, state: &AppState, area: Rect) {
         .collect();
     let tabs = Tabs::new(tab_titles)
         .select(state.current_mode_index())
-        .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
     f.render_widget(tabs, area);
 }
 
@@ -292,10 +296,10 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
         let has_claude = state.crmux_available() || state.claude_available();
         let footer_str = help::footer_entries(is_todo, has_claude)
             .iter()
-            .map(|(key, desc)| format!("{key}: {desc}"))
+            .map(|(key, desc)| format!("{key}:{desc}"))
             .collect::<Vec<_>>()
-            .join(" | ");
-        spans.push(Span::raw(format!(" | {footer_str}")));
+            .join(" │ ");
+        spans.push(Span::raw(format!(" │ {footer_str}")));
         spans
     };
     let footer = Paragraph::new(Line::from(footer_spans))
@@ -336,11 +340,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-fn draw_plan_modal(
-    f: &mut ratatui::Frame,
-    modal: &crate::app_state::PlanModal,
-    area: Rect,
-) {
+fn draw_plan_modal(f: &mut ratatui::Frame, modal: &crate::app_state::PlanModal, area: Rect) {
     let modal_area = centered_rect(60, 60, area);
     f.render_widget(Clear, modal_area);
 
@@ -383,8 +383,7 @@ fn draw_plan_modal(
         })
         .collect();
 
-    let list =
-        Paragraph::new(lines).scroll((u16::try_from(scroll_offset).unwrap_or(u16::MAX), 0));
+    let list = Paragraph::new(lines).scroll((u16::try_from(scroll_offset).unwrap_or(u16::MAX), 0));
     f.render_widget(list, inner_chunks[0]);
 
     let help = Paragraph::new("j/k: Move | Space: Toggle | Enter: Import | q: Cancel")
@@ -447,8 +446,7 @@ mod tests {
 
         terminal
             .draw(|f| {
-                let p = Paragraph::new(wrapped_lines)
-                    .block(Block::default().borders(Borders::ALL));
+                let p = Paragraph::new(wrapped_lines).block(Block::default().borders(Borders::ALL));
                 f.render_widget(p, area);
             })
             .unwrap();
@@ -469,7 +467,10 @@ mod tests {
         // Render into a width that should produce 2 wrapped lines
         let lines = render_paragraph_to_lines("あいうえおかきくけこさしすせそ", 20, 6);
         eprintln!("rendered lines: {lines:?}");
-        assert!(!lines[0].is_empty(), "first content row should not be blank");
+        assert!(
+            !lines[0].is_empty(),
+            "first content row should not be blank"
+        );
 
         let content_lines: Vec<_> = lines.iter().filter(|l| !l.is_empty()).collect();
         eprintln!("content line count: {}", content_lines.len());
@@ -525,11 +526,7 @@ fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect, view_mode: ViewMode, ha
     let is_todo = view_mode == ViewMode::Todo;
     let entries = help::visible_entries(is_todo, has_claude);
 
-    let max_key_width = entries
-        .iter()
-        .map(|e| e.key.len())
-        .max()
-        .unwrap_or(0);
+    let max_key_width = entries.iter().map(|e| e.key.len()).max().unwrap_or(0);
 
     let lines: Vec<Line<'_>> = entries
         .iter()
@@ -537,10 +534,7 @@ fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect, view_mode: ViewMode, ha
             let mut spans = Vec::new();
             if e.indent {
                 // Use a non-whitespace-only span to prevent trim from eating indent
-                spans.push(Span::styled(
-                    "  ",
-                    Style::default().fg(Color::DarkGray),
-                ));
+                spans.push(Span::styled("  ", Style::default().fg(Color::DarkGray)));
                 spans.push(Span::styled(
                     format!("{:<width$}  ", e.key, width = max_key_width),
                     Style::default()

@@ -5,6 +5,7 @@ pub struct HelpEntry {
     pub todo_only: bool,
     pub requires_claude: bool,
     pub footer: Option<&'static str>,
+    pub footer_key: Option<&'static str>,
 }
 
 impl HelpEntry {
@@ -14,25 +15,177 @@ impl HelpEntry {
 }
 
 pub const HELP_ENTRIES: &[HelpEntry] = &[
-    HelpEntry { key: "hjkl", desc: "Navigate between columns and todos", indent: false, todo_only: false, requires_claude: false, footer: Some("Nav") },
-    HelpEntry { key: "x", desc: "Complete selected todo", indent: false, todo_only: true, requires_claude: false, footer: Some("Complete") },
-    HelpEntry { key: "o", desc: "Open URLs in selected todo", indent: false, todo_only: false, requires_claude: false, footer: Some("Open URL") },
-    HelpEntry { key: "s", desc: "Send to... submenu", indent: false, todo_only: false, requires_claude: false, footer: Some("Send") },
-    HelpEntry { key: "st", desc: "Send to todo.txt", indent: true, todo_only: false, requires_claude: false, footer: None },
-    HelpEntry { key: "sr", desc: "Send to ref.txt", indent: true, todo_only: false, requires_claude: false, footer: None },
-    HelpEntry { key: "si", desc: "Send to inbox.txt", indent: true, todo_only: false, requires_claude: false, footer: None },
-    HelpEntry { key: "ss", desc: "Send to someday.txt", indent: true, todo_only: false, requires_claude: false, footer: None },
-    HelpEntry { key: "sw", desc: "Send to waiting.txt", indent: true, todo_only: false, requires_claude: false, footer: None },
-    HelpEntry { key: "Tab", desc: "Next mode", indent: false, todo_only: false, requires_claude: false, footer: Some("Next mode") },
-    HelpEntry { key: "S-Tab", desc: "Previous mode", indent: false, todo_only: false, requires_claude: false, footer: Some("Prev mode") },
-    HelpEntry { key: "c", desc: "Claude submenu (requires crmux or claude CLI)", indent: false, todo_only: true, requires_claude: true, footer: Some("Claude") },
-    HelpEntry { key: "csp", desc: "Send plan prompt to project's idle crmux session (>= 0.10.0)", indent: true, todo_only: true, requires_claude: true, footer: None },
-    HelpEntry { key: "csi", desc: "Send implement prompt to project's idle crmux session (>= 0.10.0)", indent: true, todo_only: true, requires_claude: true, footer: None },
-    HelpEntry { key: "cgp", desc: "Get plans and import via crmux (>= 0.11.0)", indent: true, todo_only: true, requires_claude: true, footer: None },
-    HelpEntry { key: "clp", desc: "Launch claude plan in tmux window (requires cwd in frontmatter)", indent: true, todo_only: true, requires_claude: true, footer: None },
-    HelpEntry { key: "cli", desc: "Launch claude implement in tmux window (requires cwd in frontmatter)", indent: true, todo_only: true, requires_claude: true, footer: None },
-    HelpEntry { key: "?", desc: "Toggle help", indent: false, todo_only: false, requires_claude: false, footer: Some("Help") },
-    HelpEntry { key: "q", desc: "Quit", indent: false, todo_only: false, requires_claude: false, footer: Some("Quit") },
+    HelpEntry {
+        key: "hjkl",
+        desc: "Navigate between columns and todos",
+        indent: false,
+        todo_only: false,
+        requires_claude: false,
+        footer: Some("Nav"),
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "Tab",
+        desc: "Next mode",
+        indent: false,
+        todo_only: false,
+        requires_claude: false,
+        footer: Some("Mode"),
+        footer_key: Some("Tab/S-Tab"),
+    },
+    HelpEntry {
+        key: "S-Tab",
+        desc: "Previous mode",
+        indent: false,
+        todo_only: false,
+        requires_claude: false,
+        footer: None,
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "x",
+        desc: "Complete selected todo",
+        indent: false,
+        todo_only: true,
+        requires_claude: false,
+        footer: Some("Done"),
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "o",
+        desc: "Open URLs in selected todo",
+        indent: false,
+        todo_only: false,
+        requires_claude: false,
+        footer: Some("URL"),
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "s",
+        desc: "Send to... submenu",
+        indent: false,
+        todo_only: false,
+        requires_claude: false,
+        footer: Some("Send"),
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "st",
+        desc: "Send to todo.txt",
+        indent: true,
+        todo_only: false,
+        requires_claude: false,
+        footer: None,
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "sr",
+        desc: "Send to ref.txt",
+        indent: true,
+        todo_only: false,
+        requires_claude: false,
+        footer: None,
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "si",
+        desc: "Send to inbox.txt",
+        indent: true,
+        todo_only: false,
+        requires_claude: false,
+        footer: None,
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "ss",
+        desc: "Send to someday.txt",
+        indent: true,
+        todo_only: false,
+        requires_claude: false,
+        footer: None,
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "sw",
+        desc: "Send to waiting.txt",
+        indent: true,
+        todo_only: false,
+        requires_claude: false,
+        footer: None,
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "c",
+        desc: "Claude submenu (requires crmux or claude CLI)",
+        indent: false,
+        todo_only: true,
+        requires_claude: true,
+        footer: Some("Claude"),
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "csp",
+        desc: "Send plan prompt to project's idle crmux session (>= 0.10.0)",
+        indent: true,
+        todo_only: true,
+        requires_claude: true,
+        footer: None,
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "csi",
+        desc: "Send implement prompt to project's idle crmux session (>= 0.10.0)",
+        indent: true,
+        todo_only: true,
+        requires_claude: true,
+        footer: None,
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "cgp",
+        desc: "Get plans and import via crmux (>= 0.11.0)",
+        indent: true,
+        todo_only: true,
+        requires_claude: true,
+        footer: None,
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "clp",
+        desc: "Launch claude plan in tmux window (requires cwd in frontmatter)",
+        indent: true,
+        todo_only: true,
+        requires_claude: true,
+        footer: None,
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "cli",
+        desc: "Launch claude implement in tmux window (requires cwd in frontmatter)",
+        indent: true,
+        todo_only: true,
+        requires_claude: true,
+        footer: None,
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "?",
+        desc: "Toggle help",
+        indent: false,
+        todo_only: false,
+        requires_claude: false,
+        footer: Some("Help"),
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "q",
+        desc: "Quit",
+        indent: false,
+        todo_only: false,
+        requires_claude: false,
+        footer: Some("Quit"),
+        footer_key: None,
+    },
 ];
 
 pub fn visible_entries(is_todo: bool, has_claude: bool) -> Vec<&'static HelpEntry> {
@@ -46,7 +199,7 @@ pub fn footer_entries(is_todo: bool, has_claude: bool) -> Vec<(&'static str, &'s
     HELP_ENTRIES
         .iter()
         .filter(|e| e.footer.is_some() && e.is_visible(is_todo, has_claude))
-        .map(|e| (e.key, e.footer.unwrap()))
+        .map(|e| (e.footer_key.unwrap_or(e.key), e.footer.unwrap()))
         .collect()
 }
 
@@ -83,5 +236,48 @@ mod tests {
                 entry.key
             );
         }
+    }
+
+    #[test]
+    fn test_footer_entries_contains_short_labels() {
+        let entries = footer_entries(true, true);
+        assert!(entries.contains(&("hjkl", "Nav")));
+        assert!(entries.contains(&("x", "Done")));
+        assert!(entries.contains(&("o", "URL")));
+        assert!(entries.contains(&("s", "Send")));
+        assert!(entries.contains(&("Tab/S-Tab", "Mode")));
+        assert!(entries.contains(&("c", "Claude")));
+        assert!(entries.contains(&("?", "Help")));
+        assert!(entries.contains(&("q", "Quit")));
+    }
+
+    #[test]
+    fn test_footer_entries_excludes_stab_as_separate_entry() {
+        let entries = footer_entries(true, true);
+        // S-Tab should not appear as its own footer entry (merged into Tab/S-Tab)
+        assert!(!entries.iter().any(|(k, _)| *k == "S-Tab"));
+        // Tab also should not appear as a standalone key since it's merged
+        assert!(!entries.iter().any(|(k, _)| *k == "Tab"));
+    }
+
+    #[test]
+    fn test_help_entries_real_keys_preserved() {
+        // Ensure real key names for Tab and S-Tab remain intact for the help overlay
+        assert!(HELP_ENTRIES.iter().any(|e| e.key == "Tab"));
+        assert!(HELP_ENTRIES.iter().any(|e| e.key == "S-Tab"));
+    }
+
+    #[test]
+    fn test_footer_entries_tab_mode_placed_right_after_hjkl() {
+        // Tab/S-Tab is also a navigation key, so it should sit adjacent to hjkl
+        let entries = footer_entries(true, true);
+        let keys: Vec<&str> = entries.iter().map(|(k, _)| *k).collect();
+        let hjkl_pos = keys.iter().position(|k| *k == "hjkl").unwrap();
+        let tab_pos = keys.iter().position(|k| *k == "Tab/S-Tab").unwrap();
+        assert_eq!(
+            tab_pos,
+            hjkl_pos + 1,
+            "Tab/S-Tab should come right after hjkl, got keys: {keys:?}"
+        );
     }
 }
