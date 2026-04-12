@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **URL support**: URLs in todo descriptions are stripped from display with 🔗 icon indicator, press `o` to open all URLs in browser
+- **`torudo update` subcommand**: Self-update via GitHub Releases (`--check` to check only, `--force` to force re-download)
+- **Project column hide/show**: `v` to hide current project column, `V` to show all hidden projects
+- **Vertical scrolling**: Project columns now scroll when todos overflow the visible area
+### Fixed
+- CJK text rendering and wrapping issues
+- Scroll offset safety for edge cases
+
+### Changed
+- Custom character-level text wrapping replaces ratatui's built-in Wrap for correct CJK handling
+
 ## [0.8.0] - 2026-04-04
 
 ### Added
@@ -109,6 +123,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Contexts (@context_name)
   - Custom IDs (id:unique_identifier)
 
+[Unreleased]: https://github.com/maedana/torudo/compare/v0.8.0...HEAD
 [0.8.0]: https://github.com/maedana/torudo/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/maedana/torudo/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/maedana/torudo/compare/v0.5.0...v0.6.0
