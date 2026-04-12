@@ -27,30 +27,37 @@ impl EventHandler {
         debug_mode: bool,
     ) {
         let mut should_reload = false;
+        let mut should_refresh_counts = false;
         let active_file = state.active_file();
         let active_file_path = std::path::Path::new(&active_file);
+        let mode_filenames: Vec<&str> =
+            ViewMode::ALL.iter().map(|m| m.filename()).collect();
+
         while let Ok(event) = file_watcher_rx.try_recv() {
             let is_active_file_event = event
                 .paths
                 .iter()
                 .any(|path| path.file_name() == active_file_path.file_name());
+            let is_mode_file_event = event.paths.iter().any(|path| {
+                path.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|name| mode_filenames.contains(&name))
+            });
 
             if is_active_file_event {
                 if debug_mode {
                     debug!("Active file event detected: {:?}", event.kind);
                 }
-                match event.kind {
-                    EventKind::Modify(_) => {
-                        should_reload = true;
-                        if debug_mode {
-                            debug!("File change event queued for reload");
-                        }
+                if let EventKind::Modify(_) = event.kind {
+                    should_reload = true;
+                    if debug_mode {
+                        debug!("File change event queued for reload");
                     }
-                    _ => {
-                        if debug_mode {
-                            debug!("Ignoring file event: {:?}", event.kind);
-                        }
-                    }
+                }
+            } else if is_mode_file_event && matches!(event.kind, EventKind::Modify(_)) {
+                should_refresh_counts = true;
+                if debug_mode {
+                    debug!("Non-active mode file changed, refresh counts only");
                 }
             }
         }
@@ -72,6 +79,8 @@ impl EventHandler {
             } else if debug_mode {
                 debug!("Skipping reload due to debounce (too recent)");
             }
+        } else if should_refresh_counts {
+            state.refresh_mode_counts();
         }
     }
 
@@ -191,46 +200,6 @@ impl EventHandler {
                 state.handle_launch_implement(todotxt_dir);
                 self.pending_keys.clear();
             }
-            ['m', 't'] => {
-                if debug_mode {
-                    debug!("Switch to todo mode (mt)");
-                }
-                state.set_view_mode(ViewMode::Todo);
-                self.pending_keys.clear();
-                state.status_message = None;
-            }
-            ['m', 'r'] => {
-                if debug_mode {
-                    debug!("Switch to ref mode (mr)");
-                }
-                state.set_view_mode(ViewMode::Ref);
-                self.pending_keys.clear();
-                state.status_message = None;
-            }
-            ['m', 'i'] => {
-                if debug_mode {
-                    debug!("Switch to inbox mode (mi)");
-                }
-                state.set_view_mode(ViewMode::Inbox);
-                self.pending_keys.clear();
-                state.status_message = None;
-            }
-            ['m', 's'] => {
-                if debug_mode {
-                    debug!("Switch to someday mode (ms)");
-                }
-                state.set_view_mode(ViewMode::Someday);
-                self.pending_keys.clear();
-                state.status_message = None;
-            }
-            ['m', 'w'] => {
-                if debug_mode {
-                    debug!("Switch to waiting mode (mw)");
-                }
-                state.set_view_mode(ViewMode::Waiting);
-                self.pending_keys.clear();
-                state.status_message = None;
-            }
             ['s', 't'] => {
                 if debug_mode {
                     debug!("Send to todo (st)");
@@ -311,9 +280,17 @@ impl EventHandler {
                 self.pending_keys.push('s');
                 state.status_message = Some(build_s_submenu(state));
             }
-            KeyCode::Char('m') => {
-                self.pending_keys.push('m');
-                state.status_message = Some("m → t: Todo | r: Ref | i: Inbox | s: Someday | w: Waiting | Esc: Cancel".to_string());
+            KeyCode::Tab => {
+                if debug_mode {
+                    debug!("Tab: next mode");
+                }
+                state.next_view_mode();
+            }
+            KeyCode::BackTab => {
+                if debug_mode {
+                    debug!("Shift+Tab: previous mode");
+                }
+                state.prev_view_mode();
             }
             KeyCode::Char('c') if state.view_mode == ViewMode::Todo && (state.crmux_available() || state.claude_available()) => {
                 self.pending_keys.push('c');
@@ -629,45 +606,45 @@ mod tests {
         assert!(!state.show_help);
     }
 
-    #[test]
-    fn test_mode_switch_to_inbox() {
-        let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+    fn make_tab_event() -> Event {
+        Event::Key(KeyEvent {
+            code: KeyCode::Tab,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        })
+    }
 
-        handler.handle_keyboard_event(&make_key_event('m'), &mut state, todo_file, false);
-        let msg = state.status_message.as_deref().unwrap();
-        assert!(msg.contains("i: Inbox"));
-        assert!(msg.contains("s: Someday"));
-        assert!(msg.contains("w: Waiting"));
-
-        handler.handle_keyboard_event(&make_key_event('i'), &mut state, todo_file, false);
-        assert!(handler.pending_keys.is_empty());
-        assert_eq!(state.view_mode, ViewMode::Inbox);
+    fn make_backtab_event() -> Event {
+        Event::Key(KeyEvent {
+            code: KeyCode::BackTab,
+            modifiers: KeyModifiers::SHIFT,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        })
     }
 
     #[test]
-    fn test_mode_switch_to_someday() {
+    fn test_tab_switches_to_next_mode() {
         let mut handler = EventHandler::new();
         let mut state = create_test_state_with_crmux();
         let todo_file = "/tmp/dummy.txt";
 
-        handler.handle_keyboard_event(&make_key_event('m'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
-        assert!(handler.pending_keys.is_empty());
-        assert_eq!(state.view_mode, ViewMode::Someday);
-    }
-
-    #[test]
-    fn test_mode_switch_to_waiting() {
-        let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
-
-        handler.handle_keyboard_event(&make_key_event('m'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('w'), &mut state, todo_file, false);
-        assert!(handler.pending_keys.is_empty());
+        // ALL順: Inbox, Todo, Waiting, Ref, Someday。初期はTodo
+        assert_eq!(state.view_mode, ViewMode::Todo);
+        handler.handle_keyboard_event(&make_tab_event(), &mut state, todo_file, false);
         assert_eq!(state.view_mode, ViewMode::Waiting);
+    }
+
+    #[test]
+    fn test_backtab_switches_to_prev_mode() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        assert_eq!(state.view_mode, ViewMode::Todo);
+        handler.handle_keyboard_event(&make_backtab_event(), &mut state, todo_file, false);
+        assert_eq!(state.view_mode, ViewMode::Inbox);
     }
 
     #[test]

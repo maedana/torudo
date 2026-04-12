@@ -7,6 +7,7 @@ use crate::todo::{
 use log::{debug, error};
 use std::{
     collections::HashMap,
+    fs,
     io::Write, os::unix::net::UnixStream, time::Duration,
     time::SystemTime,
 };
@@ -71,6 +72,14 @@ pub enum ViewMode {
 }
 
 impl ViewMode {
+    pub const ALL: &[Self] = &[
+        Self::Inbox,
+        Self::Todo,
+        Self::Waiting,
+        Self::Ref,
+        Self::Someday,
+    ];
+
     pub const fn filename(self) -> &'static str {
         match self {
             Self::Todo => "todo.txt",
@@ -80,6 +89,22 @@ impl ViewMode {
             Self::Waiting => "waiting.txt",
         }
     }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Todo => "Todo",
+            Self::Ref => "Ref",
+            Self::Inbox => "Inbox",
+            Self::Someday => "Someday",
+            Self::Waiting => "Waiting",
+        }
+    }
+}
+
+pub fn count_items_in_file(path: &str) -> usize {
+    fs::read_to_string(path)
+        .map(|c| c.lines().filter(|l| !l.trim().is_empty()).count())
+        .unwrap_or(0)
 }
 
 pub struct AppState {
@@ -98,6 +123,7 @@ pub struct AppState {
     pub show_help: bool,
     pub update_available: Option<String>,
     pub view_mode: ViewMode,
+    pub mode_counts: [usize; 5],
 }
 
 impl AppState {
@@ -146,7 +172,7 @@ impl AppState {
         let crmux_version = crate::crmux::detect();
         let claude_available = crate::claude::detect();
 
-        Self {
+        let mut state = Self {
             todos,
             grouped_todos,
             project_names,
@@ -162,6 +188,16 @@ impl AppState {
             show_help: false,
             update_available: None,
             view_mode: ViewMode::Todo,
+            mode_counts: [0; 5],
+        };
+        state.refresh_mode_counts();
+        state
+    }
+
+    pub fn refresh_mode_counts(&mut self) {
+        for (i, mode) in ViewMode::ALL.iter().enumerate() {
+            let path = format!("{}/{}", self.todotxt_dir, mode.filename());
+            self.mode_counts[i] = count_items_in_file(&path);
         }
     }
 
@@ -171,6 +207,7 @@ impl AppState {
                 debug!("Reloaded {} todos from file", new_todos.len());
                 self.todos = new_todos;
                 self.update_derived_state();
+                self.refresh_mode_counts();
             }
             Err(e) => error!("Failed to reload todos: {e}"),
         }
@@ -291,6 +328,24 @@ impl AppState {
 
     pub fn active_file(&self) -> String {
         format!("{}/{}", self.todotxt_dir, self.view_mode.filename())
+    }
+
+    pub fn next_view_mode(&mut self) {
+        let current_idx = ViewMode::ALL
+            .iter()
+            .position(|m| *m == self.view_mode)
+            .unwrap_or(0);
+        let next_idx = (current_idx + 1) % ViewMode::ALL.len();
+        self.set_view_mode(ViewMode::ALL[next_idx]);
+    }
+
+    pub fn prev_view_mode(&mut self) {
+        let current_idx = ViewMode::ALL
+            .iter()
+            .position(|m| *m == self.view_mode)
+            .unwrap_or(0);
+        let prev_idx = (current_idx + ViewMode::ALL.len() - 1) % ViewMode::ALL.len();
+        self.set_view_mode(ViewMode::ALL[prev_idx]);
     }
 
     pub fn set_view_mode(&mut self, mode: ViewMode) {
@@ -1559,6 +1614,114 @@ mod tests {
         // Should not panic
         sort_plans_by_mtime(&mut plans);
         assert_eq!(plans.len(), 2);
+    }
+
+    #[test]
+    fn test_next_view_mode_cycles() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_next_mode");
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(temp_dir.join("todo.txt"), "").unwrap();
+
+        let todos = load_todos(temp_dir.join("todo.txt").to_str().unwrap()).unwrap();
+        let mut state = AppState::new(
+            todos,
+            String::new(),
+            temp_dir.to_str().unwrap().to_string(),
+        );
+
+        // ALL順: Inbox, Todo, Waiting, Ref, Someday
+        assert_eq!(state.view_mode, ViewMode::Todo);
+        state.next_view_mode();
+        assert_eq!(state.view_mode, ViewMode::Waiting);
+        state.next_view_mode();
+        assert_eq!(state.view_mode, ViewMode::Ref);
+        state.next_view_mode();
+        assert_eq!(state.view_mode, ViewMode::Someday);
+        state.next_view_mode();
+        assert_eq!(state.view_mode, ViewMode::Inbox); // 循環
+        state.next_view_mode();
+        assert_eq!(state.view_mode, ViewMode::Todo);
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_prev_view_mode_cycles() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_prev_mode");
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(temp_dir.join("todo.txt"), "").unwrap();
+
+        let todos = load_todos(temp_dir.join("todo.txt").to_str().unwrap()).unwrap();
+        let mut state = AppState::new(
+            todos,
+            String::new(),
+            temp_dir.to_str().unwrap().to_string(),
+        );
+
+        assert_eq!(state.view_mode, ViewMode::Todo);
+        state.prev_view_mode();
+        assert_eq!(state.view_mode, ViewMode::Inbox);
+        state.prev_view_mode();
+        assert_eq!(state.view_mode, ViewMode::Someday); // 循環
+        state.prev_view_mode();
+        assert_eq!(state.view_mode, ViewMode::Ref);
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_view_mode_all_and_label() {
+        assert_eq!(ViewMode::ALL.len(), 5);
+        assert_eq!(ViewMode::Todo.label(), "Todo");
+        assert_eq!(ViewMode::Ref.label(), "Ref");
+        assert_eq!(ViewMode::Inbox.label(), "Inbox");
+        assert_eq!(ViewMode::Someday.label(), "Someday");
+        assert_eq!(ViewMode::Waiting.label(), "Waiting");
+    }
+
+    #[test]
+    fn test_count_items_in_file() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_count");
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let file = temp_dir.join("test.txt");
+        fs::write(&file, "(A) Item one +proj id:1\n\n(B) Item two +proj id:2\n").unwrap();
+        assert_eq!(count_items_in_file(file.to_str().unwrap()), 2);
+
+        let empty_file = temp_dir.join("empty.txt");
+        fs::write(&empty_file, "").unwrap();
+        assert_eq!(count_items_in_file(empty_file.to_str().unwrap()), 0);
+
+        assert_eq!(count_items_in_file("/nonexistent/path.txt"), 0);
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_refresh_mode_counts() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_mode_counts");
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        fs::write(temp_dir.join("todo.txt"), "(A) task +proj id:1\n(B) task2 +proj id:2\n").unwrap();
+        fs::write(temp_dir.join("ref.txt"), "ref item +misc id:3\n").unwrap();
+        fs::write(temp_dir.join("inbox.txt"), "idea1 id:4\nidea2 id:5\nidea3 id:6\n").unwrap();
+        // someday.txt and waiting.txt don't exist
+
+        let todos = load_todos(temp_dir.join("todo.txt").to_str().unwrap()).unwrap();
+        let mut state = AppState::new(
+            todos,
+            String::new(),
+            temp_dir.to_str().unwrap().to_string(),
+        );
+        state.refresh_mode_counts();
+
+        assert_eq!(state.mode_counts[0], 3); // Inbox
+        assert_eq!(state.mode_counts[1], 2); // Todo
+        assert_eq!(state.mode_counts[2], 0); // Waiting
+        assert_eq!(state.mode_counts[3], 1); // Ref
+        assert_eq!(state.mode_counts[4], 0); // Someday
+
+        fs::remove_dir_all(&temp_dir).ok();
     }
 
 }

@@ -7,7 +7,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Flex, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Tabs},
 };
 
 pub fn create_todo_spans(todo: &Item) -> Vec<Span<'static>> {
@@ -200,6 +200,22 @@ pub fn draw_project_column(
     offset
 }
 
+fn draw_tab_bar(f: &mut ratatui::Frame, state: &AppState, area: Rect) {
+    let tab_titles: Vec<String> = ViewMode::ALL
+        .iter()
+        .enumerate()
+        .map(|(i, m)| format!("{} ({})", m.label(), state.mode_counts[i]))
+        .collect();
+    let selected_tab = ViewMode::ALL
+        .iter()
+        .position(|m| *m == state.view_mode)
+        .unwrap_or(0);
+    let tabs = Tabs::new(tab_titles)
+        .select(selected_tab)
+        .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+    f.render_widget(tabs, area);
+}
+
 pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
     let size = f.area();
     let chunks = Layout::default()
@@ -207,12 +223,15 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
         .margin(1)
         .constraints(
             [
+                Constraint::Length(1),
                 Constraint::Min(0),
                 Constraint::Length(3),
             ]
             .as_ref(),
         )
         .split(size);
+
+    draw_tab_bar(f, state, chunks[0]);
 
     let visible_projects = &state.project_names;
     let num_columns = visible_projects.len();
@@ -223,7 +242,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
         let columns = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(column_constraints)
-            .split(chunks[0]);
+            .split(chunks[1]);
 
         for (col_idx, project_name) in visible_projects.iter().enumerate() {
             if let Some(project_todos) = state.grouped_todos.get(project_name) {
@@ -259,7 +278,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
         let paragraph = Paragraph::new("No items")
             .alignment(Alignment::Center)
             .style(Style::default().fg(Color::DarkGray));
-        f.render_widget(paragraph, chunks[0]);
+        f.render_widget(paragraph, chunks[1]);
     }
 
     let version = env!("CARGO_PKG_VERSION");
@@ -272,13 +291,6 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
                 format!(" ({v} available! Run: torudo update)"),
                 Style::default().fg(Color::Yellow),
             ));
-        }
-        match state.view_mode {
-            ViewMode::Ref => spans.insert(0, Span::styled("[REF] ", Style::default().fg(Color::Cyan))),
-            ViewMode::Inbox => spans.insert(0, Span::styled("[INBOX] ", Style::default().fg(Color::Cyan))),
-            ViewMode::Someday => spans.insert(0, Span::styled("[SOMEDAY] ", Style::default().fg(Color::Cyan))),
-            ViewMode::Waiting => spans.insert(0, Span::styled("[WAITING] ", Style::default().fg(Color::Cyan))),
-            ViewMode::Todo => {}
         }
         let is_todo = state.view_mode == ViewMode::Todo;
         let has_claude = state.crmux_available() || state.claude_available();
@@ -294,7 +306,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
         .block(Block::default().borders(Borders::ALL))
         .alignment(Alignment::Center);
 
-    f.render_widget(footer, chunks[1]);
+    f.render_widget(footer, chunks[2]);
 
     // Draw plan modal overlay if open
     if let Some(modal) = &state.plan_modal {
