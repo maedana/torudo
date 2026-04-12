@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-04-12
+
 ### Added
 - **GTD modes**: Added Inbox, Someday, and Waiting modes alongside existing Todo and Ref modes, each backed by its own file (`inbox.txt`, `someday.txt`, `waiting.txt`)
 - **Tab bar UI**: Top tab bar shows all modes with per-mode item counts using ratatui `Tabs` widget; counts refresh on reload and on external file changes via file watcher
@@ -156,7 +158,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Contexts (@context_name)
   - Custom IDs (id:unique_identifier)
 
-[Unreleased]: https://github.com/maedana/torudo/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/maedana/torudo/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/maedana/torudo/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/maedana/torudo/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/maedana/torudo/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/maedana/torudo/compare/v0.7.0...v0.8.0
