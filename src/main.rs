@@ -106,10 +106,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     }) = &args.command
     {
         let todotxt_dir = resolve_todotxt_dir(args.todotxt_dir.clone());
-        let inbox_path = format!("{todotxt_dir}/inbox.txt");
+        let inbox_path = format!("{todotxt_dir}/{}", app_state::ViewMode::Inbox.filename());
         let item = todo::add_item(&inbox_path, text)?;
-        let json =
-            todo::item_to_json(&item, &todotxt_dir).map_err(|e| -> Box<dyn Error> { e.into() })?;
+        let json = todo::item_to_json(&item, &todotxt_dir)?;
         println!("{json}");
         return Ok(());
     }

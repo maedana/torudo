@@ -254,26 +254,29 @@ pub fn has_todo_with_id(file_path: &str, id: &str) -> bool {
 
 /// Render an `Item` as pretty JSON, merging in the contents of
 /// `{todotxt_dir}/todos/{id}.md` as the `md` field when present.
-pub fn item_to_json(item: &Item, todotxt_dir: &str) -> Result<String, String> {
-    let mut json = serde_json::to_value(item).map_err(|e| format!("serialize error: {e}"))?;
+pub fn item_to_json(item: &Item, todotxt_dir: &str) -> Result<String, Box<dyn Error>> {
+    let mut json = serde_json::to_value(item)?;
     if let Some(todo_id) = &item.id {
         let md_path = format!("{todotxt_dir}/todos/{todo_id}.md");
         if let Ok(content) = fs::read_to_string(&md_path) {
             json["md"] = serde_json::Value::String(content);
         }
     }
-    serde_json::to_string_pretty(&json).map_err(|e| format!("serialize error: {e}"))
+    Ok(serde_json::to_string_pretty(&json)?)
 }
 
 pub fn add_item(file_path: &str, text: &str) -> Result<Item, Box<dyn Error>> {
-    let probe = Item::parse(text, 0);
-    let final_line = if probe.id.is_some() {
+    let mut item = Item::parse(text, 0);
+    let final_line = if item.id.is_some() {
         text.to_string()
     } else {
-        format!("{text} id:{}", Uuid::new_v4())
+        let uuid = Uuid::new_v4().to_string();
+        let line = format!("{text} id:{uuid}");
+        item.id = Some(uuid);
+        line
     };
     append_todo(file_path, &final_line)?;
-    Ok(Item::parse(&final_line, 0))
+    Ok(item)
 }
 
 pub fn append_todo(file_path: &str, line: &str) -> Result<(), Box<dyn Error>> {

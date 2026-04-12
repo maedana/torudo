@@ -162,7 +162,7 @@ fn handle_get_current(
     todotxt_dir: &str,
 ) -> Result<String, String> {
     let item = current_todo.ok_or("no todo selected")?;
-    todo::item_to_json(item, todotxt_dir)
+    todo::item_to_json(item, todotxt_dir).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
