@@ -5,13 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **ref.txt support**: GTD reference material management with `ref.txt`
+  - `r` key moves selected todo from `todo.txt` to `ref.txt`
+  - `m` submenu for mode switching (`mt`: todo mode, `mr`: ref mode)
+  - REF mode disables todo-only keys (`x`, `r`, `c`) and updates help/footer dynamically
+
+### Removed
+- **Project column hide/show** (`v`/`V` keys and `--hide-projects` CLI option)
+- **Manual reload** (`r` key) — replaced by ref.txt move; auto-reload via file watcher is sufficient
+
 ## [0.9.0] - 2026-04-12
 
 ### Added
 - **`--todotxt-dir` CLI option**: Specify todotxt directory via command line (priority: CLI > `TODOTXT_DIR` env var > `~/todotxt`)
 - **URL support**: URLs in todo descriptions are stripped from display with 🔗 icon indicator, press `o` to open all URLs in browser
 - **`torudo update` subcommand**: Self-update via GitHub Releases (`--check` to check only, `--force` to force re-download)
-- **Project column hide/show**: `v` to hide current project column, `V` to show all hidden projects
 - **Vertical scrolling**: Project columns now scroll when todos overflow the visible area
 ### Fixed
 - CJK text rendering and wrapping issues
