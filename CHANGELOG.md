@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-04-12
+
 ### Fixed
 - File-watcher reload no longer skipped auto-assigning UUIDs to todo.txt lines missing `id:`. External edits that added new items without an id left them unidentified, which in turn prevented Neovim from opening a detail `.md` when focusing the new todo. `reload_todos` now calls `add_missing_ids` on every reload path
 
@@ -161,7 +163,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Contexts (@context_name)
   - Custom IDs (id:unique_identifier)
 
-[Unreleased]: https://github.com/maedana/torudo/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/maedana/torudo/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/maedana/torudo/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/maedana/torudo/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/maedana/torudo/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/maedana/torudo/compare/v0.8.0...v0.9.0
