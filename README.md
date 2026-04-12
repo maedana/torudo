@@ -6,21 +6,11 @@ A terminal-based todo.txt viewer and manager written in Rust with TUI interface.
 
 ## Features
 
-- Interactive TUI interface for browsing todo.txt files
-- Project-based column view for organized task management
-- **Priority-based sorting**: Todos are automatically sorted by priority (A, B, C) then by file line number
-- **Dynamic text wrapping**: Long todo titles automatically wrap to multiple lines for full visibility
-- **Smart setup**: Prompts to create missing directories and files on first run
-- Vim integration for editing individual todo items
-- Real-time file watching for automatic updates
-- Support for todo.txt format with priorities, projects, and contexts
-- Task completion with automatic archiving to done.txt
-- **URL support**: URLs stripped from display with 🔗 indicator, press `o` to open all URLs in browser
-- **Project hide/show**: `v` to hide project column, `V` to show all
-- **Self-update**: `torudo update` to update via GitHub Releases
-- **crmux integration**: Send plan/implement prompts to Claude Code sessions via [crmux](https://github.com/maedana/crmux) (>= 0.10.0)
-- **Plan import**: Browse and import plans as todo items via [crmux](https://github.com/maedana/crmux) (>= 0.11.0)
-- **Claude launch**: Launch claude in tmux windows with per-todo working directory via frontmatter `cwd`
+- Project-based column view with priority sorting
+- Vim integration and real-time file watching
+- URL detection (🔗) and browser open (`o`)
+- Self-update via GitHub Releases (`torudo update`)
+- [crmux](https://github.com/maedana/crmux) / Claude Code integration
 
 ## Demo
 ![gif][1]
