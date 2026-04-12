@@ -1,4 +1,4 @@
-use crate::app_state::AppState;
+use crate::app_state::{AppState, ViewMode};
 use crossterm::event::{Event, KeyCode};
 use log::debug;
 use notify::{Event as NotifyEvent, EventKind};
@@ -27,29 +27,28 @@ impl EventHandler {
         debug_mode: bool,
     ) {
         let mut should_reload = false;
+        let active_file = state.active_file();
+        let active_file_path = std::path::Path::new(&active_file);
         while let Ok(event) = file_watcher_rx.try_recv() {
-            // Check if event is related to todo.txt
-            let active_file = state.active_file();
-            let active_file_path = std::path::Path::new(&active_file);
-            let is_todo_file_event = event
+            let is_active_file_event = event
                 .paths
                 .iter()
                 .any(|path| path.file_name() == active_file_path.file_name());
 
-            if is_todo_file_event {
+            if is_active_file_event {
                 if debug_mode {
-                    debug!("todo.txt related event detected: {:?}", event.kind);
+                    debug!("Active file event detected: {:?}", event.kind);
                 }
                 match event.kind {
                     EventKind::Modify(_) => {
                         should_reload = true;
                         if debug_mode {
-                            debug!("todo.txt change event queued for reload");
+                            debug!("File change event queued for reload");
                         }
                     }
                     _ => {
                         if debug_mode {
-                            debug!("Ignoring todo.txt event: {:?}", event.kind);
+                            debug!("Ignoring file event: {:?}", event.kind);
                         }
                     }
                 }
@@ -68,8 +67,7 @@ impl EventHandler {
                 if debug_mode {
                     debug!("Executing debounced reload of todos");
                 }
-                let active = state.active_file();
-                state.reload_todos(&active);
+                state.reload_todos(&active_file);
                 self.last_reload_time = Some(now);
             } else if debug_mode {
                 debug!("Skipping reload due to debounce (too recent)");
@@ -222,13 +220,13 @@ impl EventHandler {
                 }
                 state.handle_navigation_key(c);
             }
-            KeyCode::Char('x') if state.view_mode == crate::app_state::ViewMode::Todo => {
+            KeyCode::Char('x') if state.view_mode == ViewMode::Todo => {
                 if debug_mode {
                     debug!("Complete todo command received");
                 }
                 state.handle_complete_todo(todo_file);
             }
-            KeyCode::Char('r') if state.view_mode == crate::app_state::ViewMode::Todo => {
+            KeyCode::Char('r') if state.view_mode == ViewMode::Todo => {
                 if debug_mode {
                     debug!("Move to ref command received");
                 }

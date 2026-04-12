@@ -219,19 +219,7 @@ pub fn move_to_file(source_file: &str, dest_file: &str, todo_id: &str) -> Result
     }
 
     if let Some(line) = moved_line {
-        let mut dest_content = if std::path::Path::new(dest_file).exists() {
-            fs::read_to_string(dest_file)?
-        } else {
-            String::new()
-        };
-
-        if !dest_content.is_empty() && !dest_content.ends_with('\n') {
-            dest_content.push('\n');
-        }
-        dest_content.push_str(&line);
-        dest_content.push('\n');
-
-        fs::write(dest_file, dest_content)?;
+        append_todo(dest_file, &line)?;
 
         let new_source_content = new_lines.join("\n");
         fs::write(source_file, new_source_content)?;

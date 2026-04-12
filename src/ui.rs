@@ -1,4 +1,4 @@
-use crate::app_state::AppState;
+use crate::app_state::{AppState, ViewMode};
 use crate::help::HELP_ENTRIES;
 use crate::todo::Item;
 use crate::url::strip_urls;
@@ -274,7 +274,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
             ""
         };
         let hidden = state.hidden_projects_display().map_or_else(String::new, |h| format!(" | {h}"));
-        if state.view_mode == crate::app_state::ViewMode::Ref {
+        if state.view_mode == ViewMode::Ref {
             spans.insert(0, Span::styled("[REF] ", Style::default().fg(Color::Cyan)));
         }
         spans.push(Span::raw(format!(" | hjkl: Nav | x: Complete | o: Open URL | r: Ref | Tab: Mode{claude_cmd} | v: Hide | V: Show all | ?: Help | q: Quit{hidden}")));
