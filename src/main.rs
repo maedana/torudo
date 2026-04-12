@@ -2,10 +2,10 @@ use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use log::{debug, error, info};
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::time::Duration;
 use std::{env, error::Error, io};
 
@@ -13,8 +13,8 @@ mod app_state;
 mod claude;
 mod crmux;
 mod event_handler;
-mod help;
 mod file_watcher;
+mod help;
 mod rpc_client;
 mod rpc_server;
 mod setup;
@@ -190,11 +190,7 @@ fn run_app(
         })?;
 
         // Handle file watcher events
-        event_handler.handle_file_watcher_events(
-            file_watcher_rx,
-            &mut state,
-            debug_mode,
-        );
+        event_handler.handle_file_watcher_events(file_watcher_rx, &mut state, debug_mode);
 
         if let Some(ref server) = rpc_server {
             server.poll(state.get_current_todo());

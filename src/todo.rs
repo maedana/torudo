@@ -38,23 +38,28 @@ impl Item {
             item.completed = true;
             parts.next();
             if let Some(date_str) = parts.peek()
-                && let Ok(date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
-                    item.completion_date = Some(date);
-                    parts.next();
-                }
-        }
-        if let Some(part) = parts.peek()
-            && part.len() == 3 && part.starts_with('(') && part.ends_with(')')
-                && let Some(c) = part.chars().nth(1)
-                    && c.is_ascii_uppercase() {
-                        item.priority = Some(c);
-                        parts.next();
-                    }
-        if let Some(date_str) = parts.peek()
-            && let Ok(date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
-                item.creation_date = Some(date);
+                && let Ok(date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+            {
+                item.completion_date = Some(date);
                 parts.next();
             }
+        }
+        if let Some(part) = parts.peek()
+            && part.len() == 3
+            && part.starts_with('(')
+            && part.ends_with(')')
+            && let Some(c) = part.chars().nth(1)
+            && c.is_ascii_uppercase()
+        {
+            item.priority = Some(c);
+            parts.next();
+        }
+        if let Some(date_str) = parts.peek()
+            && let Ok(date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+        {
+            item.creation_date = Some(date);
+            parts.next();
+        }
         for part in parts {
             if let Some(stripped) = part.strip_prefix('+') {
                 item.projects.push(stripped.to_string());
@@ -144,26 +149,29 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
 
         let todo = Item::parse(line, line_num + 1);
         if let Some(id) = &todo.id
-            && id == todo_id {
-                let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-                let completed_todo_line = if todo.completed {
-                    line.to_string()
-                } else {
-                    // Extract priority and reorder: x (A) completion-date rest
-                    let (priority, rest) = if line.starts_with('(')
-                        && line.len() >= 4
-                        && line.chars().nth(2) == Some(')')
+            && id == todo_id
+        {
+            let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let completed_todo_line = if todo.completed {
+                line.to_string()
+            } else {
+                // Extract priority and reorder: x (A) completion-date rest
+                let (priority, rest) =
+                    if line.starts_with('(') && line.len() >= 4 && line.chars().nth(2) == Some(')')
                     {
                         (Some(&line[..3]), line[3..].trim_start())
                     } else {
                         (None, *line)
                     };
 
-                    priority.map_or_else(|| format!("x {today} {line}"), |pri| format!("x {pri} {today} {rest}"))
-                };
-                completed_line = Some(completed_todo_line);
-                continue;
-            }
+                priority.map_or_else(
+                    || format!("x {today} {line}"),
+                    |pri| format!("x {pri} {today} {rest}"),
+                )
+            };
+            completed_line = Some(completed_todo_line);
+            continue;
+        }
         new_lines.push(line.to_string());
     }
 
@@ -196,7 +204,11 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
     Ok(())
 }
 
-pub fn move_to_file(source_file: &str, dest_file: &str, todo_id: &str) -> Result<(), Box<dyn Error>> {
+pub fn move_to_file(
+    source_file: &str,
+    dest_file: &str,
+    todo_id: &str,
+) -> Result<(), Box<dyn Error>> {
     let content = fs::read_to_string(source_file)?;
     let lines: Vec<&str> = content.lines().collect();
     let mut new_lines = Vec::new();
@@ -235,9 +247,9 @@ pub fn has_todo_with_id(file_path: &str, id: &str) -> bool {
         return false;
     };
     let id_tag = format!("id:{id}");
-    content.lines().any(|line| {
-        line.split_whitespace().any(|word| word == id_tag)
-    })
+    content
+        .lines()
+        .any(|line| line.split_whitespace().any(|word| word == id_tag))
 }
 
 pub fn append_todo(file_path: &str, line: &str) -> Result<(), Box<dyn Error>> {
@@ -563,11 +575,7 @@ Learn Rust +learning @coding id:task-003"#;
         let test_file = temp_dir.join("test_append_todo_new.txt");
         fs::remove_file(&test_file).ok();
 
-        append_todo(
-            test_file.to_str().unwrap(),
-            "First task +project id:first",
-        )
-        .unwrap();
+        append_todo(test_file.to_str().unwrap(), "First task +project id:first").unwrap();
 
         let result = fs::read_to_string(&test_file).unwrap();
         assert!(result.contains("First task +project id:first"));
@@ -619,7 +627,8 @@ Learn Rust +learning @coding id:task-003"#;
 
         // source should have 2 remaining lines
         let remaining = fs::read_to_string(&source_file).unwrap();
-        let remaining_lines: Vec<&str> = remaining.lines().filter(|l| !l.trim().is_empty()).collect();
+        let remaining_lines: Vec<&str> =
+            remaining.lines().filter(|l| !l.trim().is_empty()).collect();
         assert_eq!(remaining_lines.len(), 2);
         assert!(!remaining.contains("task-002"));
         assert!(remaining.contains("task-001"));
@@ -657,7 +666,8 @@ Learn Rust +learning @coding id:task-003"#;
 
         // source should be empty (no non-empty lines)
         let remaining = fs::read_to_string(&source_file).unwrap();
-        let remaining_lines: Vec<&str> = remaining.lines().filter(|l| !l.trim().is_empty()).collect();
+        let remaining_lines: Vec<&str> =
+            remaining.lines().filter(|l| !l.trim().is_empty()).collect();
         assert_eq!(remaining_lines.len(), 0);
 
         fs::remove_dir_all(&temp_dir).ok();

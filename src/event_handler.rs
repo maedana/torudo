@@ -150,8 +150,7 @@ impl EventHandler {
         match self.pending_keys.as_slice() {
             ['c', 's'] => {
                 // Intermediate state - wait for third key
-                state.status_message =
-                    Some("cs → p: Plan | i: Impl | Esc: Cancel".to_string());
+                state.status_message = Some("cs → p: Plan | i: Impl | Esc: Cancel".to_string());
             }
             ['c', 's', 'p'] => {
                 if debug_mode {
@@ -169,8 +168,7 @@ impl EventHandler {
             }
             ['c', 'g'] => {
                 // Intermediate state - wait for third key
-                state.status_message =
-                    Some("cg → p: Plans | Esc: Cancel".to_string());
+                state.status_message = Some("cg → p: Plans | Esc: Cancel".to_string());
             }
             ['c', 'g', 'p'] if state.crmux_supports_get_plans() => {
                 if debug_mode {
@@ -181,8 +179,7 @@ impl EventHandler {
             }
             ['c', 'l'] => {
                 // Intermediate state - wait for third key
-                state.status_message =
-                    Some("cl → p: Plan | i: Impl | Esc: Cancel".to_string());
+                state.status_message = Some("cl → p: Plan | i: Impl | Esc: Cancel".to_string());
             }
             ['c', 'l', 'p'] => {
                 if debug_mode {
@@ -290,7 +287,10 @@ impl EventHandler {
                 }
                 state.prev_view_mode();
             }
-            KeyCode::Char('c') if state.view_mode == ViewMode::Todo && (state.crmux_available() || state.claude_available()) => {
+            KeyCode::Char('c')
+                if state.view_mode == ViewMode::Todo
+                    && (state.crmux_available() || state.claude_available()) =>
+            {
                 self.pending_keys.push('c');
                 state.status_message = Some(build_c_submenu(state));
             }
@@ -372,7 +372,11 @@ mod tests {
             id: Some("test-id".to_string()),
             line_number: 1,
         }];
-        let mut state = crate::app_state::AppState::new(todos, "/tmp/nvim.sock".to_string(), "/tmp/todotxt".to_string());
+        let mut state = crate::app_state::AppState::new(
+            todos,
+            "/tmp/nvim.sock".to_string(),
+            "/tmp/todotxt".to_string(),
+        );
         state.crmux_version = Some((0, 11, 0));
         state.claude_available = false;
         state
@@ -390,7 +394,11 @@ mod tests {
             id: Some("test-id".to_string()),
             line_number: 1,
         }];
-        let mut state = crate::app_state::AppState::new(todos, "/tmp/nvim.sock".to_string(), "/tmp/todotxt".to_string());
+        let mut state = crate::app_state::AppState::new(
+            todos,
+            "/tmp/nvim.sock".to_string(),
+            "/tmp/todotxt".to_string(),
+        );
         state.crmux_version = None;
         state.claude_available = true;
         state
@@ -581,7 +589,8 @@ mod tests {
         let todo_file = "/tmp/dummy.txt";
 
         state.show_help = true;
-        let quit = handler.handle_keyboard_event(&make_key_event('q'), &mut state, todo_file, false);
+        let quit =
+            handler.handle_keyboard_event(&make_key_event('q'), &mut state, todo_file, false);
         assert!(!quit);
         assert!(!state.show_help);
     }
@@ -689,7 +698,11 @@ mod tests {
             id: Some("test-id".to_string()),
             line_number: 1,
         }];
-        let mut state = crate::app_state::AppState::new(todos, "/tmp/nvim.sock".to_string(), "/tmp/todotxt".to_string());
+        let mut state = crate::app_state::AppState::new(
+            todos,
+            "/tmp/nvim.sock".to_string(),
+            "/tmp/todotxt".to_string(),
+        );
         state.crmux_version = None;
         state.claude_available = false;
         let todo_file = "/tmp/dummy.txt";

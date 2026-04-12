@@ -20,10 +20,7 @@ impl FileWatcher {
             notify::Config::default(),
         )?;
 
-        Ok(Self {
-            watcher,
-            rx,
-        })
+        Ok(Self { watcher, rx })
     }
 
     pub fn start_watching(&mut self, todotxt_dir: &str) -> Result<(), Box<dyn Error>> {

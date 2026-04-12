@@ -1,14 +1,12 @@
 use crate::crmux::Plan;
-use crate::url::{extract_urls, open_urls};
 use crate::todo::{
-    add_missing_ids, append_todo, group_todos_by_project_owned, has_todo_with_id, load_todos,
-    mark_complete, move_to_file, Item,
+    Item, add_missing_ids, append_todo, group_todos_by_project_owned, has_todo_with_id, load_todos,
+    mark_complete, move_to_file,
 };
+use crate::url::{extract_urls, open_urls};
 use log::{debug, error};
 use std::{
-    collections::HashMap,
-    fs,
-    io::Write, os::unix::net::UnixStream, time::Duration,
+    collections::HashMap, fs, io::Write, os::unix::net::UnixStream, time::Duration,
     time::SystemTime,
 };
 
@@ -130,8 +128,8 @@ pub struct AppState {
 impl AppState {
     fn build_nvim_rpc_payload(method: &str, params: Vec<rmpv::Value>) -> Vec<u8> {
         let request = rmpv::Value::Array(vec![
-            rmpv::Value::Integer(0.into()),  // type = Request
-            rmpv::Value::Integer(1.into()),  // msgid
+            rmpv::Value::Integer(0.into()), // type = Request
+            rmpv::Value::Integer(1.into()), // msgid
             rmpv::Value::String(method.into()),
             rmpv::Value::Array(params),
         ]);
@@ -224,15 +222,17 @@ impl AppState {
             self.current_column = visible.len().saturating_sub(1);
         }
         if let Some(current_project_name) = visible.get(self.current_column)
-            && let Some(current_todos) = self.grouped_todos.get(current_project_name) {
-                if self.selected_in_column >= current_todos.len() {
-                    self.selected_in_column = current_todos.len().saturating_sub(1);
-                }
-                if let Some(selected_todo) = current_todos.get(self.selected_in_column)
-                    && let Some(todo_id) = &selected_todo.id {
-                        self.send_vim_command(todo_id);
-                    }
+            && let Some(current_todos) = self.grouped_todos.get(current_project_name)
+        {
+            if self.selected_in_column >= current_todos.len() {
+                self.selected_in_column = current_todos.len().saturating_sub(1);
             }
+            if let Some(selected_todo) = current_todos.get(self.selected_in_column)
+                && let Some(todo_id) = &selected_todo.id
+            {
+                self.send_vim_command(todo_id);
+            }
+        }
     }
 
     pub fn get_current_todo(&self) -> Option<&Item> {
@@ -261,12 +261,13 @@ impl AppState {
             'j' => {
                 if let Some(current_project_name) = visible.get(self.current_column)
                     && let Some(current_todos) = self.grouped_todos.get(current_project_name)
-                        && self.selected_in_column < current_todos.len().saturating_sub(1) {
-                            self.selected_in_column += 1;
-                            if let Some(todo_id) = self.get_current_todo_id() {
-                                self.send_vim_command(todo_id);
-                            }
-                        }
+                    && self.selected_in_column < current_todos.len().saturating_sub(1)
+                {
+                    self.selected_in_column += 1;
+                    if let Some(todo_id) = self.get_current_todo_id() {
+                        self.send_vim_command(todo_id);
+                    }
+                }
             }
             'h' => {
                 if self.current_column > 0 {
@@ -316,8 +317,10 @@ impl AppState {
                 if failures == 0 {
                     self.status_message = Some(format!("Opened {count} URL(s)"));
                 } else {
-                    self.status_message =
-                        Some(format!("Opened {} URL(s), {failures} failed", count - failures));
+                    self.status_message = Some(format!(
+                        "Opened {} URL(s), {failures} failed",
+                        count - failures
+                    ));
                 }
             }
         }
@@ -580,8 +583,7 @@ impl AppState {
         let md_path = format!("{todotxt_dir}/todos/{todo_id}.md");
         let md_content = std::fs::read_to_string(&md_path).unwrap_or_default();
         let Some(cwd) = parse_frontmatter_cwd(&md_content) else {
-            self.status_message =
-                Some(format!("cwd not set in {todo_id}.md frontmatter"));
+            self.status_message = Some(format!("cwd not set in {todo_id}.md frontmatter"));
             return;
         };
         match crate::claude::launch(&text, permission_mode, &todo_id, &cwd) {
@@ -604,7 +606,11 @@ mod tests {
     use std::fs;
 
     fn create_test_state(todos: Vec<Item>) -> AppState {
-        let mut state = AppState::new(todos, "/tmp/nvim.sock".to_string(), "/tmp/todotxt".to_string());
+        let mut state = AppState::new(
+            todos,
+            "/tmp/nvim.sock".to_string(),
+            "/tmp/todotxt".to_string(),
+        );
         state.crmux_version = None;
         state.claude_available = false;
         state
@@ -662,7 +668,11 @@ mod tests {
     #[test]
     fn test_app_state_new() {
         let todos = create_test_todos();
-        let state = AppState::new(todos.clone(), "/tmp/nvim.sock".to_string(), "/tmp/todotxt".to_string());
+        let state = AppState::new(
+            todos.clone(),
+            "/tmp/nvim.sock".to_string(),
+            "/tmp/todotxt".to_string(),
+        );
 
         assert_eq!(state.todos.len(), 4);
         assert_eq!(state.current_column, 0);
@@ -901,11 +911,7 @@ mod tests {
         fs::write(&ref_file, "Ref item +misc id:ref-1").unwrap();
 
         let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
-        let mut state = AppState::new(
-            todos,
-            String::new(),
-            temp_dir.to_str().unwrap().to_string(),
-        );
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
 
         assert_eq!(state.view_mode, ViewMode::Todo);
         assert_eq!(state.todos.len(), 1);
@@ -944,11 +950,7 @@ mod tests {
         fs::write(&todo_file, "Todo item +work id:todo-1").unwrap();
 
         let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
-        let mut state = AppState::new(
-            todos,
-            String::new(),
-            temp_dir.to_str().unwrap().to_string(),
-        );
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
 
         // Switch to ref mode - should create ref.txt
         state.set_view_mode(ViewMode::Ref);
@@ -1087,11 +1089,17 @@ mod tests {
         let mut state = create_test_state(todos);
 
         // First column is "No Project"
-        assert_eq!(state.get_current_project_name(), Some("No Project".to_string()));
+        assert_eq!(
+            state.get_current_project_name(),
+            Some("No Project".to_string())
+        );
 
         // Navigate to "personal"
         state.handle_navigation_key('l');
-        assert_eq!(state.get_current_project_name(), Some("personal".to_string()));
+        assert_eq!(
+            state.get_current_project_name(),
+            Some("personal".to_string())
+        );
     }
 
     #[test]
@@ -1141,7 +1149,11 @@ mod tests {
 
         // Create the md file
         let md_path = temp_dir.join("todos/abc-456.md");
-        fs::write(&md_path, "## Requirements\n- OAuth2 support\n- JWT tokens\n").unwrap();
+        fs::write(
+            &md_path,
+            "## Requirements\n- OAuth2 support\n- JWT tokens\n",
+        )
+        .unwrap();
 
         let state = create_test_state(todos);
         let todotxt_dir = temp_dir.to_str().unwrap();
@@ -1287,17 +1299,16 @@ mod tests {
         // Check md file was copied
         let md_dest = temp_dir.join("todos/slug-a.md");
         assert!(md_dest.exists());
-        assert_eq!(
-            fs::read_to_string(&md_dest).unwrap(),
-            "# Plan A details\n"
-        );
+        assert_eq!(fs::read_to_string(&md_dest).unwrap(), "# Plan A details\n");
 
         assert!(state.plan_modal.is_none());
-        assert!(state
-            .status_message
-            .as_ref()
-            .unwrap()
-            .contains("Imported 2"));
+        assert!(
+            state
+                .status_message
+                .as_ref()
+                .unwrap()
+                .contains("Imported 2")
+        );
 
         fs::remove_dir_all(&temp_dir).ok();
     }
@@ -1308,11 +1319,7 @@ mod tests {
         fs::create_dir_all(temp_dir.join("todos")).unwrap();
 
         let todo_file = temp_dir.join("todo.txt");
-        fs::write(
-            &todo_file,
-            "Existing plan +proj1 id:slug-a\n",
-        )
-        .unwrap();
+        fs::write(&todo_file, "Existing plan +proj1 id:slug-a\n").unwrap();
 
         let mut state = create_test_state(vec![]);
         state.plan_modal = Some(PlanModal {
@@ -1332,11 +1339,7 @@ mod tests {
         let content = fs::read_to_string(&todo_file).unwrap();
         let count = content.matches("id:slug-a").count();
         assert_eq!(count, 1);
-        assert!(state
-            .status_message
-            .as_ref()
-            .unwrap()
-            .contains("skipped 1"));
+        assert!(state.status_message.as_ref().unwrap().contains("skipped 1"));
 
         fs::remove_dir_all(&temp_dir).ok();
     }
@@ -1506,11 +1509,13 @@ mod tests {
         state.claude_available = true;
 
         state.launch_claude(temp_dir.to_str().unwrap(), "plan", "clp");
-        assert!(state
-            .status_message
-            .as_deref()
-            .unwrap()
-            .contains("cwd not set"));
+        assert!(
+            state
+                .status_message
+                .as_deref()
+                .unwrap()
+                .contains("cwd not set")
+        );
 
         fs::remove_dir_all(&temp_dir).ok();
     }
@@ -1623,11 +1628,7 @@ mod tests {
         fs::write(temp_dir.join("todo.txt"), "").unwrap();
 
         let todos = load_todos(temp_dir.join("todo.txt").to_str().unwrap()).unwrap();
-        let mut state = AppState::new(
-            todos,
-            String::new(),
-            temp_dir.to_str().unwrap().to_string(),
-        );
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
 
         // ALL順: Inbox, Todo, Waiting, Ref, Someday
         assert_eq!(state.view_mode, ViewMode::Todo);
@@ -1652,11 +1653,7 @@ mod tests {
         fs::write(temp_dir.join("todo.txt"), "").unwrap();
 
         let todos = load_todos(temp_dir.join("todo.txt").to_str().unwrap()).unwrap();
-        let mut state = AppState::new(
-            todos,
-            String::new(),
-            temp_dir.to_str().unwrap().to_string(),
-        );
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
 
         assert_eq!(state.view_mode, ViewMode::Todo);
         state.prev_view_mode();
@@ -1685,7 +1682,11 @@ mod tests {
         fs::create_dir_all(&temp_dir).unwrap();
 
         let file = temp_dir.join("test.txt");
-        fs::write(&file, "(A) Item one +proj id:1\n\n(B) Item two +proj id:2\n").unwrap();
+        fs::write(
+            &file,
+            "(A) Item one +proj id:1\n\n(B) Item two +proj id:2\n",
+        )
+        .unwrap();
         assert_eq!(count_items_in_file(file.to_str().unwrap()), 2);
 
         let empty_file = temp_dir.join("empty.txt");
@@ -1702,17 +1703,21 @@ mod tests {
         let temp_dir = std::env::temp_dir().join("torudo_test_mode_counts");
         fs::create_dir_all(&temp_dir).unwrap();
 
-        fs::write(temp_dir.join("todo.txt"), "(A) task +proj id:1\n(B) task2 +proj id:2\n").unwrap();
+        fs::write(
+            temp_dir.join("todo.txt"),
+            "(A) task +proj id:1\n(B) task2 +proj id:2\n",
+        )
+        .unwrap();
         fs::write(temp_dir.join("ref.txt"), "ref item +misc id:3\n").unwrap();
-        fs::write(temp_dir.join("inbox.txt"), "idea1 id:4\nidea2 id:5\nidea3 id:6\n").unwrap();
+        fs::write(
+            temp_dir.join("inbox.txt"),
+            "idea1 id:4\nidea2 id:5\nidea3 id:6\n",
+        )
+        .unwrap();
         // someday.txt and waiting.txt don't exist
 
         let todos = load_todos(temp_dir.join("todo.txt").to_str().unwrap()).unwrap();
-        let mut state = AppState::new(
-            todos,
-            String::new(),
-            temp_dir.to_str().unwrap().to_string(),
-        );
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
         state.refresh_mode_counts();
 
         let count_of = |mode: ViewMode| {
@@ -1727,5 +1732,4 @@ mod tests {
 
         fs::remove_dir_all(&temp_dir).ok();
     }
-
 }

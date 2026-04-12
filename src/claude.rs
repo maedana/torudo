@@ -9,7 +9,12 @@ pub fn detect() -> bool {
         .is_ok_and(|o| o.status.success())
 }
 
-pub fn launch(prompt: &str, permission_mode: &str, worktree_name: &str, cwd: &str) -> Result<(), Box<dyn Error>> {
+pub fn launch(
+    prompt: &str,
+    permission_mode: &str,
+    worktree_name: &str,
+    cwd: &str,
+) -> Result<(), Box<dyn Error>> {
     let mut cmd = Command::new("tmux");
     cmd.args([
         "new-window",
@@ -36,4 +41,3 @@ pub fn launch(prompt: &str, permission_mode: &str, worktree_name: &str, cwd: &st
 
     Ok(())
 }
-

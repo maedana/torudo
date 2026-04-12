@@ -30,9 +30,7 @@ pub fn strip_urls(text: &str) -> (String, bool) {
 
 /// Open all URLs in the default browser. Returns the number of failures.
 pub fn open_urls(urls: &[String]) -> usize {
-    urls.iter()
-        .filter(|url| opener::open(url).is_err())
-        .count()
+    urls.iter().filter(|url| opener::open(url).is_err()).count()
 }
 
 #[cfg(test)]
@@ -86,7 +84,10 @@ mod tests {
 
     #[test]
     fn strip_urls_no_url() {
-        assert_eq!(strip_urls("just plain text"), ("just plain text".to_string(), false));
+        assert_eq!(
+            strip_urls("just plain text"),
+            ("just plain text".to_string(), false)
+        );
     }
 
     #[test]
