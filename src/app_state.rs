@@ -79,6 +79,7 @@ impl ViewMode {
         Self::Ref,
         Self::Someday,
     ];
+    pub const COUNT: usize = Self::ALL.len();
 
     pub const fn filename(self) -> &'static str {
         match self {
@@ -123,7 +124,7 @@ pub struct AppState {
     pub show_help: bool,
     pub update_available: Option<String>,
     pub view_mode: ViewMode,
-    pub mode_counts: [usize; 5],
+    pub mode_counts: [usize; ViewMode::COUNT],
 }
 
 impl AppState {
@@ -188,7 +189,7 @@ impl AppState {
             show_help: false,
             update_available: None,
             view_mode: ViewMode::Todo,
-            mode_counts: [0; 5],
+            mode_counts: [0; ViewMode::COUNT],
         };
         state.refresh_mode_counts();
         state
@@ -330,21 +331,20 @@ impl AppState {
         format!("{}/{}", self.todotxt_dir, self.view_mode.filename())
     }
 
-    pub fn next_view_mode(&mut self) {
-        let current_idx = ViewMode::ALL
+    pub fn current_mode_index(&self) -> usize {
+        ViewMode::ALL
             .iter()
             .position(|m| *m == self.view_mode)
-            .unwrap_or(0);
-        let next_idx = (current_idx + 1) % ViewMode::ALL.len();
+            .unwrap_or(0)
+    }
+
+    pub fn next_view_mode(&mut self) {
+        let next_idx = (self.current_mode_index() + 1) % ViewMode::COUNT;
         self.set_view_mode(ViewMode::ALL[next_idx]);
     }
 
     pub fn prev_view_mode(&mut self) {
-        let current_idx = ViewMode::ALL
-            .iter()
-            .position(|m| *m == self.view_mode)
-            .unwrap_or(0);
-        let prev_idx = (current_idx + ViewMode::ALL.len() - 1) % ViewMode::ALL.len();
+        let prev_idx = (self.current_mode_index() + ViewMode::COUNT - 1) % ViewMode::COUNT;
         self.set_view_mode(ViewMode::ALL[prev_idx]);
     }
 
@@ -1715,11 +1715,15 @@ mod tests {
         );
         state.refresh_mode_counts();
 
-        assert_eq!(state.mode_counts[0], 3); // Inbox
-        assert_eq!(state.mode_counts[1], 2); // Todo
-        assert_eq!(state.mode_counts[2], 0); // Waiting
-        assert_eq!(state.mode_counts[3], 1); // Ref
-        assert_eq!(state.mode_counts[4], 0); // Someday
+        let count_of = |mode: ViewMode| {
+            let i = ViewMode::ALL.iter().position(|m| *m == mode).unwrap();
+            state.mode_counts[i]
+        };
+        assert_eq!(count_of(ViewMode::Inbox), 3);
+        assert_eq!(count_of(ViewMode::Todo), 2);
+        assert_eq!(count_of(ViewMode::Waiting), 0);
+        assert_eq!(count_of(ViewMode::Ref), 1);
+        assert_eq!(count_of(ViewMode::Someday), 0);
 
         fs::remove_dir_all(&temp_dir).ok();
     }

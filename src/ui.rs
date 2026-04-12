@@ -206,12 +206,8 @@ fn draw_tab_bar(f: &mut ratatui::Frame, state: &AppState, area: Rect) {
         .enumerate()
         .map(|(i, m)| format!("{} ({})", m.label(), state.mode_counts[i]))
         .collect();
-    let selected_tab = ViewMode::ALL
-        .iter()
-        .position(|m| *m == state.view_mode)
-        .unwrap_or(0);
     let tabs = Tabs::new(tab_titles)
-        .select(selected_tab)
+        .select(state.current_mode_index())
         .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
     f.render_widget(tabs, area);
 }

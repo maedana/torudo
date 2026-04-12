@@ -30,8 +30,6 @@ impl EventHandler {
         let mut should_refresh_counts = false;
         let active_file = state.active_file();
         let active_file_path = std::path::Path::new(&active_file);
-        let mode_filenames: Vec<&str> =
-            ViewMode::ALL.iter().map(|m| m.filename()).collect();
 
         while let Ok(event) = file_watcher_rx.try_recv() {
             let is_active_file_event = event
@@ -41,7 +39,7 @@ impl EventHandler {
             let is_mode_file_event = event.paths.iter().any(|path| {
                 path.file_name()
                     .and_then(|n| n.to_str())
-                    .is_some_and(|name| mode_filenames.contains(&name))
+                    .is_some_and(|name| ViewMode::ALL.iter().any(|m| m.filename() == name))
             });
 
             if is_active_file_event {
