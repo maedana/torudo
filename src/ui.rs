@@ -1,5 +1,5 @@
 use crate::app_state::{AppState, ViewMode};
-use crate::help::{self, HELP_ENTRIES};
+use crate::help;
 use crate::todo::Item;
 use crate::url::strip_urls;
 use unicode_width::UnicodeWidthChar;
@@ -272,9 +272,9 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
             spans.insert(0, Span::styled("[REF] ", Style::default().fg(Color::Cyan)));
         }
         let is_todo = state.view_mode == ViewMode::Todo;
-        let footer_str = help::footer_entries(is_todo)
+        let has_claude = state.crmux_available() || state.claude_available();
+        let footer_str = help::footer_entries(is_todo, has_claude)
             .iter()
-            .filter(|(key, _)| *key != "c" || state.crmux_available() || state.claude_available())
             .map(|(key, desc)| format!("{key}: {desc}"))
             .collect::<Vec<_>>()
             .join(" | ");
@@ -294,7 +294,8 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
 
     // Draw help overlay if shown
     if state.show_help {
-        draw_help_overlay(f, size, state.view_mode);
+        let has_claude = state.crmux_available() || state.claude_available();
+        draw_help_overlay(f, size, state.view_mode, has_claude);
     }
 }
 
@@ -487,7 +488,7 @@ mod tests {
     }
 }
 
-fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect, view_mode: ViewMode) {
+fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect, view_mode: ViewMode, has_claude: bool) {
     let modal_area = centered_rect(50, 60, area);
     f.render_widget(Clear, modal_area);
 
@@ -505,10 +506,7 @@ fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect, view_mode: ViewMode) {
         .split(inner);
 
     let is_todo = view_mode == ViewMode::Todo;
-    let entries: Vec<&crate::help::HelpEntry> = HELP_ENTRIES
-        .iter()
-        .filter(|e| !e.todo_only || is_todo)
-        .collect();
+    let entries = help::visible_entries(is_todo, has_claude);
 
     let max_key_width = entries
         .iter()

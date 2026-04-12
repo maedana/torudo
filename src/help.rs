@@ -3,31 +3,45 @@ pub struct HelpEntry {
     pub desc: &'static str,
     pub indent: bool,
     pub todo_only: bool,
+    pub requires_claude: bool,
     pub footer: Option<&'static str>,
 }
 
+impl HelpEntry {
+    const fn is_visible(&self, is_todo: bool, has_claude: bool) -> bool {
+        (!self.todo_only || is_todo) && (!self.requires_claude || has_claude)
+    }
+}
+
 pub const HELP_ENTRIES: &[HelpEntry] = &[
-    HelpEntry { key: "hjkl", desc: "Navigate between columns and todos", indent: false, todo_only: false, footer: Some("Nav") },
-    HelpEntry { key: "x", desc: "Complete selected todo", indent: false, todo_only: true, footer: Some("Complete") },
-    HelpEntry { key: "o", desc: "Open URLs in selected todo", indent: false, todo_only: false, footer: Some("Open URL") },
-    HelpEntry { key: "r", desc: "Move selected todo to ref.txt", indent: false, todo_only: true, footer: Some("Ref") },
-    HelpEntry { key: "m", desc: "Mode submenu", indent: false, todo_only: false, footer: Some("Mode") },
-    HelpEntry { key: "mt", desc: "Switch to todo mode", indent: true, todo_only: false, footer: None },
-    HelpEntry { key: "mr", desc: "Switch to ref mode", indent: true, todo_only: false, footer: None },
-    HelpEntry { key: "c", desc: "Claude submenu (requires crmux or claude CLI)", indent: false, todo_only: true, footer: Some("Claude") },
-    HelpEntry { key: "csp", desc: "Send plan prompt to project's idle crmux session (>= 0.10.0)", indent: true, todo_only: true, footer: None },
-    HelpEntry { key: "csi", desc: "Send implement prompt to project's idle crmux session (>= 0.10.0)", indent: true, todo_only: true, footer: None },
-    HelpEntry { key: "cgp", desc: "Get plans and import via crmux (>= 0.11.0)", indent: true, todo_only: true, footer: None },
-    HelpEntry { key: "clp", desc: "Launch claude plan in tmux window (requires cwd in frontmatter)", indent: true, todo_only: true, footer: None },
-    HelpEntry { key: "cli", desc: "Launch claude implement in tmux window (requires cwd in frontmatter)", indent: true, todo_only: true, footer: None },
-    HelpEntry { key: "?", desc: "Toggle help", indent: false, todo_only: false, footer: Some("Help") },
-    HelpEntry { key: "q", desc: "Quit", indent: false, todo_only: false, footer: Some("Quit") },
+    HelpEntry { key: "hjkl", desc: "Navigate between columns and todos", indent: false, todo_only: false, requires_claude: false, footer: Some("Nav") },
+    HelpEntry { key: "x", desc: "Complete selected todo", indent: false, todo_only: true, requires_claude: false, footer: Some("Complete") },
+    HelpEntry { key: "o", desc: "Open URLs in selected todo", indent: false, todo_only: false, requires_claude: false, footer: Some("Open URL") },
+    HelpEntry { key: "r", desc: "Move selected todo to ref.txt", indent: false, todo_only: true, requires_claude: false, footer: Some("Ref") },
+    HelpEntry { key: "m", desc: "Mode submenu", indent: false, todo_only: false, requires_claude: false, footer: Some("Mode") },
+    HelpEntry { key: "mt", desc: "Switch to todo mode", indent: true, todo_only: false, requires_claude: false, footer: None },
+    HelpEntry { key: "mr", desc: "Switch to ref mode", indent: true, todo_only: false, requires_claude: false, footer: None },
+    HelpEntry { key: "c", desc: "Claude submenu (requires crmux or claude CLI)", indent: false, todo_only: true, requires_claude: true, footer: Some("Claude") },
+    HelpEntry { key: "csp", desc: "Send plan prompt to project's idle crmux session (>= 0.10.0)", indent: true, todo_only: true, requires_claude: true, footer: None },
+    HelpEntry { key: "csi", desc: "Send implement prompt to project's idle crmux session (>= 0.10.0)", indent: true, todo_only: true, requires_claude: true, footer: None },
+    HelpEntry { key: "cgp", desc: "Get plans and import via crmux (>= 0.11.0)", indent: true, todo_only: true, requires_claude: true, footer: None },
+    HelpEntry { key: "clp", desc: "Launch claude plan in tmux window (requires cwd in frontmatter)", indent: true, todo_only: true, requires_claude: true, footer: None },
+    HelpEntry { key: "cli", desc: "Launch claude implement in tmux window (requires cwd in frontmatter)", indent: true, todo_only: true, requires_claude: true, footer: None },
+    HelpEntry { key: "?", desc: "Toggle help", indent: false, todo_only: false, requires_claude: false, footer: Some("Help") },
+    HelpEntry { key: "q", desc: "Quit", indent: false, todo_only: false, requires_claude: false, footer: Some("Quit") },
 ];
 
-pub fn footer_entries(is_todo: bool) -> Vec<(&'static str, &'static str)> {
+pub fn visible_entries(is_todo: bool, has_claude: bool) -> Vec<&'static HelpEntry> {
     HELP_ENTRIES
         .iter()
-        .filter(|e| e.footer.is_some() && (!e.todo_only || is_todo))
+        .filter(|e| e.is_visible(is_todo, has_claude))
+        .collect()
+}
+
+pub fn footer_entries(is_todo: bool, has_claude: bool) -> Vec<(&'static str, &'static str)> {
+    HELP_ENTRIES
+        .iter()
+        .filter(|e| e.footer.is_some() && e.is_visible(is_todo, has_claude))
         .map(|e| (e.key, e.footer.unwrap()))
         .collect()
 }
