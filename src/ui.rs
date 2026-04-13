@@ -473,6 +473,7 @@ mod tests {
             projects: vec![],
             contexts: vec![],
             id: None,
+            key_values: std::collections::HashMap::new(),
             line_number: 0,
         }
     }

@@ -15,6 +15,7 @@ pub struct Item {
     pub projects: Vec<String>,
     pub contexts: Vec<String>,
     pub id: Option<String>,
+    pub key_values: HashMap<String, String>,
     #[serde(skip)]
     pub line_number: usize,
 }
@@ -31,34 +32,45 @@ impl Item {
             projects: Vec::new(),
             contexts: Vec::new(),
             id: None,
+            key_values: HashMap::new(),
             line_number,
         };
         let mut desc_parts = Vec::new();
         if parts.peek() == Some(&"x") {
             item.completed = true;
             parts.next();
-            if let Some(date_str) = parts.peek()
-                && let Ok(date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
-            {
-                item.completion_date = Some(date);
+        }
+        // Consume leading priority and dates in any order.
+        let mut leading_dates: Vec<NaiveDate> = Vec::new();
+        while let Some(part) = parts.peek() {
+            if item.priority.is_none() && is_priority_token(part) {
+                item.priority = part.chars().nth(1);
                 parts.next();
+                continue;
             }
+            if leading_dates.len() < 2
+                && let Ok(date) = NaiveDate::parse_from_str(part, "%Y-%m-%d")
+            {
+                leading_dates.push(date);
+                parts.next();
+                continue;
+            }
+            break;
         }
-        if let Some(part) = parts.peek()
-            && part.len() == 3
-            && part.starts_with('(')
-            && part.ends_with(')')
-            && let Some(c) = part.chars().nth(1)
-            && c.is_ascii_uppercase()
-        {
-            item.priority = Some(c);
-            parts.next();
-        }
-        if let Some(date_str) = parts.peek()
-            && let Ok(date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
-        {
-            item.creation_date = Some(date);
-            parts.next();
+        if item.completed {
+            // Per the todo.txt spec, a completion date implies a creation date follows.
+            // A completed line without a creation date is technically invalid, but we
+            // accept it leniently and treat the single date as the completion date.
+            match leading_dates.len() {
+                2 => {
+                    item.completion_date = Some(leading_dates[0]);
+                    item.creation_date = Some(leading_dates[1]);
+                }
+                1 => item.completion_date = Some(leading_dates[0]),
+                _ => {}
+            }
+        } else if let Some(d) = leading_dates.first() {
+            item.creation_date = Some(*d);
         }
         for part in parts {
             if let Some(stripped) = part.strip_prefix('+') {
@@ -67,6 +79,8 @@ impl Item {
                 item.contexts.push(stripped.to_string());
             } else if let Some(stripped) = part.strip_prefix("id:") {
                 item.id = Some(stripped.to_string());
+            } else if let Some((key, value)) = split_key_value(part) {
+                item.key_values.insert(key.to_string(), value.to_string());
             } else {
                 desc_parts.push(part);
             }
@@ -74,6 +88,27 @@ impl Item {
         item.description = desc_parts.join(" ");
         item
     }
+}
+
+fn is_priority_token(part: &str) -> bool {
+    part.len() == 3
+        && part.starts_with('(')
+        && part.ends_with(')')
+        && part.chars().nth(1).is_some_and(|c| c.is_ascii_uppercase())
+}
+
+fn split_key_value(part: &str) -> Option<(&str, &str)> {
+    if part.contains("://") {
+        return None;
+    }
+    let (key, value) = part.split_once(':')?;
+    if key.is_empty() || value.is_empty() {
+        return None;
+    }
+    if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return None;
+    }
+    Some((key, value))
 }
 
 pub fn load_todos(file_path: &str) -> Result<Vec<Item>, Box<dyn Error>> {
@@ -409,7 +444,7 @@ mod tests {
             item.creation_date,
             Some(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap())
         );
-        assert_eq!(item.priority, None); // Priority is not parsed after completion marker
+        assert_eq!(item.priority, None);
         assert_eq!(item.description, "Complete project report");
     }
 
@@ -450,6 +485,61 @@ mod tests {
         assert_eq!(item.projects, vec!["work"]);
         assert_eq!(item.contexts, vec!["urgent", "coding"]);
         assert_eq!(item.id, Some("bug-001".to_string()));
+    }
+
+    #[test]
+    fn test_item_parse_image_canonical_format() {
+        // Canonical todo.txt format from the official diagram:
+        // x (A) <completion> <creation> description +project @context key:value
+        let line =
+            "x (A) 2016-05-20 2016-04-30 measure space for +chapelShelving @chapel due:2016-05-30";
+        let item = Item::parse(line, 1);
+
+        assert!(item.completed);
+        assert_eq!(item.priority, Some('A'));
+        assert_eq!(
+            item.completion_date,
+            Some(NaiveDate::from_ymd_opt(2016, 5, 20).unwrap())
+        );
+        assert_eq!(
+            item.creation_date,
+            Some(NaiveDate::from_ymd_opt(2016, 4, 30).unwrap())
+        );
+        assert_eq!(item.description, "measure space for");
+        assert_eq!(item.projects, vec!["chapelShelving"]);
+        assert_eq!(item.contexts, vec!["chapel"]);
+        assert_eq!(
+            item.key_values.get("due").map(String::as_str),
+            Some("2016-05-30")
+        );
+    }
+
+    #[test]
+    fn test_item_parse_url_not_extracted_as_key_value() {
+        let line = "Read article https://example.com/path due:2026-01-01";
+        let item = Item::parse(line, 1);
+
+        assert_eq!(item.description, "Read article https://example.com/path");
+        assert_eq!(
+            item.key_values.get("due").map(String::as_str),
+            Some("2026-01-01")
+        );
+        assert!(!item.key_values.contains_key("https"));
+    }
+
+    #[test]
+    fn test_item_parse_multiple_key_values_and_id_excluded() {
+        let line = "Plan meeting due:2026-05-30 t:14:00 id:meet-1";
+        let item = Item::parse(line, 1);
+
+        assert_eq!(item.description, "Plan meeting");
+        assert_eq!(item.id.as_deref(), Some("meet-1"));
+        assert_eq!(
+            item.key_values.get("due").map(String::as_str),
+            Some("2026-05-30")
+        );
+        assert_eq!(item.key_values.get("t").map(String::as_str), Some("14:00"));
+        assert!(!item.key_values.contains_key("id"));
     }
 
     #[test]
@@ -497,6 +587,7 @@ Learn Rust +learning @coding id:rust-001";
                 projects: vec!["work".to_string()],
                 contexts: vec![],
                 id: Some("1".to_string()),
+                key_values: HashMap::new(),
                 line_number: 1,
             },
             Item {
@@ -508,6 +599,7 @@ Learn Rust +learning @coding id:rust-001";
                 projects: vec!["personal".to_string()],
                 contexts: vec![],
                 id: Some("2".to_string()),
+                key_values: HashMap::new(),
                 line_number: 2,
             },
             Item {
@@ -519,6 +611,7 @@ Learn Rust +learning @coding id:rust-001";
                 projects: vec![],
                 contexts: vec![],
                 id: Some("3".to_string()),
+                key_values: HashMap::new(),
                 line_number: 3,
             },
             Item {
@@ -530,6 +623,7 @@ Learn Rust +learning @coding id:rust-001";
                 projects: vec!["work".to_string(), "urgent".to_string()],
                 contexts: vec![],
                 id: Some("4".to_string()),
+                key_values: HashMap::new(),
                 line_number: 4,
             },
         ];
@@ -916,6 +1010,22 @@ Learn Rust +learning @coding id:task-003";
 
         assert_eq!(json["md"], "# Details");
         assert_eq!(json["id"], "abc-123");
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_item_to_json_includes_key_values() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_item_to_json_kv");
+        fs::create_dir_all(temp_dir.join("todos")).unwrap();
+
+        let item = Item::parse("Plan trip due:2026-05-30 t:14:00 +travel id:trip-1", 0);
+        let json_str = item_to_json(&item, temp_dir.to_str().unwrap()).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(json["key_values"]["due"], "2026-05-30");
+        assert_eq!(json["key_values"]["t"], "14:00");
+        assert_eq!(json["title"], "Plan trip");
 
         fs::remove_dir_all(&temp_dir).ok();
     }

@@ -667,6 +667,7 @@ mod tests {
                 projects: vec!["work".to_string()],
                 contexts: vec!["office".to_string()],
                 id: Some("task-1".to_string()),
+                key_values: std::collections::HashMap::new(),
                 line_number: 1,
             },
             Item {
@@ -678,6 +679,7 @@ mod tests {
                 projects: vec!["personal".to_string()],
                 contexts: vec!["home".to_string()],
                 id: Some("task-2".to_string()),
+                key_values: std::collections::HashMap::new(),
                 line_number: 2,
             },
             Item {
@@ -689,6 +691,7 @@ mod tests {
                 projects: vec![],
                 contexts: vec![],
                 id: Some("task-3".to_string()),
+                key_values: std::collections::HashMap::new(),
                 line_number: 3,
             },
             Item {
@@ -700,6 +703,7 @@ mod tests {
                 projects: vec!["work".to_string(), "urgent".to_string()],
                 contexts: vec![],
                 id: Some("task-4".to_string()),
+                key_values: std::collections::HashMap::new(),
                 line_number: 4,
             },
         ]
@@ -754,6 +758,7 @@ mod tests {
                 projects: vec!["work".to_string()],
                 contexts: vec![],
                 id: Some("task-1".to_string()),
+                key_values: std::collections::HashMap::new(),
                 line_number: 1,
             },
             Item {
@@ -765,6 +770,7 @@ mod tests {
                 projects: vec!["work".to_string()],
                 contexts: vec![],
                 id: Some("task-2".to_string()),
+                key_values: std::collections::HashMap::new(),
                 line_number: 2,
             },
         ];
@@ -851,6 +857,7 @@ mod tests {
             projects: vec!["work".to_string()],
             contexts: vec![],
             id: Some("only-1".to_string()),
+            key_values: std::collections::HashMap::new(),
             line_number: 1,
         }];
         let mut state = create_test_state(todos);
@@ -886,6 +893,7 @@ mod tests {
             projects: vec!["work".to_string()],
             contexts: vec!["office".to_string()],
             id: Some("initial-1".to_string()),
+            key_values: std::collections::HashMap::new(),
             line_number: 1,
         }];
 
@@ -954,6 +962,7 @@ mod tests {
                 projects: vec!["work".to_string()],
                 contexts: vec!["office".to_string()],
                 id: Some("complete-me".to_string()),
+                key_values: std::collections::HashMap::new(),
                 line_number: 1,
             },
             Item {
@@ -965,6 +974,7 @@ mod tests {
                 projects: vec!["work".to_string()],
                 contexts: vec!["office".to_string()],
                 id: Some("keep-me".to_string()),
+                key_values: std::collections::HashMap::new(),
                 line_number: 2,
             },
         ];
@@ -1256,6 +1266,7 @@ mod tests {
             projects: vec!["myapp".to_string()],
             contexts: vec![],
             id: Some("abc-123".to_string()),
+            key_values: std::collections::HashMap::new(),
             line_number: 1,
         }];
 
@@ -1284,6 +1295,7 @@ mod tests {
             projects: vec!["myapp".to_string()],
             contexts: vec![],
             id: Some("abc-456".to_string()),
+            key_values: std::collections::HashMap::new(),
             line_number: 1,
         }];
 
@@ -1506,6 +1518,7 @@ mod tests {
             projects: vec!["proj".to_string()],
             contexts: vec![],
             id: Some("test-id".to_string()),
+            key_values: std::collections::HashMap::new(),
             line_number: 1,
         }];
         let mut state = create_test_state(todos);
@@ -1529,6 +1542,7 @@ mod tests {
             projects: vec!["proj".to_string()],
             contexts: vec![],
             id: Some("test-id".to_string()),
+            key_values: std::collections::HashMap::new(),
             line_number: 1,
         }];
         let mut state = create_test_state(todos);
@@ -1607,6 +1621,7 @@ mod tests {
             projects: vec!["myapp".to_string()],
             contexts: vec![],
             id: Some("fm-test-1".to_string()),
+            key_values: std::collections::HashMap::new(),
             line_number: 1,
         }];
 
@@ -1638,6 +1653,7 @@ mod tests {
             projects: vec!["proj".to_string()],
             contexts: vec![],
             id: Some("no-cwd-1".to_string()),
+            key_values: std::collections::HashMap::new(),
             line_number: 1,
         }];
 

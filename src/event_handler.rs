@@ -385,6 +385,7 @@ mod tests {
             projects: vec!["proj".to_string()],
             contexts: vec![],
             id: Some("test-id".to_string()),
+            key_values: std::collections::HashMap::new(),
             line_number: 1,
         }];
         let mut state = crate::app_state::AppState::new(
@@ -407,6 +408,7 @@ mod tests {
             projects: vec!["proj".to_string()],
             contexts: vec![],
             id: Some("test-id".to_string()),
+            key_values: std::collections::HashMap::new(),
             line_number: 1,
         }];
         let mut state = crate::app_state::AppState::new(
@@ -829,6 +831,7 @@ mod tests {
             projects: vec!["proj".to_string()],
             contexts: vec![],
             id: Some("test-id".to_string()),
+            key_values: std::collections::HashMap::new(),
             line_number: 1,
         }];
         let mut state = crate::app_state::AppState::new(
