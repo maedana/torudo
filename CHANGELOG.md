@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **`p` prefix for priority**: `pa`–`pe` sets the selected todo's priority to `(A)`–`(E)`; `px` clears it. Works in all modes
+- **Key/value tag extraction**: `Item::parse` now pulls `key:value` tags (e.g. `due:2026-05-30`) into a dedicated `key_values` field instead of leaving them in the description. URLs are excluded from detection. Canonical todo.txt format with priority after the completion marker (`x (A) <completion> <creation> ...`) is now parsed correctly
+- **Auto creation date on `torudo inbox add`**: Items added via `torudo inbox add <text>` get today's date inserted as the creation date (after the priority if present). An explicit creation date in the input is preserved
 
 ### Changed
 - **hjkl navigation**: Now cycles at edges instead of stopping — `j` at the last item wraps to the first, `l` at the rightmost column wraps to the leftmost, and vice versa for `k`/`h`

@@ -101,6 +101,16 @@ fn extract_priority_char(part: &str) -> Option<char> {
     }
 }
 
+/// Insert `date` after the leading priority (if any) in `text`.
+/// Used by both `add_item` (creation date) and `mark_complete` (completion date).
+fn insert_date_after_priority(text: &str, date: &str) -> String {
+    let (priority, rest) = split_priority_prefix(text);
+    priority.map_or_else(
+        || format!("{date} {rest}"),
+        |pri| format!("{pri} {date} {rest}"),
+    )
+}
+
 fn split_key_value(part: &str) -> Option<(&str, &str)> {
     if part.contains("://") {
         return None;
@@ -202,11 +212,7 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
             let completed_todo_line = if todo.completed {
                 line.to_string()
             } else {
-                let (priority, rest) = split_priority_prefix(line);
-                priority.map_or_else(
-                    || format!("x {today} {line}"),
-                    |pri| format!("x {pri} {today} {rest}"),
-                )
+                format!("x {}", insert_date_after_priority(line, &today))
             };
             completed_line = Some(completed_todo_line);
             continue;
@@ -342,12 +348,19 @@ pub fn item_to_json(item: &Item, todotxt_dir: &str) -> Result<String, Box<dyn Er
 }
 
 pub fn add_item(file_path: &str, text: &str) -> Result<Item, Box<dyn Error>> {
-    let mut item = Item::parse(text, 0);
-    let final_line = if item.id.is_some() {
+    let parsed = Item::parse(text, 0);
+    let text_with_date = if parsed.creation_date.is_some() {
         text.to_string()
     } else {
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        insert_date_after_priority(text, &today)
+    };
+    let mut item = Item::parse(&text_with_date, 0);
+    let final_line = if item.id.is_some() {
+        text_with_date
+    } else {
         let uuid = Uuid::new_v4().to_string();
-        let line = format!("{text} id:{uuid}");
+        let line = format!("{text_with_date} id:{uuid}");
         item.id = Some(uuid);
         line
     };
@@ -1045,6 +1058,84 @@ Learn Rust +learning @coding id:task-003";
 
         assert_eq!(json["title"], "No id todo");
         assert!(json.get("md").is_none());
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_add_item_inserts_creation_date_when_missing() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_add_item_cdate_missing");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let inbox = temp_dir.join("inbox.txt");
+        fs::remove_file(&inbox).ok();
+
+        let item = add_item(inbox.to_str().unwrap(), "Buy milk").unwrap();
+        let today = chrono::Local::now().date_naive();
+
+        assert_eq!(item.creation_date, Some(today));
+        assert_eq!(item.description, "Buy milk");
+
+        let content = fs::read_to_string(&inbox).unwrap();
+        let today_str = today.format("%Y-%m-%d").to_string();
+        assert!(
+            content.starts_with(&format!("{today_str} Buy milk ")),
+            "expected line starting with '{today_str} Buy milk', got: {content}"
+        );
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_add_item_inserts_creation_date_after_priority() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_add_item_cdate_priority");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let inbox = temp_dir.join("inbox.txt");
+        fs::remove_file(&inbox).ok();
+
+        let item = add_item(inbox.to_str().unwrap(), "(A) Buy milk +shop @home").unwrap();
+        let today = chrono::Local::now().date_naive();
+
+        assert_eq!(item.priority, Some('A'));
+        assert_eq!(item.creation_date, Some(today));
+        assert_eq!(item.description, "Buy milk");
+        assert_eq!(item.projects, vec!["shop"]);
+        assert_eq!(item.contexts, vec!["home"]);
+
+        let content = fs::read_to_string(&inbox).unwrap();
+        let today_str = today.format("%Y-%m-%d").to_string();
+        assert!(
+            content.starts_with(&format!("(A) {today_str} Buy milk +shop @home ")),
+            "expected line starting with '(A) {today_str} Buy milk +shop @home', got: {content}"
+        );
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_add_item_preserves_existing_creation_date() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_add_item_cdate_preserve");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let inbox = temp_dir.join("inbox.txt");
+        fs::remove_file(&inbox).ok();
+
+        let item = add_item(inbox.to_str().unwrap(), "(A) 2024-01-01 Old task").unwrap();
+
+        assert_eq!(
+            item.creation_date,
+            Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        );
+        assert_eq!(item.description, "Old task");
+
+        let content = fs::read_to_string(&inbox).unwrap();
+        assert!(
+            content.starts_with("(A) 2024-01-01 Old task "),
+            "expected preserved date, got: {content}"
+        );
+        let today_str = chrono::Local::now().format("%Y-%m-%d").to_string();
+        assert!(
+            !content.contains(&format!("(A) {today_str} 2024-01-01")),
+            "today's date should not be inserted before the existing creation date"
+        );
 
         fs::remove_dir_all(&temp_dir).ok();
     }
