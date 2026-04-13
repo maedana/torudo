@@ -264,41 +264,59 @@ impl AppState {
         let visible = &self.project_names;
         match key_char {
             'k' => {
-                if self.selected_in_column > 0 {
-                    self.selected_in_column -= 1;
-                    if let Some(todo_id) = self.get_current_todo_id() {
-                        self.send_vim_command(todo_id);
+                if let Some(current_project_name) = visible.get(self.current_column)
+                    && let Some(current_todos) = self.grouped_todos.get(current_project_name)
+                    && !current_todos.is_empty()
+                {
+                    let len = current_todos.len();
+                    let new_idx = (self.selected_in_column + len - 1) % len;
+                    if new_idx != self.selected_in_column {
+                        self.selected_in_column = new_idx;
+                        if let Some(todo_id) = self.get_current_todo_id() {
+                            self.send_vim_command(todo_id);
+                        }
                     }
                 }
             }
             'j' => {
                 if let Some(current_project_name) = visible.get(self.current_column)
                     && let Some(current_todos) = self.grouped_todos.get(current_project_name)
-                    && self.selected_in_column < current_todos.len().saturating_sub(1)
+                    && !current_todos.is_empty()
                 {
-                    self.selected_in_column += 1;
-                    if let Some(todo_id) = self.get_current_todo_id() {
-                        self.send_vim_command(todo_id);
+                    let len = current_todos.len();
+                    let new_idx = (self.selected_in_column + 1) % len;
+                    if new_idx != self.selected_in_column {
+                        self.selected_in_column = new_idx;
+                        if let Some(todo_id) = self.get_current_todo_id() {
+                            self.send_vim_command(todo_id);
+                        }
                     }
                 }
             }
             'h' => {
-                if self.current_column > 0 {
-                    self.current_column -= 1;
-                    self.selected_in_column = 0;
-                    self.scroll_offset = 0;
-                    if let Some(todo_id) = self.get_current_todo_id() {
-                        self.send_vim_command(todo_id);
+                if !visible.is_empty() {
+                    let len = visible.len();
+                    let new_col = (self.current_column + len - 1) % len;
+                    if new_col != self.current_column {
+                        self.current_column = new_col;
+                        self.selected_in_column = 0;
+                        self.scroll_offset = 0;
+                        if let Some(todo_id) = self.get_current_todo_id() {
+                            self.send_vim_command(todo_id);
+                        }
                     }
                 }
             }
             'l' => {
-                if self.current_column < visible.len().saturating_sub(1) {
-                    self.current_column += 1;
-                    self.selected_in_column = 0;
-                    self.scroll_offset = 0;
-                    if let Some(todo_id) = self.get_current_todo_id() {
-                        self.send_vim_command(todo_id);
+                if !visible.is_empty() {
+                    let new_col = (self.current_column + 1) % visible.len();
+                    if new_col != self.current_column {
+                        self.current_column = new_col;
+                        self.selected_in_column = 0;
+                        self.scroll_offset = 0;
+                        if let Some(todo_id) = self.get_current_todo_id() {
+                            self.send_vim_command(todo_id);
+                        }
                     }
                 }
             }
@@ -750,18 +768,20 @@ mod tests {
         assert_eq!(state.selected_in_column, 1);
         assert_eq!(state.get_current_todo_id(), Some("task-2"));
 
-        // Try to move down again (should stay at last item)
+        // Move down again from last item (should cycle to first)
         state.handle_navigation_key('j');
-        assert_eq!(state.selected_in_column, 1);
-
-        // Move up with 'k'
-        state.handle_navigation_key('k');
         assert_eq!(state.selected_in_column, 0);
         assert_eq!(state.get_current_todo_id(), Some("task-1"));
 
-        // Try to move up again (should stay at first item)
+        // Move up with 'k' from first item (should cycle to last)
+        state.handle_navigation_key('k');
+        assert_eq!(state.selected_in_column, 1);
+        assert_eq!(state.get_current_todo_id(), Some("task-2"));
+
+        // Move up with 'k' back to first
         state.handle_navigation_key('k');
         assert_eq!(state.selected_in_column, 0);
+        assert_eq!(state.get_current_todo_id(), Some("task-1"));
     }
 
     #[test]
@@ -792,22 +812,49 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_navigation_key_boundaries() {
+    fn test_handle_navigation_key_horizontal_cycle() {
         let todos = create_test_todos();
         let mut state = create_test_state(todos);
 
-        // Try to move left from first column (should stay)
+        let last_column = state.project_names.len() - 1;
+
+        // Move left from first column (should cycle to last column)
         assert_eq!(state.current_column, 0);
         state.handle_navigation_key('h');
-        assert_eq!(state.current_column, 0);
-
-        // Move to last column
-        state.current_column = state.project_names.len() - 1;
-        let last_column = state.current_column;
-
-        // Try to move right from last column (should stay)
-        state.handle_navigation_key('l');
         assert_eq!(state.current_column, last_column);
+
+        // Move right from last column (should cycle to first column)
+        state.handle_navigation_key('l');
+        assert_eq!(state.current_column, 0);
+    }
+
+    #[test]
+    fn test_handle_navigation_key_single_item_noop() {
+        let todos = vec![Item {
+            completed: false,
+            priority: None,
+            creation_date: None,
+            completion_date: None,
+            description: "Only".to_string(),
+            projects: vec!["work".to_string()],
+            contexts: vec![],
+            id: Some("only-1".to_string()),
+            line_number: 1,
+        }];
+        let mut state = create_test_state(todos);
+
+        // Single column, single item — j/k/h/l all effectively no-op
+        assert_eq!(state.current_column, 0);
+        assert_eq!(state.selected_in_column, 0);
+
+        state.handle_navigation_key('j');
+        assert_eq!(state.selected_in_column, 0);
+        state.handle_navigation_key('k');
+        assert_eq!(state.selected_in_column, 0);
+        state.handle_navigation_key('h');
+        assert_eq!(state.current_column, 0);
+        state.handle_navigation_key('l');
+        assert_eq!(state.current_column, 0);
     }
 
     #[test]

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **hjkl navigation**: Now cycles at edges instead of stopping — `j` at the last item wraps to the first, `l` at the rightmost column wraps to the leftmost, and vice versa for `k`/`h`
+
 ## [0.11.1] - 2026-04-12
 
 ### Fixed
