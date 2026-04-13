@@ -655,7 +655,7 @@ mod tests {
         let mut state = create_test_state_with_crmux();
         let todo_file = "/tmp/dummy.txt";
 
-        // ALL順: Inbox, Todo, Waiting, Ref, Someday。初期はTodo
+        // ALL order: Inbox, Todo, Waiting, Ref, Someday. Initial mode is Todo
         assert_eq!(state.view_mode, ViewMode::Todo);
         handler.handle_keyboard_event(&make_tab_event(), &mut state, todo_file, false);
         assert_eq!(state.view_mode, ViewMode::Waiting);
@@ -678,11 +678,11 @@ mod tests {
         let mut state = create_test_state_with_crmux();
         let todo_file = "/tmp/dummy.txt";
 
-        // Todoモードからsを押すと、Todo以外が表示される
+        // Pressing s in Todo mode shows all modes except Todo
         handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
         let msg = state.status_message.as_deref().unwrap();
         assert!(msg.contains("s →"));
-        assert!(!msg.contains("t: Todo")); // 現在のモードは表示しない
+        assert!(!msg.contains("t: Todo")); // Current mode is not shown
         assert!(msg.contains("r: Ref"));
         assert!(msg.contains("i: Inbox"));
         assert!(msg.contains("s: Someday"));
@@ -698,14 +698,14 @@ mod tests {
 
         handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
         let msg = state.status_message.as_deref().unwrap();
-        assert!(msg.contains("t: Todo")); // Inboxモードからはtodoが表示される
-        assert!(!msg.contains("i: Inbox")); // 現在のモードは非表示
+        assert!(msg.contains("t: Todo")); // From Inbox mode, Todo is shown
+        assert!(!msg.contains("i: Inbox")); // Current mode is hidden
     }
 
     #[test]
     fn test_s_submenu_order_matches_tab_order_from_todo() {
-        // タブ順 (ViewMode::ALL) は Inbox, Todo, Waiting, Ref, Someday
-        // Todoモードから s を押すと、Todoを除いた順 = Inbox, Waiting, Ref, Someday
+        // Tab order (ViewMode::ALL) is Inbox, Todo, Waiting, Ref, Someday
+        // Pressing s in Todo mode yields the order without Todo = Inbox, Waiting, Ref, Someday
         let mut handler = EventHandler::new();
         let mut state = create_test_state_with_crmux();
         assert_eq!(state.view_mode, ViewMode::Todo);
@@ -720,7 +720,7 @@ mod tests {
 
     #[test]
     fn test_s_submenu_order_matches_tab_order_from_inbox() {
-        // Inboxモードから s を押すと、Inboxを除いた順 = Todo, Waiting, Ref, Someday
+        // Pressing s in Inbox mode yields the order without Inbox = Todo, Waiting, Ref, Someday
         let mut handler = EventHandler::new();
         let mut state = create_test_state_with_crmux();
         state.view_mode = ViewMode::Inbox;

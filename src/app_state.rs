@@ -1786,7 +1786,7 @@ mod tests {
         let todos = load_todos(temp_dir.join("todo.txt").to_str().unwrap()).unwrap();
         let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
 
-        // ALL順: Inbox, Todo, Waiting, Ref, Someday
+        // ALL order: Inbox, Todo, Waiting, Ref, Someday
         assert_eq!(state.view_mode, ViewMode::Todo);
         state.next_view_mode();
         assert_eq!(state.view_mode, ViewMode::Waiting);
@@ -1795,7 +1795,7 @@ mod tests {
         state.next_view_mode();
         assert_eq!(state.view_mode, ViewMode::Someday);
         state.next_view_mode();
-        assert_eq!(state.view_mode, ViewMode::Inbox); // 循環
+        assert_eq!(state.view_mode, ViewMode::Inbox); // wraps around
         state.next_view_mode();
         assert_eq!(state.view_mode, ViewMode::Todo);
 
@@ -1815,7 +1815,7 @@ mod tests {
         state.prev_view_mode();
         assert_eq!(state.view_mode, ViewMode::Inbox);
         state.prev_view_mode();
-        assert_eq!(state.view_mode, ViewMode::Someday); // 循環
+        assert_eq!(state.view_mode, ViewMode::Someday); // wraps around
         state.prev_view_mode();
         assert_eq!(state.view_mode, ViewMode::Ref);
 

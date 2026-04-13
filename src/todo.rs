@@ -895,7 +895,7 @@ Learn Rust +learning @coding id:task-003";
 
         let done_content = fs::read_to_string(&done_file).unwrap();
 
-        // 正しい順序: x (A) completion-date creation-date description
+        // Correct order: x (A) completion-date creation-date description
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         assert!(
             done_content.starts_with(&format!("x (A) {today} 2024-01-10")),
@@ -1151,7 +1151,7 @@ Learn Rust +learning @coding id:task-003";
 
         assert_eq!(item.description, "Buy milk");
         let id = item.id.expect("id should be auto-generated");
-        // UUID v4 は 36 文字（ハイフン含む）
+        // UUID v4 is 36 chars (including hyphens)
         assert_eq!(id.len(), 36);
 
         let content = fs::read_to_string(&inbox).unwrap();
@@ -1173,7 +1173,7 @@ Learn Rust +learning @coding id:task-003";
         assert_eq!(item.id.as_deref(), Some("fixed-123"));
 
         let content = fs::read_to_string(&inbox).unwrap();
-        // id:fixed-123 がちょうど1回だけ現れる（新規 UUID で上書き/重複しない）
+        // id:fixed-123 should appear exactly once (not overwritten or duplicated with a new UUID)
         assert_eq!(content.matches("id:fixed-123").count(), 1);
         assert_eq!(content.matches("id:").count(), 1);
 
@@ -1220,7 +1220,7 @@ Learn Rust +learning @coding id:task-003";
         fs::create_dir_all(&temp_dir).unwrap();
         let inbox = temp_dir.join("inbox.txt");
 
-        // 末尾改行なしの既存内容
+        // Existing content without trailing newline
         fs::write(&inbox, "Existing line id:old-1").unwrap();
 
         add_item(inbox.to_str().unwrap(), "New line").unwrap();
