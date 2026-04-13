@@ -135,6 +135,14 @@ pub fn add_missing_ids(file_path: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn split_priority_prefix(line: &str) -> (Option<&str>, &str) {
+    if line.starts_with('(') && line.len() >= 4 && line.chars().nth(2) == Some(')') {
+        (Some(&line[..3]), line[3..].trim_start())
+    } else {
+        (None, line)
+    }
+}
+
 pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error>> {
     let content = fs::read_to_string(todo_file)?;
     let lines: Vec<&str> = content.lines().collect();
@@ -155,15 +163,7 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
             let completed_todo_line = if todo.completed {
                 line.to_string()
             } else {
-                // Extract priority and reorder: x (A) completion-date rest
-                let (priority, rest) =
-                    if line.starts_with('(') && line.len() >= 4 && line.chars().nth(2) == Some(')')
-                    {
-                        (Some(&line[..3]), line[3..].trim_start())
-                    } else {
-                        (None, *line)
-                    };
-
+                let (priority, rest) = split_priority_prefix(line);
                 priority.map_or_else(
                     || format!("x {today} {line}"),
                     |pri| format!("x {pri} {today} {rest}"),
@@ -201,6 +201,43 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
         debug!("Successfully moved todo to done.txt and updated todo.txt");
     }
 
+    Ok(())
+}
+
+pub fn set_priority(
+    todo_file: &str,
+    todo_id: &str,
+    priority: Option<char>,
+) -> Result<(), Box<dyn Error>> {
+    let content = fs::read_to_string(todo_file)?;
+    let lines: Vec<&str> = content.lines().collect();
+    let mut new_lines = Vec::with_capacity(lines.len());
+    let mut changed = false;
+
+    for (line_num, line) in lines.iter().enumerate() {
+        if line.trim().is_empty() || line.starts_with("x ") {
+            new_lines.push((*line).to_string());
+            continue;
+        }
+        let todo = Item::parse(line, line_num + 1);
+        if todo.id.as_deref() != Some(todo_id) {
+            new_lines.push((*line).to_string());
+            continue;
+        }
+        let (_, rest) = split_priority_prefix(line);
+        let new_line = priority.map_or_else(|| rest.to_string(), |c| format!("({c}) {rest}"));
+        new_lines.push(new_line);
+        changed = true;
+    }
+
+    if changed {
+        let mut out = new_lines.join("\n");
+        if content.ends_with('\n') {
+            out.push('\n');
+        }
+        fs::write(todo_file, out)?;
+        debug!("Set priority {priority:?} on {todo_id} in {todo_file}");
+    }
     Ok(())
 }
 
@@ -754,6 +791,96 @@ Learn Rust +learning @coding id:task-003";
             "Expected format: 'x (A) {today} 2024-01-10...', but got: {done_content}"
         );
 
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_set_priority_adds_to_unprioritized() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_priority_add");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(&todo_file, "2024-01-10 Task one +proj id:t1\n").unwrap();
+
+        set_priority(todo_file.to_str().unwrap(), "t1", Some('A')).unwrap();
+
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(content, "(A) 2024-01-10 Task one +proj id:t1\n");
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_set_priority_replaces_existing() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_priority_replace");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(&todo_file, "(B) Task id:t1\n").unwrap();
+
+        set_priority(todo_file.to_str().unwrap(), "t1", Some('A')).unwrap();
+
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(content, "(A) Task id:t1\n");
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_set_priority_clears() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_priority_clear");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(&todo_file, "(A) Task id:t1\n").unwrap();
+
+        set_priority(todo_file.to_str().unwrap(), "t1", None).unwrap();
+
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(content, "Task id:t1\n");
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_set_priority_preserves_other_lines() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_priority_preserve");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        let initial = "Task one id:t1\n(B) Task two id:t2\n2024-01-10 Task three id:t3\n";
+        fs::write(&todo_file, initial).unwrap();
+
+        set_priority(todo_file.to_str().unwrap(), "t2", Some('A')).unwrap();
+
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(
+            content,
+            "Task one id:t1\n(A) Task two id:t2\n2024-01-10 Task three id:t3\n"
+        );
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_set_priority_nonexistent_id() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_priority_nonexistent");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        let initial = "(A) Task id:t1\n";
+        fs::write(&todo_file, initial).unwrap();
+
+        set_priority(todo_file.to_str().unwrap(), "nonexistent", Some('C')).unwrap();
+
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(content, initial);
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_set_priority_skips_completed_line() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_priority_completed");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        let initial = "x (A) 2024-01-20 2024-01-10 Done task id:t1\n";
+        fs::write(&todo_file, initial).unwrap();
+
+        set_priority(todo_file.to_str().unwrap(), "t1", Some('C')).unwrap();
+
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(content, initial);
         fs::remove_dir_all(&temp_dir).ok();
     }
 

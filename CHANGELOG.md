@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`p` prefix for priority**: `pa`–`pe` sets the selected todo's priority to `(A)`–`(E)`; `px` clears it. Works in all modes
+
 ### Changed
 - **hjkl navigation**: Now cycles at edges instead of stopping — `j` at the last item wraps to the first, `l` at the rightmost column wraps to the leftmost, and vice versa for `k`/`h`
 

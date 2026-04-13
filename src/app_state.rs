@@ -1,7 +1,7 @@
 use crate::crmux::Plan;
 use crate::todo::{
     Item, add_missing_ids, append_todo, group_todos_by_project_owned, has_todo_with_id, load_todos,
-    mark_complete, move_to_file,
+    mark_complete, move_to_file, set_priority,
 };
 use crate::url::{extract_urls, open_urls};
 use log::{debug, error};
@@ -334,6 +334,18 @@ impl AppState {
                 }
                 Err(e) => error!("Failed to mark todo as complete: {e}"),
             }
+        }
+    }
+
+    pub fn handle_set_priority(&mut self, priority: Option<char>) {
+        let file = self.active_file();
+        let Some(id) = self.get_current_todo_id().map(str::to_string) else {
+            return;
+        };
+        debug!("Setting priority {priority:?} on {id}");
+        match set_priority(&file, &id, priority) {
+            Ok(()) => self.reload_todos(&file),
+            Err(e) => error!("Failed to set priority: {e}"),
         }
     }
 
@@ -989,6 +1001,42 @@ mod tests {
         }
 
         fs::remove_file(&test_file).ok();
+    }
+
+    #[test]
+    fn test_handle_set_priority_sets_priority() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_priority_app");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(&todo_file, "Task one +work id:task-1\n").unwrap();
+
+        let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+
+        state.handle_set_priority(Some('C'));
+
+        let current = state.get_current_todo().expect("should have current todo");
+        assert_eq!(current.priority, Some('C'));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_handle_set_priority_clears_priority() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_clear_priority_app");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(&todo_file, "(A) Task one +work id:task-1\n").unwrap();
+
+        let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+
+        state.handle_set_priority(None);
+
+        let current = state.get_current_todo().expect("should have current todo");
+        assert_eq!(current.priority, None);
+
+        fs::remove_dir_all(&temp_dir).ok();
     }
 
     #[test]

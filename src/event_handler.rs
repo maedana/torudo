@@ -235,6 +235,23 @@ impl EventHandler {
                 self.pending_keys.clear();
                 state.status_message = None;
             }
+            ['p', c @ ('a'..='e')] => {
+                let priority = c.to_ascii_uppercase();
+                if debug_mode {
+                    debug!("Set priority ({priority}) via p{c}");
+                }
+                state.handle_set_priority(Some(priority));
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
+            ['p', 'x'] => {
+                if debug_mode {
+                    debug!("Clear priority (px)");
+                }
+                state.handle_set_priority(None);
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
             _ => {
                 if debug_mode {
                     debug!("Unknown key sequence: {:?}", self.pending_keys);
@@ -275,6 +292,10 @@ impl EventHandler {
                 self.pending_keys.push('s');
                 state.status_message = Some(build_s_submenu(state));
             }
+            KeyCode::Char('p') => {
+                self.pending_keys.push('p');
+                state.status_message = Some(build_p_submenu());
+            }
             KeyCode::Tab => {
                 if debug_mode {
                     debug!("Tab: next mode");
@@ -307,6 +328,10 @@ impl EventHandler {
         }
         false
     }
+}
+
+fn build_p_submenu() -> String {
+    "p → a/b/c/d/e: Set (A-E) | x: Clear | Esc: Cancel".to_string()
 }
 
 fn build_s_submenu(state: &AppState) -> String {
@@ -703,6 +728,93 @@ mod tests {
             state.status_message.as_deref().unwrap(),
             "s → | t: Todo | w: Waiting | r: Ref | s: Someday | Esc: Cancel"
         );
+    }
+
+    #[test]
+    fn test_p_prefix_shows_submenu() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('p'), &mut state, todo_file, false);
+
+        assert_eq!(handler.pending_keys.as_slice(), &['p']);
+        let msg = state.status_message.as_deref().unwrap();
+        assert!(msg.contains("p →"));
+        assert!(msg.contains("a/b/c/d/e"));
+        assert!(msg.contains("x: Clear"));
+    }
+
+    #[test]
+    fn test_pa_sets_priority_a() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_event_pa");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        std::fs::write(&todo_file, "Task +proj id:t1\n").unwrap();
+
+        let todos = crate::todo::load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = crate::app_state::AppState::new(
+            todos,
+            String::new(),
+            temp_dir.to_str().unwrap().to_string(),
+        );
+        let mut handler = EventHandler::new();
+        let todo_file_str = todo_file.to_str().unwrap();
+
+        handler.handle_keyboard_event(&make_key_event('p'), &mut state, todo_file_str, false);
+        handler.handle_keyboard_event(&make_key_event('a'), &mut state, todo_file_str, false);
+
+        assert!(handler.pending_keys.is_empty());
+        let content = std::fs::read_to_string(&todo_file).unwrap();
+        assert!(
+            content.starts_with("(A) "),
+            "expected (A) prefix, got: {content}"
+        );
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_px_clears_priority() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_event_px");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        std::fs::write(&todo_file, "(A) Task +proj id:t1\n").unwrap();
+
+        let todos = crate::todo::load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = crate::app_state::AppState::new(
+            todos,
+            String::new(),
+            temp_dir.to_str().unwrap().to_string(),
+        );
+        let mut handler = EventHandler::new();
+        let todo_file_str = todo_file.to_str().unwrap();
+
+        handler.handle_keyboard_event(&make_key_event('p'), &mut state, todo_file_str, false);
+        handler.handle_keyboard_event(&make_key_event('x'), &mut state, todo_file_str, false);
+
+        assert!(handler.pending_keys.is_empty());
+        let content = std::fs::read_to_string(&todo_file).unwrap();
+        assert!(
+            !content.starts_with('('),
+            "expected priority cleared, got: {content}"
+        );
+        assert!(content.starts_with("Task "));
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_p_unknown_key_cancels() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('p'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('z'), &mut state, todo_file, false);
+
+        assert!(handler.pending_keys.is_empty());
+        assert!(state.status_message.is_none());
     }
 
     #[test]
