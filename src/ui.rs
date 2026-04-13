@@ -462,6 +462,7 @@ fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect, view_mode: ViewMode, ha
 mod tests {
     use super::*;
     use crate::todo::Item;
+    use std::collections::HashMap;
 
     fn make_item(description: &str) -> Item {
         Item {
@@ -473,7 +474,7 @@ mod tests {
             projects: vec![],
             contexts: vec![],
             id: None,
-            key_values: std::collections::HashMap::new(),
+            key_values: HashMap::new(),
             line_number: 0,
         }
     }

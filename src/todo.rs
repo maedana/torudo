@@ -43,8 +43,10 @@ impl Item {
         // Consume leading priority and dates in any order.
         let mut leading_dates: Vec<NaiveDate> = Vec::new();
         while let Some(part) = parts.peek() {
-            if item.priority.is_none() && is_priority_token(part) {
-                item.priority = part.chars().nth(1);
+            if item.priority.is_none()
+                && let Some(c) = extract_priority_char(part)
+            {
+                item.priority = Some(c);
                 parts.next();
                 continue;
             }
@@ -90,11 +92,13 @@ impl Item {
     }
 }
 
-fn is_priority_token(part: &str) -> bool {
-    part.len() == 3
-        && part.starts_with('(')
-        && part.ends_with(')')
-        && part.chars().nth(1).is_some_and(|c| c.is_ascii_uppercase())
+fn extract_priority_char(part: &str) -> Option<char> {
+    let bytes = part.as_bytes();
+    if bytes.len() == 3 && bytes[0] == b'(' && bytes[2] == b')' && bytes[1].is_ascii_uppercase() {
+        Some(bytes[1] as char)
+    } else {
+        None
+    }
 }
 
 fn split_key_value(part: &str) -> Option<(&str, &str)> {

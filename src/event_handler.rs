@@ -365,6 +365,7 @@ mod tests {
     use super::*;
     use crate::todo::Item;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+    use std::collections::HashMap;
 
     fn make_key_event(c: char) -> Event {
         Event::Key(KeyEvent {
@@ -385,7 +386,7 @@ mod tests {
             projects: vec!["proj".to_string()],
             contexts: vec![],
             id: Some("test-id".to_string()),
-            key_values: std::collections::HashMap::new(),
+            key_values: HashMap::new(),
             line_number: 1,
         }];
         let mut state = crate::app_state::AppState::new(
@@ -408,7 +409,7 @@ mod tests {
             projects: vec!["proj".to_string()],
             contexts: vec![],
             id: Some("test-id".to_string()),
-            key_values: std::collections::HashMap::new(),
+            key_values: HashMap::new(),
             line_number: 1,
         }];
         let mut state = crate::app_state::AppState::new(
@@ -831,7 +832,7 @@ mod tests {
             projects: vec!["proj".to_string()],
             contexts: vec![],
             id: Some("test-id".to_string()),
-            key_values: std::collections::HashMap::new(),
+            key_values: HashMap::new(),
             line_number: 1,
         }];
         let mut state = crate::app_state::AppState::new(
