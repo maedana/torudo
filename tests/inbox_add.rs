@@ -80,6 +80,81 @@ fn inbox_add_preserves_existing_id() {
 }
 
 #[test]
+fn inbox_add_accepts_unquoted_multi_word_text() {
+    let dir = fresh_dir("torudo_it_inbox_add_unquoted_multi");
+
+    let output = Command::new(bin())
+        .args([
+            "--todotxt-dir",
+            dir.to_str().unwrap(),
+            "inbox",
+            "add",
+            "Buy",
+            "milk",
+            "+grocery",
+            "@home",
+            "t:2026-04-20",
+            "due:2026-04-25",
+        ])
+        .output()
+        .expect("failed to run torudo");
+
+    assert!(
+        output.status.success(),
+        "non-zero exit: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let json: serde_json::Value =
+        serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
+    assert_eq!(json["title"], "Buy milk");
+    assert_eq!(json["projects"], serde_json::json!(["grocery"]));
+    assert_eq!(json["contexts"], serde_json::json!(["home"]));
+
+    let inbox = fs::read_to_string(dir.join("inbox.txt")).unwrap();
+    assert!(inbox.contains("Buy milk"));
+    assert!(inbox.contains("+grocery"));
+    assert!(inbox.contains("@home"));
+    assert!(inbox.contains("t:2026-04-20"));
+    assert!(inbox.contains("due:2026-04-25"));
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn inbox_add_accepts_unquoted_priority_and_projects() {
+    let dir = fresh_dir("torudo_it_inbox_add_unquoted_priority");
+
+    let output = Command::new(bin())
+        .args([
+            "--todotxt-dir",
+            dir.to_str().unwrap(),
+            "inbox",
+            "add",
+            "(A)",
+            "Buy",
+            "milk",
+            "+grocery",
+        ])
+        .output()
+        .expect("failed to run torudo");
+
+    assert!(
+        output.status.success(),
+        "non-zero exit: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let json: serde_json::Value =
+        serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
+    assert_eq!(json["priority"], "A");
+    assert_eq!(json["title"], "Buy milk");
+    assert_eq!(json["projects"], serde_json::json!(["grocery"]));
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn inbox_add_successive_calls_produce_distinct_uuids() {
     let dir = fresh_dir("torudo_it_inbox_add_successive");
 

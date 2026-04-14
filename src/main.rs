@@ -75,8 +75,9 @@ enum Commands {
 enum InboxAction {
     /// Add a new item to inbox.txt and print it as JSON
     Add {
-        /// Todo text (priority, projects, contexts, id are all supported)
-        text: String,
+        /// Todo text (priority, projects, contexts, id, key:value are all supported)
+        #[arg(trailing_var_arg = true, num_args = 1..)]
+        text: Vec<String>,
     },
 }
 
@@ -107,7 +108,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     {
         let todotxt_dir = resolve_todotxt_dir(args.todotxt_dir.clone());
         let inbox_path = format!("{todotxt_dir}/{}", app_state::ViewMode::Inbox.filename());
-        let item = todo::add_item(&inbox_path, text)?;
+        let joined = text.join(" ");
+        let item = todo::add_item(&inbox_path, &joined)?;
         let json = todo::item_to_json(&item, &todotxt_dir)?;
         println!("{json}");
         return Ok(());
