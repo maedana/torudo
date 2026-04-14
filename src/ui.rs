@@ -53,9 +53,11 @@ pub fn create_todo_spans(todo: &Item) -> Vec<Span<'static>> {
     spans
 }
 
-pub fn get_todo_border_style(is_selected: bool, is_dimmed: bool) -> Style {
+pub fn get_todo_border_style(is_selected: bool, is_overdue: bool, is_dimmed: bool) -> Style {
     if is_selected {
         Style::default().fg(Color::Yellow)
+    } else if is_overdue {
+        Style::default().fg(Color::Red)
     } else if is_dimmed {
         Style::default().fg(Color::DarkGray)
     } else {
@@ -191,7 +193,9 @@ pub fn draw_project_column(
         let spans = create_todo_spans(todo);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         let is_selected = is_active_column && actual_idx == selected_in_column;
-        let border_style = get_todo_border_style(is_selected, todo.completed || is_pending);
+        let is_overdue = todo.is_overdue(today);
+        let border_style =
+            get_todo_border_style(is_selected, is_overdue, todo.completed || is_pending);
 
         let effective_width = usize::from(todo_layout[i].width.saturating_sub(2));
         let wrapped_lines: Vec<Line<'_>> = wrap_text(&text, effective_width)
@@ -585,7 +589,25 @@ mod tests {
 
     #[test]
     fn get_todo_border_style_dimmed_is_darkgray() {
-        let style = get_todo_border_style(false, true);
+        let style = get_todo_border_style(false, false, true);
         assert_eq!(style, Style::default().fg(Color::DarkGray));
+    }
+
+    #[test]
+    fn get_todo_border_style_overdue_is_red() {
+        let style = get_todo_border_style(false, true, false);
+        assert_eq!(style, Style::default().fg(Color::Red));
+    }
+
+    #[test]
+    fn get_todo_border_style_selected_trumps_overdue() {
+        let style = get_todo_border_style(true, true, false);
+        assert_eq!(style, Style::default().fg(Color::Yellow));
+    }
+
+    #[test]
+    fn get_todo_border_style_overdue_trumps_dimmed() {
+        let style = get_todo_border_style(false, true, true);
+        assert_eq!(style, Style::default().fg(Color::Red));
     }
 }

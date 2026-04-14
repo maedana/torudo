@@ -92,13 +92,25 @@ impl Item {
     }
 
     pub fn threshold_date(&self) -> Option<NaiveDate> {
-        self.key_values
-            .get("t")
-            .and_then(|v| NaiveDate::parse_from_str(v, "%Y-%m-%d").ok())
+        self.parse_key_date("t")
     }
 
     pub fn is_threshold_pending(&self, today: NaiveDate) -> bool {
         self.threshold_date().is_some_and(|d| d > today)
+    }
+
+    pub fn due_date(&self) -> Option<NaiveDate> {
+        self.parse_key_date("due")
+    }
+
+    pub fn is_overdue(&self, today: NaiveDate) -> bool {
+        self.due_date().is_some_and(|d| d <= today)
+    }
+
+    fn parse_key_date(&self, key: &str) -> Option<NaiveDate> {
+        self.key_values
+            .get(key)
+            .and_then(|v| NaiveDate::parse_from_str(v, "%Y-%m-%d").ok())
     }
 }
 
@@ -1320,5 +1332,54 @@ Learn Rust +learning @coding id:task-003";
         assert_eq!(todos[0].priority, Some('A'));
         assert_eq!(todos[1].priority, Some('B'));
         assert_eq!(todos[2].priority, Some('C'));
+    }
+
+    #[test]
+    fn test_item_due_date_from_key_value() {
+        let item = Item::parse("Write report due:2026-04-20 +work", 1);
+        assert_eq!(
+            item.due_date(),
+            Some(NaiveDate::from_ymd_opt(2026, 4, 20).unwrap())
+        );
+    }
+
+    #[test]
+    fn test_item_due_date_none_when_missing() {
+        let item = Item::parse("Write report +work", 1);
+        assert_eq!(item.due_date(), None);
+    }
+
+    #[test]
+    fn test_item_due_date_none_when_invalid_format() {
+        let item = Item::parse("Write report due:tomorrow +work", 1);
+        assert_eq!(item.due_date(), None);
+    }
+
+    #[test]
+    fn test_is_overdue_before_due() {
+        let item = Item::parse("Task due:2026-04-20", 1);
+        let today = NaiveDate::from_ymd_opt(2026, 4, 14).unwrap();
+        assert!(!item.is_overdue(today));
+    }
+
+    #[test]
+    fn test_is_overdue_on_due_date() {
+        let item = Item::parse("Task due:2026-04-14", 1);
+        let today = NaiveDate::from_ymd_opt(2026, 4, 14).unwrap();
+        assert!(item.is_overdue(today));
+    }
+
+    #[test]
+    fn test_is_overdue_after_due() {
+        let item = Item::parse("Task due:2026-04-01", 1);
+        let today = NaiveDate::from_ymd_opt(2026, 4, 14).unwrap();
+        assert!(item.is_overdue(today));
+    }
+
+    #[test]
+    fn test_is_overdue_when_no_due() {
+        let item = Item::parse("Task without due", 1);
+        let today = NaiveDate::from_ymd_opt(2026, 4, 14).unwrap();
+        assert!(!item.is_overdue(today));
     }
 }
