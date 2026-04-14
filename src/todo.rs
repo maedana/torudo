@@ -90,6 +90,16 @@ impl Item {
         item.description = desc_parts.join(" ");
         item
     }
+
+    pub fn threshold_date(&self) -> Option<NaiveDate> {
+        self.key_values
+            .get("t")
+            .and_then(|v| NaiveDate::parse_from_str(v, "%Y-%m-%d").ok())
+    }
+
+    pub fn is_threshold_pending(&self, today: NaiveDate) -> bool {
+        self.threshold_date().is_some_and(|d| d > today)
+    }
 }
 
 fn extract_priority_char(part: &str) -> Option<char> {
@@ -134,19 +144,28 @@ pub fn load_todos(file_path: &str) -> Result<Vec<Item>, Box<dyn Error>> {
         .map(|(line_num, line)| Item::parse(line, line_num + 1))
         .collect();
 
-    // Sort by priority first (A, B, C, None), then by line number
-    todos.sort_by(|a, b| {
-        // First compare by priority
-        match (a.priority, b.priority) {
-            (Some(p1), Some(p2)) => p1.cmp(&p2),               // A < B < C
-            (Some(_), None) => std::cmp::Ordering::Less,       // Priority items come first
-            (None, Some(_)) => std::cmp::Ordering::Greater,    // Non-priority items come last
-            (None, None) => a.line_number.cmp(&b.line_number), // Same priority, sort by line number
-        }
-        .then_with(|| a.line_number.cmp(&b.line_number)) // Secondary sort by line number
-    });
+    let today = chrono::Local::now().date_naive();
+    sort_todos(&mut todos, today);
 
     Ok(todos)
+}
+
+/// Order: threshold-reached items first (pending ones at the bottom),
+/// then by priority (A < B < C < None), then by line number.
+fn sort_todos(todos: &mut [Item], today: NaiveDate) {
+    todos.sort_by(|a, b| {
+        let a_pending = a.is_threshold_pending(today);
+        let b_pending = b.is_threshold_pending(today);
+        a_pending
+            .cmp(&b_pending)
+            .then_with(|| match (a.priority, b.priority) {
+                (Some(p1), Some(p2)) => p1.cmp(&p2),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            })
+            .then_with(|| a.line_number.cmp(&b.line_number))
+    });
 }
 
 pub fn add_missing_ids(file_path: &str) -> Result<(), Box<dyn Error>> {
@@ -1232,5 +1251,74 @@ Learn Rust +learning @coding id:task-003";
         assert!(lines[1].contains("New line"));
 
         fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_item_threshold_date_from_key_value() {
+        let item = Item::parse("Write report t:2026-04-20 +work", 1);
+        assert_eq!(
+            item.threshold_date(),
+            Some(NaiveDate::from_ymd_opt(2026, 4, 20).unwrap())
+        );
+    }
+
+    #[test]
+    fn test_item_threshold_date_none_when_missing() {
+        let item = Item::parse("Write report +work", 1);
+        assert_eq!(item.threshold_date(), None);
+    }
+
+    #[test]
+    fn test_item_threshold_date_none_when_invalid_format() {
+        let item = Item::parse("Write report t:tomorrow +work", 1);
+        assert_eq!(item.threshold_date(), None);
+    }
+
+    #[test]
+    fn test_is_threshold_pending_future() {
+        let item = Item::parse("Task t:2026-04-20", 1);
+        let today = NaiveDate::from_ymd_opt(2026, 4, 14).unwrap();
+        assert!(item.is_threshold_pending(today));
+    }
+
+    #[test]
+    fn test_is_threshold_pending_today_is_not_pending() {
+        let item = Item::parse("Task t:2026-04-14", 1);
+        let today = NaiveDate::from_ymd_opt(2026, 4, 14).unwrap();
+        assert!(!item.is_threshold_pending(today));
+    }
+
+    #[test]
+    fn test_is_threshold_pending_past() {
+        let item = Item::parse("Task t:2026-04-01", 1);
+        let today = NaiveDate::from_ymd_opt(2026, 4, 14).unwrap();
+        assert!(!item.is_threshold_pending(today));
+    }
+
+    #[test]
+    fn test_sort_todos_places_pending_after_reached() {
+        // Pending (A) with future threshold must sort after reached (C) with no threshold
+        let mut todos = vec![
+            Item::parse("(A) future task t:2026-04-20", 1),
+            Item::parse("(C) normal task", 2),
+        ];
+        let today = NaiveDate::from_ymd_opt(2026, 4, 14).unwrap();
+        sort_todos(&mut todos, today);
+        assert_eq!(todos[0].priority, Some('C'));
+        assert_eq!(todos[1].priority, Some('A'));
+    }
+
+    #[test]
+    fn test_sort_todos_preserves_priority_within_reached_group() {
+        let mut todos = vec![
+            Item::parse("(C) c task", 1),
+            Item::parse("(A) a task", 2),
+            Item::parse("(B) b task", 3),
+        ];
+        let today = NaiveDate::from_ymd_opt(2026, 4, 14).unwrap();
+        sort_todos(&mut todos, today);
+        assert_eq!(todos[0].priority, Some('A'));
+        assert_eq!(todos[1].priority, Some('B'));
+        assert_eq!(todos[2].priority, Some('C'));
     }
 }

@@ -11,6 +11,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthChar;
 
 const SELECTED_ICON: &str = "> ";
+const PENDING_FG: Color = Color::Rgb(120, 120, 120);
 
 fn selected_icon_span() -> Span<'static> {
     Span::styled(
@@ -52,10 +53,10 @@ pub fn create_todo_spans(todo: &Item) -> Vec<Span<'static>> {
     spans
 }
 
-pub fn get_todo_border_style(is_selected: bool, is_completed: bool) -> Style {
+pub fn get_todo_border_style(is_selected: bool, is_dimmed: bool) -> Style {
     if is_selected {
         Style::default().fg(Color::Yellow)
-    } else if is_completed {
+    } else if is_dimmed {
         Style::default().fg(Color::DarkGray)
     } else {
         Style::default().fg(Color::White)
@@ -100,6 +101,7 @@ fn calc_todo_height(todo: &Item, available_width: u16) -> u16 {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_project_column(
     f: &mut ratatui::Frame,
     project_todos: &[Item],
@@ -108,6 +110,7 @@ pub fn draw_project_column(
     is_active_column: bool,
     selected_in_column: usize,
     scroll_offset: usize,
+    today: chrono::NaiveDate,
 ) -> usize {
     let border_style = if is_active_column {
         Style::default().fg(Color::Yellow)
@@ -184,10 +187,11 @@ pub fn draw_project_column(
 
     for (i, todo) in visible_todos.iter().enumerate() {
         let actual_idx = offset + i;
+        let is_pending = todo.is_threshold_pending(today);
         let spans = create_todo_spans(todo);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         let is_selected = is_active_column && actual_idx == selected_in_column;
-        let border_style = get_todo_border_style(is_selected, todo.completed);
+        let border_style = get_todo_border_style(is_selected, todo.completed || is_pending);
 
         let effective_width = usize::from(todo_layout[i].width.saturating_sub(2));
         let wrapped_lines: Vec<Line<'_>> = wrap_text(&text, effective_width)
@@ -201,7 +205,10 @@ pub fn draw_project_column(
         if is_selected {
             block = block.title(selected_icon_span());
         }
-        let todo_paragraph = Paragraph::new(wrapped_lines).block(block);
+        let mut todo_paragraph = Paragraph::new(wrapped_lines).block(block);
+        if is_pending {
+            todo_paragraph = todo_paragraph.style(Style::default().fg(PENDING_FG));
+        }
 
         f.render_widget(todo_paragraph, todo_layout[i]);
     }
@@ -245,6 +252,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
     let visible_projects = &state.project_names;
     let num_columns = visible_projects.len();
     if num_columns > 0 {
+        let today = chrono::Local::now().date_naive();
         let column_constraints: Vec<Constraint> = (0..num_columns)
             .map(|_| Constraint::Percentage(100 / u16::try_from(num_columns).unwrap_or(1)))
             .collect();
@@ -276,6 +284,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
                     is_active_column,
                     selected_for_this_column,
                     col_scroll,
+                    today,
                 );
 
                 if is_active_column {
@@ -572,5 +581,11 @@ mod tests {
             "[要望] テストの確認のために結果投稿のレスポンスにURLが欲しい [#12345] https://example.com/projects/52/tasks/12345",
             30,
         );
+    }
+
+    #[test]
+    fn get_todo_border_style_dimmed_is_darkgray() {
+        let style = get_todo_border_style(false, true);
+        assert_eq!(style, Style::default().fg(Color::DarkGray));
     }
 }
