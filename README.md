@@ -126,6 +126,7 @@ Features supported:
 - Projects: `+project_name`
 - Contexts: `@context_name`
 - Unique IDs: `id:unique_identifier` (automatically added if missing)
+- Key/value tags: `key:value` pairs (e.g. `t:2026-05-30`, `due:2026-06-01`) are parsed into a dedicated field; URLs in the description are not misdetected as tags
 
 ### Todo Sorting
 
@@ -141,6 +142,10 @@ This ensures high-priority items are always visible at the top while preserving 
 **Dynamic Text Wrapping**: Todo titles and descriptions automatically wrap to multiple lines based on the terminal width. This ensures that long todo items are fully visible without truncation, making it easy to read comprehensive task descriptions.
 
 **Smart Height Calculation**: Each todo item's display height is calculated dynamically based on its content length, with a reasonable maximum to prevent excessive screen usage.
+
+**Threshold dates (`t:YYYY-MM-DD`)**: Items with a future threshold date are sorted to the bottom of their project column and rendered dimmed, matching topydo semantics — they become active on the threshold date. Useful as a GTD tickler.
+
+**Overdue highlighting (`due:YYYY-MM-DD`)**: Items whose due date has arrived (`today >= due`) are rendered with a red border. Border color precedence: selected (yellow) > overdue (red) > dimmed (gray) > normal.
 
 ### Vim Integration
 
@@ -208,8 +213,6 @@ cargo fmt
 
 Ideas that are on the table but not yet implemented. Order does not imply priority.
 
-- Support for topydo-style `t:YYYY-MM-DD` threshold dates — hide items until the given date arrives, usable as a GTD tickler
-- Support for `due:YYYY-MM-DD` due dates
 - Show PR status for todos linked to a git working tree (new frontmatter field pointing at the working tree path)
 - `torudo w sync` subcommand: when invoked from inside a git working tree, automatically fill the currently selected todo's frontmatter with that path (no more hand-editing)
 
