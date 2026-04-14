@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-04-14
+
 ### Added
 - **`p` prefix for priority**: `pa`–`pe` sets the selected todo's priority to `(A)`–`(E)`; `px` clears it. Works in all modes
 - **Key/value tag extraction**: `Item::parse` now pulls `key:value` tags (e.g. `due:2026-05-30`) into a dedicated `key_values` field instead of leaving them in the description. URLs are excluded from detection. Canonical todo.txt format with priority after the completion marker (`x (A) <completion> <creation> ...`) is now parsed correctly
@@ -173,7 +175,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Contexts (@context_name)
   - Custom IDs (id:unique_identifier)
 
-[Unreleased]: https://github.com/maedana/torudo/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/maedana/torudo/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/maedana/torudo/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/maedana/torudo/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/maedana/torudo/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/maedana/torudo/compare/v0.9.0...v0.10.0
