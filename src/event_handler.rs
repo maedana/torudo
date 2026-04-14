@@ -252,6 +252,14 @@ impl EventHandler {
                 self.pending_keys.clear();
                 state.status_message = None;
             }
+            ['d', 'd'] => {
+                if debug_mode {
+                    debug!("Delete todo requested (dd)");
+                }
+                state.handle_delete_todo();
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
             _ => {
                 if debug_mode {
                     debug!("Unknown key sequence: {:?}", self.pending_keys);
@@ -287,6 +295,10 @@ impl EventHandler {
                     debug!("Complete todo command received");
                 }
                 state.handle_complete_todo(todo_file);
+            }
+            KeyCode::Char('d') => {
+                self.pending_keys.push('d');
+                state.status_message = Some(build_d_submenu());
             }
             KeyCode::Char('s') => {
                 self.pending_keys.push('s');
@@ -332,6 +344,10 @@ impl EventHandler {
 
 fn build_p_submenu() -> String {
     "p → a/b/c/d/e: Set (A-E) | x: Clear | Esc: Cancel".to_string()
+}
+
+fn build_d_submenu() -> String {
+    "d → d: Delete | Esc: Cancel".to_string()
 }
 
 fn build_s_submenu(state: &AppState) -> String {
@@ -530,6 +546,69 @@ mod tests {
             state.status_message.as_deref(),
             Some("claude CLI not found")
         );
+    }
+
+    #[test]
+    fn test_d_key_shows_intermediate() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('d'), &mut state, todo_file, false);
+        assert_eq!(handler.pending_keys.as_slice(), &['d']);
+        let msg = state.status_message.as_deref().unwrap();
+        assert!(msg.contains("Delete"));
+    }
+
+    #[test]
+    fn test_dd_sequence_deletes_todo() {
+        use std::fs;
+        let temp_dir = std::env::temp_dir().join("torudo_event_dd");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file_path = temp_dir.join("todo.txt");
+        fs::write(&todo_file_path, "Zap me +proj id:zap-1\n").unwrap();
+
+        let todos = crate::todo::load_todos(todo_file_path.to_str().unwrap()).unwrap();
+        let mut state = crate::app_state::AppState::new(
+            todos,
+            String::new(),
+            temp_dir.to_str().unwrap().to_string(),
+        );
+
+        let mut handler = EventHandler::new();
+        handler.handle_keyboard_event(
+            &make_key_event('d'),
+            &mut state,
+            todo_file_path.to_str().unwrap(),
+            false,
+        );
+        handler.handle_keyboard_event(
+            &make_key_event('d'),
+            &mut state,
+            todo_file_path.to_str().unwrap(),
+            false,
+        );
+
+        assert!(handler.pending_keys.is_empty());
+        assert!(state.status_message.is_none());
+        let remaining = fs::read_to_string(&todo_file_path).unwrap();
+        assert!(!remaining.contains("zap-1"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_d_then_other_cancels() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('d'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('x'), &mut state, todo_file, false);
+
+        assert!(handler.pending_keys.is_empty());
+        assert!(state.status_message.is_none());
     }
 
     #[test]

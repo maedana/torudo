@@ -52,6 +52,15 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         footer_key: None,
     },
     HelpEntry {
+        key: "dd",
+        desc: "Delete selected todo (and its detail .md file)",
+        indent: false,
+        todo_only: false,
+        requires_claude: false,
+        footer: Some("Del"),
+        footer_key: None,
+    },
+    HelpEntry {
         key: "o",
         desc: "Open URLs in selected todo",
         indent: false,

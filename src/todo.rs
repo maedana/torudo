@@ -280,6 +280,40 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
     Ok(())
 }
 
+pub fn delete_todo(todo_file: &str, todo_id: &str) -> Result<bool, Box<dyn Error>> {
+    let content = fs::read_to_string(todo_file)?;
+    let lines: Vec<&str> = content.lines().collect();
+    let mut new_lines = Vec::with_capacity(lines.len());
+    let mut removed = false;
+
+    for (line_num, line) in lines.iter().enumerate() {
+        if line.trim().is_empty() {
+            new_lines.push((*line).to_string());
+            continue;
+        }
+
+        let todo = Item::parse(line, line_num + 1);
+        if let Some(id) = &todo.id
+            && id == todo_id
+        {
+            removed = true;
+            continue;
+        }
+        new_lines.push((*line).to_string());
+    }
+
+    if removed {
+        let mut out = new_lines.join("\n");
+        if content.ends_with('\n') {
+            out.push('\n');
+        }
+        fs::write(todo_file, out)?;
+        debug!("Deleted todo {todo_id} from {todo_file}");
+    }
+
+    Ok(removed)
+}
+
 pub fn set_priority(
     todo_file: &str,
     todo_id: &str,
@@ -754,6 +788,73 @@ Learn Rust +learning @coding id:task-003";
 
         fs::remove_file(&todo_file).ok();
         fs::remove_file(&done_file).ok();
+    }
+
+    #[test]
+    fn test_delete_todo_removes_matching_line() {
+        let temp_dir = std::env::temp_dir();
+        let todo_file = temp_dir.join("test_delete_todo_removes.txt");
+
+        let content = "(A) Call Mom +family @phone id:del-001\nBuy groceries +personal @errands id:del-002\nLearn Rust +learning @coding id:del-003\n";
+        fs::write(&todo_file, content).unwrap();
+
+        let removed = delete_todo(todo_file.to_str().unwrap(), "del-002").unwrap();
+        assert!(removed, "delete_todo should return true when line removed");
+
+        let remaining = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(
+            remaining.lines().filter(|l| !l.trim().is_empty()).count(),
+            2
+        );
+        assert!(!remaining.contains("del-002"));
+        assert!(remaining.contains("del-001"));
+        assert!(remaining.contains("del-003"));
+
+        fs::remove_file(&todo_file).ok();
+    }
+
+    #[test]
+    fn test_delete_todo_returns_false_when_id_missing() {
+        let temp_dir = std::env::temp_dir();
+        let todo_file = temp_dir.join("test_delete_todo_missing.txt");
+
+        let content = "(A) Task one +work id:keep-001\nTask two +personal id:keep-002\n";
+        fs::write(&todo_file, content).unwrap();
+        let before = fs::read_to_string(&todo_file).unwrap();
+
+        let removed = delete_todo(todo_file.to_str().unwrap(), "no-such-id").unwrap();
+        assert!(!removed, "delete_todo should return false when id absent");
+
+        let after = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(before, after, "file must not change when id not found");
+
+        fs::remove_file(&todo_file).ok();
+    }
+
+    #[test]
+    fn test_delete_todo_preserves_trailing_newline() {
+        let temp_dir = std::env::temp_dir();
+        let with_nl = temp_dir.join("test_delete_todo_with_nl.txt");
+        let without_nl = temp_dir.join("test_delete_todo_without_nl.txt");
+
+        fs::write(&with_nl, "A +p id:a1\nB +p id:a2\n").unwrap();
+        delete_todo(with_nl.to_str().unwrap(), "a1").unwrap();
+        let result_with = fs::read_to_string(&with_nl).unwrap();
+        assert!(
+            result_with.ends_with('\n'),
+            "trailing newline should be preserved: {result_with:?}"
+        );
+
+        fs::write(&without_nl, "A +p id:b1\nB +p id:b2").unwrap();
+        delete_todo(without_nl.to_str().unwrap(), "b1").unwrap();
+        let result_without = fs::read_to_string(&without_nl).unwrap();
+        assert!(
+            !result_without.ends_with('\n'),
+            "no trailing newline should be preserved: {result_without:?}"
+        );
+
+        fs::remove_file(&with_nl).ok();
+        fs::remove_file(&without_nl).ok();
     }
 
     #[test]

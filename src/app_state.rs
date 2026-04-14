@@ -1,7 +1,7 @@
 use crate::crmux::Plan;
 use crate::todo::{
-    Item, add_missing_ids, append_todo, group_todos_by_project_owned, has_todo_with_id, load_todos,
-    mark_complete, move_to_file, set_priority,
+    Item, add_missing_ids, append_todo, delete_todo, group_todos_by_project_owned,
+    has_todo_with_id, load_todos, mark_complete, move_to_file, set_priority,
 };
 use crate::url::{extract_urls, open_urls};
 use log::{debug, error};
@@ -334,6 +334,27 @@ impl AppState {
                 }
                 Err(e) => error!("Failed to mark todo as complete: {e}"),
             }
+        }
+    }
+
+    pub fn handle_delete_todo(&mut self) {
+        let file = self.active_file();
+        let Some(todo_id) = self.get_current_todo_id().map(str::to_string) else {
+            return;
+        };
+        debug!("Attempting to delete todo: {todo_id}");
+        match delete_todo(&file, &todo_id) {
+            Ok(true) => {
+                let md_path = format!("{}/todos/{}.md", self.todotxt_dir, todo_id);
+                if let Err(e) = fs::remove_file(&md_path)
+                    && e.kind() != std::io::ErrorKind::NotFound
+                {
+                    debug!("Failed to remove md file {md_path}: {e}");
+                }
+                self.reload_todos(&file);
+            }
+            Ok(false) => {}
+            Err(e) => error!("Failed to delete todo: {e}"),
         }
     }
 
@@ -1011,6 +1032,83 @@ mod tests {
         }
 
         fs::remove_file(&test_file).ok();
+    }
+
+    #[test]
+    fn test_handle_delete_todo_removes_line_and_md() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_delete_md");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(temp_dir.join("todos")).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(
+            &todo_file,
+            "Task one +work id:del-a\nTask two +work id:del-b\n",
+        )
+        .unwrap();
+        let md_path = temp_dir.join("todos/del-a.md");
+        fs::write(&md_path, "# Detail for del-a\n").unwrap();
+
+        let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+
+        let current = state.get_current_todo_id().unwrap().to_string();
+        assert_eq!(current, "del-a");
+        state.handle_delete_todo();
+
+        let remaining = fs::read_to_string(&todo_file).unwrap();
+        assert!(!remaining.contains("del-a"));
+        assert!(remaining.contains("del-b"));
+        assert!(!md_path.exists(), "md file should be deleted");
+        assert_eq!(state.todos.len(), 1);
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_handle_delete_todo_without_md_succeeds() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_delete_no_md");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(&todo_file, "Solo task +misc id:only-1\n").unwrap();
+
+        let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+
+        state.handle_delete_todo();
+
+        let remaining = fs::read_to_string(&todo_file).unwrap();
+        assert!(!remaining.contains("only-1"));
+        assert_eq!(state.todos.len(), 0);
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_handle_delete_todo_operates_on_active_file() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_delete_ref");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        let ref_file = temp_dir.join("ref.txt");
+        fs::write(&todo_file, "Keep me +work id:keep-todo\n").unwrap();
+        fs::write(&ref_file, "Ref item +misc id:ref-kill\n").unwrap();
+
+        let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+        state.set_view_mode(ViewMode::Ref);
+
+        state.handle_delete_todo();
+
+        let ref_after = fs::read_to_string(&ref_file).unwrap();
+        assert!(!ref_after.contains("ref-kill"));
+        let todo_after = fs::read_to_string(&todo_file).unwrap();
+        assert!(
+            todo_after.contains("keep-todo"),
+            "todo.txt must not be touched"
+        );
+
+        fs::remove_dir_all(&temp_dir).ok();
     }
 
     #[test]
