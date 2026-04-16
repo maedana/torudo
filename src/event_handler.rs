@@ -153,7 +153,7 @@ impl EventHandler {
                 return false;
             }
 
-            return self.handle_initial_key(key.code, state, todo_file, debug_mode);
+            return self.handle_initial_key(key.code, state, debug_mode);
         }
         false // Continue running
     }
@@ -306,7 +306,6 @@ impl EventHandler {
         &mut self,
         code: KeyCode,
         state: &mut AppState,
-        todo_file: &str,
         debug_mode: bool,
     ) -> bool {
         match code {
@@ -322,11 +321,12 @@ impl EventHandler {
                 }
                 state.handle_navigation_key(c);
             }
-            KeyCode::Char('x') if state.view_mode == ViewMode::Todo => {
+            KeyCode::Char('x') if matches!(state.view_mode, ViewMode::Todo | ViewMode::Waiting) => {
                 if debug_mode {
                     debug!("Complete todo command received");
                 }
-                state.handle_complete_todo(todo_file);
+                let file = state.active_file();
+                state.handle_complete_todo(&file);
             }
             KeyCode::Char('d') => {
                 self.pending_keys.push('d');
@@ -961,5 +961,92 @@ mod tests {
         handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
         assert!(handler.pending_keys.is_empty());
         assert!(state.status_message.is_none());
+    }
+
+    #[test]
+    fn test_x_completes_in_waiting_mode() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let dir_path = dir.path().to_str().unwrap().to_string();
+
+        let waiting_path = format!("{dir_path}/waiting.txt");
+        fs::write(&waiting_path, "Bob handles this +proj id:wait-x\n").unwrap();
+
+        let mut state = crate::app_state::AppState::new(vec![], String::new(), dir_path.clone());
+        state.set_view_mode(ViewMode::Waiting);
+
+        let mut handler = EventHandler::new();
+        let todo_file = format!("{dir_path}/todo.txt");
+        handler.handle_keyboard_event(&make_key_event('x'), &mut state, &todo_file, false);
+
+        let waiting_content = fs::read_to_string(&waiting_path).unwrap();
+        assert!(
+            !waiting_content.contains("wait-x"),
+            "wait-x should be removed from waiting.txt: {waiting_content}"
+        );
+
+        let done_path = format!("{dir_path}/done.txt");
+        let done_content = fs::read_to_string(&done_path).unwrap();
+        assert!(
+            done_content.contains("wait-x"),
+            "wait-x should be in done.txt: {done_content}"
+        );
+        assert!(done_content.starts_with("x "));
+    }
+
+    #[test]
+    fn test_x_uses_active_file_not_todo_file_arg() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let dir_path = dir.path().to_str().unwrap().to_string();
+
+        let todo_path = format!("{dir_path}/todo.txt");
+        let waiting_path = format!("{dir_path}/waiting.txt");
+        fs::write(&todo_path, "Todo task +proj id:tod-1\n").unwrap();
+        fs::write(&waiting_path, "Waiting task +proj id:wait-1\n").unwrap();
+
+        let mut state = crate::app_state::AppState::new(vec![], String::new(), dir_path);
+        state.set_view_mode(ViewMode::Waiting);
+
+        let mut handler = EventHandler::new();
+        handler.handle_keyboard_event(&make_key_event('x'), &mut state, &todo_path, false);
+
+        let todo_content = fs::read_to_string(&todo_path).unwrap();
+        assert!(
+            todo_content.contains("tod-1"),
+            "todo.txt must be untouched while in Waiting mode: {todo_content}"
+        );
+        let waiting_content = fs::read_to_string(&waiting_path).unwrap();
+        assert!(
+            !waiting_content.contains("wait-1"),
+            "waiting.txt should have lost wait-1: {waiting_content}"
+        );
+    }
+
+    #[test]
+    fn test_x_ignored_in_inbox_mode() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let dir_path = dir.path().to_str().unwrap().to_string();
+
+        let inbox_path = format!("{dir_path}/inbox.txt");
+        fs::write(&inbox_path, "Inbox idea +proj id:inb-x\n").unwrap();
+
+        let mut state = crate::app_state::AppState::new(vec![], String::new(), dir_path.clone());
+        state.set_view_mode(ViewMode::Inbox);
+
+        let mut handler = EventHandler::new();
+        handler.handle_keyboard_event(&make_key_event('x'), &mut state, &inbox_path, false);
+
+        let content = fs::read_to_string(&inbox_path).unwrap();
+        assert!(
+            content.contains("inb-x"),
+            "x in Inbox should be no-op: {content}"
+        );
+        let done_path = format!("{dir_path}/done.txt");
+        assert!(
+            !std::path::Path::new(&done_path).exists(),
+            "done.txt should not be created from Inbox"
+        );
     }
 }

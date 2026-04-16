@@ -229,7 +229,7 @@ impl AppState {
     }
 
     fn refresh_md_meta(&mut self) {
-        if self.view_mode != ViewMode::Todo {
+        if !matches!(self.view_mode, ViewMode::Todo | ViewMode::Waiting) {
             for t in &mut self.todos {
                 t.md_meta = None;
             }
@@ -2018,5 +2018,68 @@ mod tests {
         assert_eq!(count_of(ViewMode::Someday), 0);
 
         fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_refresh_md_meta_populates_in_waiting_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir_path = dir.path().to_str().unwrap().to_string();
+
+        fs::write(
+            format!("{dir_path}/waiting.txt"),
+            "Task waiting on Bob +proj id:wait-1\n",
+        )
+        .unwrap();
+        fs::create_dir_all(format!("{dir_path}/todos")).unwrap();
+        fs::write(
+            format!("{dir_path}/todos/wait-1.md"),
+            "- [x] done\n- [ ] open\n",
+        )
+        .unwrap();
+
+        let mut state = AppState::new(vec![], String::new(), dir_path);
+        state.set_view_mode(ViewMode::Waiting);
+
+        let todo = state
+            .todos
+            .iter()
+            .find(|t| t.id.as_deref() == Some("wait-1"))
+            .expect("waiting todo loaded");
+        let meta = todo
+            .md_meta
+            .as_ref()
+            .expect("md_meta should be set in Waiting mode");
+        assert_eq!(meta.stats, Some((1, 2)));
+    }
+
+    #[test]
+    fn test_refresh_md_meta_cleared_for_inbox_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir_path = dir.path().to_str().unwrap().to_string();
+
+        fs::write(
+            format!("{dir_path}/inbox.txt"),
+            "Captured idea +proj id:inb-1\n",
+        )
+        .unwrap();
+        fs::create_dir_all(format!("{dir_path}/todos")).unwrap();
+        fs::write(
+            format!("{dir_path}/todos/inb-1.md"),
+            "- [x] done\n- [ ] open\n",
+        )
+        .unwrap();
+
+        let mut state = AppState::new(vec![], String::new(), dir_path);
+        state.set_view_mode(ViewMode::Inbox);
+
+        let todo = state
+            .todos
+            .iter()
+            .find(|t| t.id.as_deref() == Some("inb-1"))
+            .expect("inbox todo loaded");
+        assert!(
+            todo.md_meta.is_none(),
+            "md_meta should be None in non-Todo/Waiting modes"
+        );
     }
 }

@@ -347,8 +347,9 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
             ));
         }
         let is_todo = state.view_mode == ViewMode::Todo;
+        let is_waiting = state.view_mode == ViewMode::Waiting;
         let has_claude = state.crmux_available() || state.claude_available();
-        let footer_str = help::footer_entries(is_todo, has_claude)
+        let footer_str = help::footer_entries(is_todo, is_waiting, has_claude)
             .iter()
             .map(|(key, desc)| format!("{key}:{desc}"))
             .collect::<Vec<_>>()
@@ -464,7 +465,8 @@ fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect, view_mode: ViewMode, ha
         .split(inner);
 
     let is_todo = view_mode == ViewMode::Todo;
-    let entries = help::visible_entries(is_todo, has_claude);
+    let is_waiting = view_mode == ViewMode::Waiting;
+    let entries = help::visible_entries(is_todo, is_waiting, has_claude);
 
     let max_key_width = entries.iter().map(|e| e.key.len()).max().unwrap_or(0);
 

@@ -1,16 +1,19 @@
+#[allow(clippy::struct_excessive_bools)]
 pub struct HelpEntry {
     pub key: &'static str,
     pub desc: &'static str,
     pub indent: bool,
     pub todo_only: bool,
+    pub waiting_too: bool,
     pub requires_claude: bool,
     pub footer: Option<&'static str>,
     pub footer_key: Option<&'static str>,
 }
 
 impl HelpEntry {
-    const fn is_visible(&self, is_todo: bool, has_claude: bool) -> bool {
-        (!self.todo_only || is_todo) && (!self.requires_claude || has_claude)
+    const fn is_visible(&self, is_todo: bool, is_waiting: bool, has_claude: bool) -> bool {
+        let mode_ok = !self.todo_only || is_todo || (self.waiting_too && is_waiting);
+        mode_ok && (!self.requires_claude || has_claude)
     }
 }
 
@@ -20,6 +23,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Navigate between columns and todos",
         indent: false,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: Some("Nav"),
         footer_key: None,
@@ -29,6 +33,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Next mode",
         indent: false,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: Some("Mode"),
         footer_key: Some("Tab/S-Tab"),
@@ -38,6 +43,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Previous mode",
         indent: false,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: None,
         footer_key: None,
@@ -47,6 +53,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Complete selected todo",
         indent: false,
         todo_only: true,
+        waiting_too: true,
         requires_claude: false,
         footer: Some("Done"),
         footer_key: None,
@@ -56,6 +63,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Delete selected todo (and its detail .md file)",
         indent: false,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: Some("Del"),
         footer_key: None,
@@ -65,6 +73,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Open URLs in selected todo",
         indent: false,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: Some("URL"),
         footer_key: None,
@@ -74,6 +83,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Send to... submenu",
         indent: false,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: Some("Send"),
         footer_key: None,
@@ -83,6 +93,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Send to todo.txt",
         indent: true,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: None,
         footer_key: None,
@@ -92,6 +103,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Send to ref.txt",
         indent: true,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: None,
         footer_key: None,
@@ -101,6 +113,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Send to inbox.txt",
         indent: true,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: None,
         footer_key: None,
@@ -110,6 +123,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Send to someday.txt",
         indent: true,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: None,
         footer_key: None,
@@ -119,6 +133,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Send to waiting.txt",
         indent: true,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: None,
         footer_key: None,
@@ -128,6 +143,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Set/clear priority submenu",
         indent: false,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: Some("Priority"),
         footer_key: None,
@@ -137,6 +153,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Set priority (A)",
         indent: true,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: None,
         footer_key: None,
@@ -146,6 +163,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Set priority (B)",
         indent: true,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: None,
         footer_key: None,
@@ -155,6 +173,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Set priority (C)",
         indent: true,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: None,
         footer_key: None,
@@ -164,6 +183,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Set priority (D)",
         indent: true,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: None,
         footer_key: None,
@@ -173,6 +193,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Set priority (E)",
         indent: true,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: None,
         footer_key: None,
@@ -182,6 +203,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Clear priority",
         indent: true,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: None,
         footer_key: None,
@@ -191,6 +213,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Claude submenu (requires crmux or claude CLI)",
         indent: false,
         todo_only: true,
+        waiting_too: false,
         requires_claude: true,
         footer: Some("Claude"),
         footer_key: None,
@@ -200,6 +223,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Send plan prompt to project's idle crmux session (>= 0.10.0)",
         indent: true,
         todo_only: true,
+        waiting_too: false,
         requires_claude: true,
         footer: None,
         footer_key: None,
@@ -209,6 +233,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Send implement prompt to project's idle crmux session (>= 0.10.0)",
         indent: true,
         todo_only: true,
+        waiting_too: false,
         requires_claude: true,
         footer: None,
         footer_key: None,
@@ -218,6 +243,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Get plans and import via crmux (>= 0.11.0)",
         indent: true,
         todo_only: true,
+        waiting_too: false,
         requires_claude: true,
         footer: None,
         footer_key: None,
@@ -227,6 +253,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Launch claude plan in tmux window (requires cwd in frontmatter)",
         indent: true,
         todo_only: true,
+        waiting_too: false,
         requires_claude: true,
         footer: None,
         footer_key: None,
@@ -236,6 +263,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Launch claude implement in tmux window (requires cwd in frontmatter)",
         indent: true,
         todo_only: true,
+        waiting_too: false,
         requires_claude: true,
         footer: None,
         footer_key: None,
@@ -245,6 +273,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Toggle help",
         indent: false,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: Some("Help"),
         footer_key: None,
@@ -254,23 +283,32 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         desc: "Quit",
         indent: false,
         todo_only: false,
+        waiting_too: false,
         requires_claude: false,
         footer: Some("Quit"),
         footer_key: None,
     },
 ];
 
-pub fn visible_entries(is_todo: bool, has_claude: bool) -> Vec<&'static HelpEntry> {
+pub fn visible_entries(
+    is_todo: bool,
+    is_waiting: bool,
+    has_claude: bool,
+) -> Vec<&'static HelpEntry> {
     HELP_ENTRIES
         .iter()
-        .filter(|e| e.is_visible(is_todo, has_claude))
+        .filter(|e| e.is_visible(is_todo, is_waiting, has_claude))
         .collect()
 }
 
-pub fn footer_entries(is_todo: bool, has_claude: bool) -> Vec<(&'static str, &'static str)> {
+pub fn footer_entries(
+    is_todo: bool,
+    is_waiting: bool,
+    has_claude: bool,
+) -> Vec<(&'static str, &'static str)> {
     HELP_ENTRIES
         .iter()
-        .filter(|e| e.footer.is_some() && e.is_visible(is_todo, has_claude))
+        .filter(|e| e.footer.is_some() && e.is_visible(is_todo, is_waiting, has_claude))
         .map(|e| (e.footer_key.unwrap_or(e.key), e.footer.unwrap()))
         .collect()
 }
@@ -312,7 +350,7 @@ mod tests {
 
     #[test]
     fn test_footer_entries_contains_short_labels() {
-        let entries = footer_entries(true, true);
+        let entries = footer_entries(true, false, true);
         assert!(entries.contains(&("hjkl", "Nav")));
         assert!(entries.contains(&("x", "Done")));
         assert!(entries.contains(&("o", "URL")));
@@ -325,7 +363,7 @@ mod tests {
 
     #[test]
     fn test_footer_entries_excludes_stab_as_separate_entry() {
-        let entries = footer_entries(true, true);
+        let entries = footer_entries(true, false, true);
         // S-Tab should not appear as its own footer entry (merged into Tab/S-Tab)
         assert!(!entries.iter().any(|(k, _)| *k == "S-Tab"));
         // Tab also should not appear as a standalone key since it's merged
@@ -342,7 +380,7 @@ mod tests {
     #[test]
     fn test_footer_entries_tab_mode_placed_right_after_hjkl() {
         // Tab/S-Tab is also a navigation key, so it should sit adjacent to hjkl
-        let entries = footer_entries(true, true);
+        let entries = footer_entries(true, false, true);
         let keys: Vec<&str> = entries.iter().map(|(k, _)| *k).collect();
         let hjkl_pos = keys.iter().position(|k| *k == "hjkl").unwrap();
         let tab_pos = keys.iter().position(|k| *k == "Tab/S-Tab").unwrap();
@@ -350,6 +388,36 @@ mod tests {
             tab_pos,
             hjkl_pos + 1,
             "Tab/S-Tab should come right after hjkl, got keys: {keys:?}"
+        );
+    }
+
+    #[test]
+    fn test_x_entry_visible_in_waiting() {
+        // is_todo=false, is_waiting=true, has_claude=false
+        let entries = visible_entries(false, true, false);
+        assert!(
+            entries.iter().any(|e| e.key == "x"),
+            "x entry should be visible in Waiting mode"
+        );
+    }
+
+    #[test]
+    fn test_x_entry_hidden_in_inbox() {
+        // is_todo=false, is_waiting=false (e.g., Inbox/Ref/Someday)
+        let entries = visible_entries(false, false, false);
+        assert!(
+            !entries.iter().any(|e| e.key == "x"),
+            "x entry should be hidden in non-Todo/Waiting modes"
+        );
+    }
+
+    #[test]
+    fn test_c_entry_still_todo_only() {
+        // c must NOT widen into Waiting even with has_claude=true
+        let entries = visible_entries(false, true, true);
+        assert!(
+            !entries.iter().any(|e| e.key == "c"),
+            "c entry must stay Todo-only"
         );
     }
 }
