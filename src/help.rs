@@ -79,6 +79,16 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         footer_key: None,
     },
     HelpEntry {
+        key: "f",
+        desc: "Jump to visible todo by hint label (a-z, aa-zz)",
+        indent: false,
+        todo_only: false,
+        waiting_too: false,
+        requires_claude: false,
+        footer: Some("Jump"),
+        footer_key: None,
+    },
+    HelpEntry {
         key: "s",
         desc: "Send to... submenu",
         indent: false,
@@ -418,6 +428,26 @@ mod tests {
         assert!(
             !entries.iter().any(|e| e.key == "c"),
             "c entry must stay Todo-only"
+        );
+    }
+
+    #[test]
+    fn test_f_entry_visible_in_all_modes() {
+        for (is_todo, is_waiting) in [(true, false), (false, true), (false, false)] {
+            let entries = visible_entries(is_todo, is_waiting, false);
+            assert!(
+                entries.iter().any(|e| e.key == "f"),
+                "f (hint jump) should be visible in mode is_todo={is_todo} is_waiting={is_waiting}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_f_entry_in_footer() {
+        let entries = footer_entries(false, false, false);
+        assert!(
+            entries.iter().any(|(k, desc)| *k == "f" && *desc == "Jump"),
+            "f:Jump should appear in footer"
         );
     }
 }

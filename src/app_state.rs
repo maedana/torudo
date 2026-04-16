@@ -61,6 +61,26 @@ pub struct PlanModal {
     pub checked: Vec<bool>,
 }
 
+pub struct HintState {
+    pub labels: HashMap<String, (usize, usize)>,
+    pub buffer: String,
+}
+
+impl HintState {
+    pub fn cell_label(&self, col: usize, row: usize) -> Option<&str> {
+        self.labels
+            .iter()
+            .find_map(|(k, &v)| (v == (col, row)).then_some(k.as_str()))
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum HintOutcome {
+    Jumped,
+    InProgress,
+    Cancelled,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ViewMode {
     Todo,
@@ -111,6 +131,31 @@ impl ViewMode {
     }
 }
 
+pub fn generate_hint_labels(n: usize) -> Vec<String> {
+    if n == 0 {
+        return Vec::new();
+    }
+    let width = if n <= 26 {
+        1
+    } else if n <= 26 * 26 {
+        2
+    } else {
+        3
+    };
+    (0..n)
+        .map(|i| {
+            let mut chars = Vec::with_capacity(width);
+            let mut rem = i;
+            for _ in 0..width {
+                let digit = u8::try_from(rem % 26).unwrap_or(0);
+                chars.push((b'a' + digit) as char);
+                rem /= 26;
+            }
+            chars.iter().rev().collect()
+        })
+        .collect()
+}
+
 pub fn count_items_in_file(path: &str) -> usize {
     fs::read_to_string(path)
         .map(|c| c.lines().filter(|l| !l.trim().is_empty()).count())
@@ -134,6 +179,8 @@ pub struct AppState {
     pub update_available: Option<String>,
     pub view_mode: ViewMode,
     pub mode_counts: [usize; ViewMode::COUNT],
+    pub hint: Option<HintState>,
+    pub pending_enter_hint: bool,
 }
 
 impl AppState {
@@ -195,6 +242,8 @@ impl AppState {
             update_available: None,
             view_mode: ViewMode::Todo,
             mode_counts: [0; ViewMode::COUNT],
+            hint: None,
+            pending_enter_hint: false,
         };
         state.update_derived_state();
         state.refresh_mode_counts();
@@ -409,6 +458,62 @@ impl AppState {
 
     pub const fn toggle_help(&mut self) {
         self.show_help = !self.show_help;
+    }
+
+    pub fn enter_hint_mode(&mut self, visible_cells: &[(usize, usize)]) {
+        if visible_cells.is_empty() {
+            return;
+        }
+        let labels_vec = generate_hint_labels(visible_cells.len());
+        let labels: HashMap<String, (usize, usize)> = labels_vec
+            .into_iter()
+            .zip(visible_cells.iter().copied())
+            .collect();
+        self.hint = Some(HintState {
+            labels,
+            buffer: String::new(),
+        });
+        self.status_message = Some("Hint: ".to_string());
+    }
+
+    pub fn exit_hint_mode(&mut self) {
+        self.hint = None;
+        self.status_message = None;
+    }
+
+    pub fn type_hint_char(&mut self, c: char) -> HintOutcome {
+        let (matched, any_prefix, buffer) = {
+            let Some(hint) = self.hint.as_mut() else {
+                return HintOutcome::Cancelled;
+            };
+            hint.buffer.push(c);
+            let buffer = hint.buffer.clone();
+            let matched = hint.labels.get(&buffer).copied();
+            let any_prefix =
+                matched.is_some() || hint.labels.keys().any(|label| label.starts_with(&buffer));
+            (matched, any_prefix, buffer)
+        };
+
+        if let Some((col, row)) = matched {
+            self.hint = None;
+            self.status_message = None;
+            self.current_column = col;
+            self.selected_in_column = row;
+            self.scroll_offset = 0;
+            let id = self.get_current_todo_id().map(str::to_string);
+            if let Some(id) = id {
+                self.send_vim_command(&id);
+            }
+            return HintOutcome::Jumped;
+        }
+
+        if any_prefix {
+            self.status_message = Some(format!("Hint: {buffer}"));
+            return HintOutcome::InProgress;
+        }
+
+        self.exit_hint_mode();
+        HintOutcome::Cancelled
     }
 
     pub fn active_file(&self) -> String {
@@ -2081,5 +2186,154 @@ mod tests {
             todo.md_meta.is_none(),
             "md_meta should be None in non-Todo/Waiting modes"
         );
+    }
+
+    #[test]
+    fn test_generate_hint_labels_empty() {
+        assert!(generate_hint_labels(0).is_empty());
+    }
+
+    #[test]
+    fn test_generate_hint_labels_single_char_range() {
+        let labels = generate_hint_labels(3);
+        assert_eq!(labels, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn test_generate_hint_labels_exactly_26_uses_single_char() {
+        let labels = generate_hint_labels(26);
+        assert_eq!(labels.len(), 26);
+        assert_eq!(labels.first().map(String::as_str), Some("a"));
+        assert_eq!(labels.last().map(String::as_str), Some("z"));
+        assert!(labels.iter().all(|s| s.len() == 1));
+    }
+
+    #[test]
+    fn test_generate_hint_labels_27_forces_two_char() {
+        let labels = generate_hint_labels(27);
+        assert_eq!(labels.len(), 27);
+        assert!(
+            labels.iter().all(|s| s.len() == 2),
+            "all labels must be 2 chars when count exceeds 26: {labels:?}"
+        );
+        assert_eq!(labels.first().map(String::as_str), Some("aa"));
+    }
+
+    #[test]
+    fn test_generate_hint_labels_676_ends_with_zz() {
+        let labels = generate_hint_labels(26 * 26);
+        assert_eq!(labels.len(), 676);
+        assert!(labels.iter().all(|s| s.len() == 2));
+        assert_eq!(labels.last().map(String::as_str), Some("zz"));
+    }
+
+    #[test]
+    fn test_generate_hint_labels_677_forces_three_char() {
+        let labels = generate_hint_labels(26 * 26 + 1);
+        assert_eq!(labels.len(), 26 * 26 + 1);
+        assert!(
+            labels.iter().all(|s| s.len() == 3),
+            "all labels must be 3 chars when count exceeds 676"
+        );
+        assert_eq!(labels.first().map(String::as_str), Some("aaa"));
+    }
+
+    #[test]
+    fn test_generate_hint_labels_no_prefix_collision() {
+        let labels = generate_hint_labels(100);
+        for (i, a) in labels.iter().enumerate() {
+            for (j, b) in labels.iter().enumerate() {
+                if i == j {
+                    continue;
+                }
+                assert!(!b.starts_with(a.as_str()), "{a:?} is a prefix of {b:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_enter_hint_mode_assigns_labels_to_cells() {
+        let mut state = create_test_state(create_test_todos());
+        let cells = vec![(0, 0), (0, 1), (1, 0)];
+        state.enter_hint_mode(&cells);
+
+        let hint = state.hint.as_ref().expect("hint should be set");
+        assert_eq!(hint.labels.len(), 3);
+        assert_eq!(hint.buffer, "");
+        assert_eq!(hint.labels.get("a").copied(), Some((0, 0)));
+        assert_eq!(hint.labels.get("b").copied(), Some((0, 1)));
+        assert_eq!(hint.labels.get("c").copied(), Some((1, 0)));
+        assert_eq!(state.status_message.as_deref(), Some("Hint: "));
+    }
+
+    #[test]
+    fn test_enter_hint_mode_empty_leaves_hint_none() {
+        let mut state = create_test_state(create_test_todos());
+        state.enter_hint_mode(&[]);
+        assert!(state.hint.is_none());
+    }
+
+    #[test]
+    fn test_type_hint_char_exact_match_jumps_and_clears() {
+        let mut state = create_test_state(create_test_todos());
+        state.current_column = 0;
+        state.selected_in_column = 0;
+        let cells = vec![(3, 0), (1, 0), (0, 0)];
+        state.enter_hint_mode(&cells);
+
+        let outcome = state.type_hint_char('a');
+        assert_eq!(outcome, HintOutcome::Jumped);
+        assert!(state.hint.is_none());
+        assert!(state.status_message.is_none());
+        assert_eq!(state.current_column, 3);
+        assert_eq!(state.selected_in_column, 0);
+    }
+
+    #[test]
+    fn test_type_hint_char_prefix_match_continues() {
+        let mut state = create_test_state(create_test_todos());
+        let cells: Vec<(usize, usize)> = (0..30).map(|i| (0, i)).collect();
+        state.enter_hint_mode(&cells);
+
+        let outcome = state.type_hint_char('a');
+        assert_eq!(outcome, HintOutcome::InProgress);
+        let hint = state.hint.as_ref().expect("hint should remain");
+        assert_eq!(hint.buffer, "a");
+        assert_eq!(state.status_message.as_deref(), Some("Hint: a"));
+    }
+
+    #[test]
+    fn test_type_hint_char_non_prefix_cancels() {
+        let mut state = create_test_state(create_test_todos());
+        let cells = vec![(0, 0), (0, 1)];
+        state.enter_hint_mode(&cells);
+
+        let outcome = state.type_hint_char('z');
+        assert_eq!(outcome, HintOutcome::Cancelled);
+        assert!(state.hint.is_none());
+        assert!(state.status_message.is_none());
+    }
+
+    #[test]
+    fn test_exit_hint_mode_clears_state_and_status() {
+        let mut state = create_test_state(create_test_todos());
+        state.enter_hint_mode(&[(0, 0)]);
+        assert!(state.hint.is_some());
+
+        state.exit_hint_mode();
+        assert!(state.hint.is_none());
+        assert!(state.status_message.is_none());
+    }
+
+    #[test]
+    fn test_hint_state_cell_label_roundtrip() {
+        let mut state = create_test_state(create_test_todos());
+        let cells = vec![(0, 0), (1, 0)];
+        state.enter_hint_mode(&cells);
+
+        let hint = state.hint.as_ref().expect("hint should be set");
+        assert_eq!(hint.cell_label(0, 0), Some("a"));
+        assert_eq!(hint.cell_label(1, 0), Some("b"));
+        assert_eq!(hint.cell_label(2, 0), None);
     }
 }

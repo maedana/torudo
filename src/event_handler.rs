@@ -147,6 +147,17 @@ impl EventHandler {
                 return false;
             }
 
+            // Handle hint mode input (Vimium-like f jump)
+            if state.hint.is_some() {
+                match key.code {
+                    KeyCode::Char(c) if c.is_ascii_lowercase() => {
+                        state.type_hint_char(c);
+                    }
+                    _ => state.exit_hint_mode(),
+                }
+                return false;
+            }
+
             // Handle multi-stroke sequences
             if !self.pending_keys.is_empty() {
                 self.handle_pending_sequence(key.code, state, todo_file, debug_mode);
@@ -364,6 +375,12 @@ impl EventHandler {
                     debug!("Open URLs command received");
                 }
                 state.handle_open_urls();
+            }
+            KeyCode::Char('f') => {
+                if debug_mode {
+                    debug!("Hint mode requested");
+                }
+                state.pending_enter_hint = true;
             }
             KeyCode::Char('?') => {
                 state.toggle_help();
@@ -1048,5 +1065,83 @@ mod tests {
             !std::path::Path::new(&done_path).exists(),
             "done.txt should not be created from Inbox"
         );
+    }
+
+    #[test]
+    fn test_f_key_requests_hint_enter() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('f'), &mut state, todo_file, false);
+        assert!(
+            state.pending_enter_hint,
+            "f should flag pending_enter_hint for next frame"
+        );
+        assert!(state.hint.is_none(), "hint is actually entered by ui.rs");
+    }
+
+    #[test]
+    fn test_char_during_hint_mode_types_into_hint() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        let cells: Vec<(usize, usize)> = (0..30).map(|i| (0, i)).collect();
+        state.enter_hint_mode(&cells);
+
+        handler.handle_keyboard_event(&make_key_event('a'), &mut state, todo_file, false);
+        let hint = state
+            .hint
+            .as_ref()
+            .expect("hint should remain after prefix input");
+        assert_eq!(hint.buffer, "a");
+    }
+
+    #[test]
+    fn test_hint_mode_exact_match_moves_selection() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        let cells = vec![(0, 0), (0, 1), (0, 2)];
+        state.enter_hint_mode(&cells);
+        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
+
+        assert!(state.hint.is_none(), "exact match exits hint mode");
+        assert_eq!(state.selected_in_column, 2);
+    }
+
+    #[test]
+    fn test_esc_during_hint_mode_cancels() {
+        use crossterm::event::{KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        state.enter_hint_mode(&[(0, 0), (0, 1)]);
+        let esc = Event::Key(KeyEvent {
+            code: KeyCode::Esc,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        });
+        handler.handle_keyboard_event(&esc, &mut state, todo_file, false);
+
+        assert!(state.hint.is_none(), "Esc exits hint mode");
+        assert!(state.status_message.is_none());
+    }
+
+    #[test]
+    fn test_non_prefix_key_during_hint_mode_cancels() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        // only 1 label 'a' — pressing 'z' is not a prefix of anything, cancels
+        state.enter_hint_mode(&[(0, 0)]);
+        handler.handle_keyboard_event(&make_key_event('z'), &mut state, todo_file, false);
+
+        assert!(state.hint.is_none(), "non-prefix char exits hint mode");
     }
 }

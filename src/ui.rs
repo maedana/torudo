@@ -119,6 +119,64 @@ fn calc_todo_height(todo: &Item, available_width: u16) -> u16 {
     }
 }
 
+fn hint_label_span(label: &str) -> Span<'static> {
+    Span::styled(
+        format!(" {label} "),
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )
+}
+
+fn compute_column_layout(
+    project_todos: &[Item],
+    column_area: Rect,
+    is_active_column: bool,
+    selected_in_column: usize,
+    scroll_offset: usize,
+) -> (Rect, usize, usize, Vec<u16>) {
+    let project_block = Block::default().borders(Borders::ALL);
+    let inner_area = project_block.inner(column_area);
+
+    if project_todos.is_empty() {
+        return (inner_area, scroll_offset, scroll_offset, Vec::new());
+    }
+
+    let available_width = inner_area.width;
+    let available_height = inner_area.height;
+    let heights: Vec<u16> = project_todos
+        .iter()
+        .map(|todo| calc_todo_height(todo, available_width))
+        .collect();
+
+    let mut offset = scroll_offset;
+    if is_active_column {
+        if selected_in_column < offset {
+            offset = selected_in_column;
+        }
+        while offset < selected_in_column {
+            let used: u16 = heights[offset..=selected_in_column].iter().sum();
+            if used <= available_height {
+                break;
+            }
+            offset += 1;
+        }
+    }
+
+    let mut used_height: u16 = 0;
+    let mut visible_end = offset;
+    for &h in &heights[offset..] {
+        if used_height + h > available_height {
+            break;
+        }
+        used_height += h;
+        visible_end += 1;
+    }
+
+    (inner_area, offset, visible_end, heights)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn draw_project_column(
     f: &mut ratatui::Frame,
@@ -130,6 +188,8 @@ pub fn draw_project_column(
     scroll_offset: usize,
     today: chrono::NaiveDate,
     now: SystemTime,
+    col_idx: usize,
+    hint: Option<&crate::app_state::HintState>,
 ) -> usize {
     let border_style = if is_active_column {
         Style::default().fg(Color::Yellow)
@@ -148,46 +208,19 @@ pub fn draw_project_column(
         .borders(Borders::ALL)
         .border_style(border_style);
 
+    let (_inner_area_unused, offset, visible_end, heights) = compute_column_layout(
+        project_todos,
+        column_area,
+        is_active_column,
+        selected_in_column,
+        scroll_offset,
+    );
+
     let inner_area = project_block.inner(column_area);
     f.render_widget(project_block, column_area);
 
     if project_todos.is_empty() {
         return scroll_offset;
-    }
-
-    let available_width = inner_area.width;
-    let available_height = inner_area.height;
-
-    let heights: Vec<u16> = project_todos
-        .iter()
-        .map(|todo| calc_todo_height(todo, available_width))
-        .collect();
-
-    // Adjust scroll_offset so selected item is visible (only for active column)
-    let mut offset = scroll_offset;
-    if is_active_column {
-        if selected_in_column < offset {
-            offset = selected_in_column;
-        }
-
-        while offset < selected_in_column {
-            let used: u16 = heights[offset..=selected_in_column].iter().sum();
-            if used <= available_height {
-                break;
-            }
-            offset += 1;
-        }
-    }
-
-    // Determine visible range
-    let mut used_height: u16 = 0;
-    let mut visible_end = offset;
-    for &h in &heights[offset..] {
-        if used_height + h > available_height {
-            break;
-        }
-        used_height += h;
-        visible_end += 1;
     }
 
     let visible_todos = &project_todos[offset..visible_end];
@@ -234,6 +267,9 @@ pub fn draw_project_column(
         if is_selected {
             block = block.title(selected_icon_span());
         }
+        if let Some(label) = hint.and_then(|h| h.cell_label(col_idx, actual_idx)) {
+            block = block.title(Line::from(hint_label_span(label)).right_aligned());
+        }
         if let Some(label) = meta_label(todo, now) {
             block = block.title_bottom(
                 Line::from(Span::styled(label, Style::default().fg(MD_META_FG))).right_aligned(),
@@ -248,6 +284,95 @@ pub fn draw_project_column(
     }
 
     offset
+}
+
+fn draw_project_columns(f: &mut ratatui::Frame, state: &mut AppState, area: Rect, now: SystemTime) {
+    let visible_projects = state.project_names.clone();
+    let num_columns = visible_projects.len();
+    if num_columns == 0 {
+        let paragraph = Paragraph::new("No items")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::DarkGray));
+        f.render_widget(paragraph, area);
+        return;
+    }
+
+    let today = chrono::Local::now().date_naive();
+    let column_constraints: Vec<Constraint> = (0..num_columns)
+        .map(|_| Constraint::Percentage(100 / u16::try_from(num_columns).unwrap_or(1)))
+        .collect();
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(column_constraints)
+        .split(area);
+
+    // Pre-pass: compute visible ranges and collect cells for hint mode
+    let mut visible_cells: Vec<(usize, usize)> = Vec::new();
+    for (col_idx, project_name) in visible_projects.iter().enumerate() {
+        if let Some(project_todos) = state.grouped_todos.get(project_name) {
+            let is_active_column = col_idx == state.current_column;
+            let selected = if is_active_column {
+                state.selected_in_column
+            } else {
+                usize::MAX
+            };
+            let scroll = if is_active_column {
+                state.scroll_offset
+            } else {
+                0
+            };
+            let (_inner, offset, visible_end, _heights) = compute_column_layout(
+                project_todos,
+                columns[col_idx],
+                is_active_column,
+                selected,
+                scroll,
+            );
+            if is_active_column {
+                state.scroll_offset = offset;
+            }
+            for row in offset..visible_end {
+                visible_cells.push((col_idx, row));
+            }
+        }
+    }
+
+    if state.pending_enter_hint {
+        state.pending_enter_hint = false;
+        state.enter_hint_mode(&visible_cells);
+    }
+
+    for (col_idx, project_name) in visible_projects.iter().enumerate() {
+        if let Some(project_todos) = state.grouped_todos.get(project_name) {
+            let is_active_column = col_idx == state.current_column;
+            let selected = if is_active_column {
+                state.selected_in_column
+            } else {
+                usize::MAX
+            };
+            let scroll = if is_active_column {
+                state.scroll_offset
+            } else {
+                0
+            };
+            let new_scroll = draw_project_column(
+                f,
+                project_todos,
+                project_name,
+                columns[col_idx],
+                is_active_column,
+                selected,
+                scroll,
+                today,
+                now,
+                col_idx,
+                state.hint.as_ref(),
+            );
+            if is_active_column {
+                state.scroll_offset = new_scroll;
+            }
+        }
+    }
 }
 
 fn draw_tab_bar(f: &mut ratatui::Frame, state: &AppState, area: Rect) {
@@ -284,56 +409,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
 
     draw_tab_bar(f, state, chunks[0]);
 
-    let visible_projects = &state.project_names;
-    let num_columns = visible_projects.len();
-    if num_columns > 0 {
-        let today = chrono::Local::now().date_naive();
-        let column_constraints: Vec<Constraint> = (0..num_columns)
-            .map(|_| Constraint::Percentage(100 / u16::try_from(num_columns).unwrap_or(1)))
-            .collect();
-        let columns = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(column_constraints)
-            .split(chunks[1]);
-
-        for (col_idx, project_name) in visible_projects.iter().enumerate() {
-            if let Some(project_todos) = state.grouped_todos.get(project_name) {
-                let is_active_column = col_idx == state.current_column;
-                let selected_for_this_column = if is_active_column {
-                    state.selected_in_column
-                } else {
-                    usize::MAX
-                };
-
-                let col_scroll = if is_active_column {
-                    state.scroll_offset
-                } else {
-                    0
-                };
-
-                let new_scroll = draw_project_column(
-                    f,
-                    project_todos,
-                    project_name,
-                    columns[col_idx],
-                    is_active_column,
-                    selected_for_this_column,
-                    col_scroll,
-                    today,
-                    now,
-                );
-
-                if is_active_column {
-                    state.scroll_offset = new_scroll;
-                }
-            }
-        }
-    } else {
-        let paragraph = Paragraph::new("No items")
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::DarkGray));
-        f.render_widget(paragraph, chunks[1]);
-    }
+    draw_project_columns(f, state, chunks[1], now);
 
     let version = env!("CARGO_PKG_VERSION");
     let footer_spans: Vec<Span<'_>> = if let Some(ref msg) = state.status_message {
@@ -693,5 +769,53 @@ mod tests {
     fn get_todo_border_style_overdue_trumps_dimmed() {
         let style = get_todo_border_style(false, true, true);
         assert_eq!(style, Style::default().fg(Color::Red));
+    }
+
+    fn make_item_with_id(description: &str, id: &str, project: &str) -> Item {
+        Item {
+            completed: false,
+            priority: None,
+            creation_date: None,
+            completion_date: None,
+            description: description.to_string(),
+            projects: vec![project.to_string()],
+            contexts: vec![],
+            id: Some(id.to_string()),
+            key_values: HashMap::new(),
+            line_number: 0,
+            md_meta: None,
+        }
+    }
+
+    #[test]
+    fn draw_ui_enters_hint_mode_when_pending_flag_set() {
+        use ratatui::backend::TestBackend;
+
+        let todos = vec![
+            make_item_with_id("task a", "a", "p1"),
+            make_item_with_id("task b", "b", "p1"),
+            make_item_with_id("task c", "c", "p2"),
+        ];
+        let mut state = AppState::new(todos, String::new(), String::new());
+        state.pending_enter_hint = true;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| {
+                draw_ui(f, &mut state);
+            })
+            .unwrap();
+
+        assert!(
+            !state.pending_enter_hint,
+            "pending flag should clear after draw"
+        );
+        let hint = state.hint.as_ref().expect("hint should be set after draw");
+        assert_eq!(
+            hint.labels.len(),
+            3,
+            "all 3 visible todos should receive a hint label"
+        );
     }
 }
