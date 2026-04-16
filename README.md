@@ -139,13 +139,11 @@ This ensures high-priority items are always visible at the top while preserving 
 
 ### Display Features
 
-**Dynamic Text Wrapping**: Todo titles and descriptions automatically wrap to multiple lines based on the terminal width. This ensures that long todo items are fully visible without truncation, making it easy to read comprehensive task descriptions.
-
-**Smart Height Calculation**: Each todo item's display height is calculated dynamically based on its content length, with a reasonable maximum to prevent excessive screen usage.
-
-**Threshold dates (`t:YYYY-MM-DD`)**: Items with a future threshold date are sorted to the bottom of their project column and rendered dimmed, matching topydo semantics — they become active on the threshold date. Useful as a GTD tickler.
-
-**Overdue highlighting (`due:YYYY-MM-DD`)**: Items whose due date has arrived (`today >= due`) are rendered with a red border. Border color precedence: selected (yellow) > overdue (red) > dimmed (gray) > normal.
+- **Threshold dates** (`t:YYYY-MM-DD`): future items sort to bottom and render dimmed
+- **Overdue highlighting** (`due:YYYY-MM-DD`): items past due render with a red border
+- **Detail md preview** (Todo tab): top 3 unchecked `- [ ]` from `todos/{id}.md` shown inline on each card
+- **Detail md badge** (Todo tab): right-aligned `{done}/{total} {elapsed}` (e.g. `2/7  5m`) on each card; updates live
+- **Dynamic text wrap** with per-item height calculation
 
 ### Vim Integration
 

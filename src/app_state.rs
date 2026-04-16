@@ -1,4 +1,5 @@
 use crate::crmux::Plan;
+use crate::md_preview::{compute_meta, md_path};
 use crate::todo::{
     Item, add_missing_ids, append_todo, delete_todo, group_todos_by_project_owned,
     has_todo_with_id, load_todos, mark_complete, move_to_file, set_priority,
@@ -164,7 +165,7 @@ impl AppState {
     }
 
     fn send_vim_command(&self, todo_id: &str) {
-        let file_path = format!("{}/todos/{todo_id}.md", self.todotxt_dir);
+        let file_path = md_path(&self.todotxt_dir, todo_id);
         let cmd = format!("e {file_path}");
 
         match self.send_nvim_rpc_command(&cmd) {
@@ -174,17 +175,13 @@ impl AppState {
     }
 
     pub fn new(todos: Vec<Item>, nvim_socket: String, todotxt_dir: String) -> Self {
-        let grouped_todos = group_todos_by_project_owned(&todos);
-        let mut project_names: Vec<String> = grouped_todos.keys().cloned().collect();
-        project_names.sort();
-
         let crmux_version = crate::crmux::detect();
         let claude_available = crate::claude::detect();
 
         let mut state = Self {
             todos,
-            grouped_todos,
-            project_names,
+            grouped_todos: HashMap::new(),
+            project_names: Vec::new(),
             current_column: 0,
             selected_in_column: 0,
             scroll_offset: 0,
@@ -199,6 +196,7 @@ impl AppState {
             view_mode: ViewMode::Todo,
             mode_counts: [0; ViewMode::COUNT],
         };
+        state.update_derived_state();
         state.refresh_mode_counts();
         state
     }
@@ -225,7 +223,26 @@ impl AppState {
         }
     }
 
+    pub fn refresh_md_previews(&mut self) {
+        self.refresh_md_meta();
+        self.grouped_todos = group_todos_by_project_owned(&self.todos);
+    }
+
+    fn refresh_md_meta(&mut self) {
+        if self.view_mode != ViewMode::Todo {
+            for t in &mut self.todos {
+                t.md_meta = None;
+            }
+            return;
+        }
+        for t in &mut self.todos {
+            let Some(id) = t.id.as_deref() else { continue };
+            t.md_meta = compute_meta(&self.todotxt_dir, id);
+        }
+    }
+
     fn update_derived_state(&mut self) {
+        self.refresh_md_meta();
         self.grouped_todos = group_todos_by_project_owned(&self.todos);
         self.project_names = self.grouped_todos.keys().cloned().collect();
         self.project_names.sort();
@@ -345,11 +362,11 @@ impl AppState {
         debug!("Attempting to delete todo: {todo_id}");
         match delete_todo(&file, &todo_id) {
             Ok(true) => {
-                let md_path = format!("{}/todos/{}.md", self.todotxt_dir, todo_id);
-                if let Err(e) = fs::remove_file(&md_path)
+                let path = md_path(&self.todotxt_dir, &todo_id);
+                if let Err(e) = fs::remove_file(&path)
                     && e.kind() != std::io::ErrorKind::NotFound
                 {
-                    debug!("Failed to remove md file {md_path}: {e}");
+                    debug!("Failed to remove md file {path}: {e}");
                 }
                 self.reload_todos(&file);
             }
@@ -474,8 +491,8 @@ impl AppState {
         let todo_id = self.get_current_todo_id()?;
         let description = self.get_current_todo_description()?;
 
-        let md_path = format!("{todotxt_dir}/todos/{todo_id}.md");
-        let md_content = std::fs::read_to_string(&md_path).unwrap_or_default();
+        let path = md_path(todotxt_dir, todo_id);
+        let md_content = std::fs::read_to_string(&path).unwrap_or_default();
         let md_content = strip_frontmatter(&md_content).trim();
 
         let text = if md_content.is_empty() {
@@ -596,7 +613,7 @@ impl AppState {
             }
 
             // Copy plan file to todos directory
-            let dest = format!("{todotxt_dir}/todos/{}.md", plan.slug);
+            let dest = md_path(todotxt_dir, &plan.slug);
             if let Ok(content) = std::fs::read_to_string(&plan.path)
                 && let Err(e) = std::fs::write(&dest, content)
             {
@@ -641,8 +658,8 @@ impl AppState {
         let Some(todo_id) = self.get_current_todo_id().map(str::to_string) else {
             return;
         };
-        let md_path = format!("{todotxt_dir}/todos/{todo_id}.md");
-        let md_content = std::fs::read_to_string(&md_path).unwrap_or_default();
+        let path = md_path(todotxt_dir, &todo_id);
+        let md_content = std::fs::read_to_string(&path).unwrap_or_default();
         let Some(cwd) = parse_frontmatter_cwd(&md_content) else {
             self.status_message = Some(format!("cwd not set in {todo_id}.md frontmatter"));
             return;
@@ -690,6 +707,7 @@ mod tests {
                 id: Some("task-1".to_string()),
                 key_values: HashMap::new(),
                 line_number: 1,
+                md_meta: None,
             },
             Item {
                 completed: false,
@@ -702,6 +720,7 @@ mod tests {
                 id: Some("task-2".to_string()),
                 key_values: HashMap::new(),
                 line_number: 2,
+                md_meta: None,
             },
             Item {
                 completed: false,
@@ -714,6 +733,7 @@ mod tests {
                 id: Some("task-3".to_string()),
                 key_values: HashMap::new(),
                 line_number: 3,
+                md_meta: None,
             },
             Item {
                 completed: false,
@@ -726,6 +746,7 @@ mod tests {
                 id: Some("task-4".to_string()),
                 key_values: HashMap::new(),
                 line_number: 4,
+                md_meta: None,
             },
         ]
     }
@@ -781,6 +802,7 @@ mod tests {
                 id: Some("task-1".to_string()),
                 key_values: HashMap::new(),
                 line_number: 1,
+                md_meta: None,
             },
             Item {
                 completed: false,
@@ -793,6 +815,7 @@ mod tests {
                 id: Some("task-2".to_string()),
                 key_values: HashMap::new(),
                 line_number: 2,
+                md_meta: None,
             },
         ];
 
@@ -880,6 +903,7 @@ mod tests {
             id: Some("only-1".to_string()),
             key_values: HashMap::new(),
             line_number: 1,
+            md_meta: None,
         }];
         let mut state = create_test_state(todos);
 
@@ -916,6 +940,7 @@ mod tests {
             id: Some("initial-1".to_string()),
             key_values: HashMap::new(),
             line_number: 1,
+            md_meta: None,
         }];
 
         let mut state = create_test_state(initial_todos);
@@ -985,6 +1010,7 @@ mod tests {
                 id: Some("complete-me".to_string()),
                 key_values: HashMap::new(),
                 line_number: 1,
+                md_meta: None,
             },
             Item {
                 completed: false,
@@ -997,6 +1023,7 @@ mod tests {
                 id: Some("keep-me".to_string()),
                 key_values: HashMap::new(),
                 line_number: 2,
+                md_meta: None,
             },
         ];
 
@@ -1366,6 +1393,7 @@ mod tests {
             id: Some("abc-123".to_string()),
             key_values: HashMap::new(),
             line_number: 1,
+            md_meta: None,
         }];
 
         let state = create_test_state(todos);
@@ -1395,6 +1423,7 @@ mod tests {
             id: Some("abc-456".to_string()),
             key_values: HashMap::new(),
             line_number: 1,
+            md_meta: None,
         }];
 
         // Create the md file
@@ -1618,6 +1647,7 @@ mod tests {
             id: Some("test-id".to_string()),
             key_values: HashMap::new(),
             line_number: 1,
+            md_meta: None,
         }];
         let mut state = create_test_state(todos);
         state.claude_available = false;
@@ -1642,6 +1672,7 @@ mod tests {
             id: Some("test-id".to_string()),
             key_values: HashMap::new(),
             line_number: 1,
+            md_meta: None,
         }];
         let mut state = create_test_state(todos);
         state.claude_available = false;
@@ -1721,6 +1752,7 @@ mod tests {
             id: Some("fm-test-1".to_string()),
             key_values: HashMap::new(),
             line_number: 1,
+            md_meta: None,
         }];
 
         let md_path = temp_dir.join("todos/fm-test-1.md");
@@ -1753,6 +1785,7 @@ mod tests {
             id: Some("no-cwd-1".to_string()),
             key_values: HashMap::new(),
             line_number: 1,
+            md_meta: None,
         }];
 
         // Create md file without cwd in frontmatter

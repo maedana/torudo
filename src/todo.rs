@@ -1,3 +1,4 @@
+use crate::md_preview::MdMeta;
 use chrono::NaiveDate;
 use log::debug;
 use serde::Serialize;
@@ -18,6 +19,8 @@ pub struct Item {
     pub key_values: HashMap<String, String>,
     #[serde(skip)]
     pub line_number: usize,
+    #[serde(skip)]
+    pub md_meta: Option<MdMeta>,
 }
 
 impl Item {
@@ -34,6 +37,7 @@ impl Item {
             id: None,
             key_values: HashMap::new(),
             line_number,
+            md_meta: None,
         };
         let mut desc_parts = Vec::new();
         if parts.peek() == Some(&"x") {
@@ -404,8 +408,8 @@ pub fn has_todo_with_id(file_path: &str, id: &str) -> bool {
 pub fn item_to_json(item: &Item, todotxt_dir: &str) -> Result<String, Box<dyn Error>> {
     let mut json = serde_json::to_value(item)?;
     if let Some(todo_id) = &item.id {
-        let md_path = format!("{todotxt_dir}/todos/{todo_id}.md");
-        if let Ok(content) = fs::read_to_string(&md_path) {
+        let path = crate::md_preview::md_path(todotxt_dir, todo_id);
+        if let Ok(content) = fs::read_to_string(&path) {
             json["md"] = serde_json::Value::String(content);
         }
     }
@@ -671,6 +675,7 @@ Learn Rust +learning @coding id:rust-001";
                 id: Some("1".to_string()),
                 key_values: HashMap::new(),
                 line_number: 1,
+                md_meta: None,
             },
             Item {
                 completed: false,
@@ -683,6 +688,7 @@ Learn Rust +learning @coding id:rust-001";
                 id: Some("2".to_string()),
                 key_values: HashMap::new(),
                 line_number: 2,
+                md_meta: None,
             },
             Item {
                 completed: false,
@@ -695,6 +701,7 @@ Learn Rust +learning @coding id:rust-001";
                 id: Some("3".to_string()),
                 key_values: HashMap::new(),
                 line_number: 3,
+                md_meta: None,
             },
             Item {
                 completed: false,
@@ -707,6 +714,7 @@ Learn Rust +learning @coding id:rust-001";
                 id: Some("4".to_string()),
                 key_values: HashMap::new(),
                 line_number: 4,
+                md_meta: None,
             },
         ];
 

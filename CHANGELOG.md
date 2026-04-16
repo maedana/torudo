@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Detail md preview on Todo cards**: Each Todo-tab card now shows the top 3 unchecked `- [ ]` items from its detail md (`{todotxt_dir}/todos/{id}.md`) inline at the bottom of the card, dimmed
+- **Detail md badge (done/total elapsed)**: Each Todo-tab card now shows a right-aligned bottom-border badge with checkbox progress and time since the detail md was last modified, e.g. `2/7  5m`. The elapsed part uses a 3-character format (`Ns` / `Nm` / `Nh`, capped at `99h`) and updates every redraw. When the md has no checkboxes the progress part is omitted; when the md is missing the badge is hidden
+- **File-watching for `todos/*.md`**: The watcher now also watches the `todos/` subdirectory. Edits to detail md files refresh previews and badges in place (debounced 200ms) without reloading `todo.txt`
+
 ## [0.12.0] - 2026-04-14
 
 ### Added

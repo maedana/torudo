@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 pub struct EventHandler {
     last_reload_time: Option<Instant>,
+    last_md_refresh_time: Option<Instant>,
     debounce_duration: Duration,
     pending_keys: Vec<char>,
 }
@@ -15,6 +16,7 @@ impl EventHandler {
     pub const fn new() -> Self {
         Self {
             last_reload_time: None,
+            last_md_refresh_time: None,
             debounce_duration: Duration::from_millis(200),
             pending_keys: Vec::new(),
         }
@@ -28,6 +30,7 @@ impl EventHandler {
     ) {
         let mut should_reload = false;
         let mut should_refresh_counts = false;
+        let mut should_refresh_md = false;
         let active_file = state.active_file();
         let active_file_path = std::path::Path::new(&active_file);
 
@@ -40,6 +43,14 @@ impl EventHandler {
                 path.file_name()
                     .and_then(|n| n.to_str())
                     .is_some_and(|name| ViewMode::ALL.iter().any(|m| m.filename() == name))
+            });
+            let is_todos_md_event = event.paths.iter().any(|path| {
+                path.extension().and_then(|e| e.to_str()) == Some("md")
+                    && path
+                        .parent()
+                        .and_then(|d| d.file_name())
+                        .and_then(|n| n.to_str())
+                        == Some("todos")
             });
 
             if is_active_file_event {
@@ -56,6 +67,16 @@ impl EventHandler {
                 should_refresh_counts = true;
                 if debug_mode {
                     debug!("Non-active mode file changed, refresh counts only");
+                }
+            } else if is_todos_md_event
+                && matches!(
+                    event.kind,
+                    EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
+                )
+            {
+                should_refresh_md = true;
+                if debug_mode {
+                    debug!("todos/*.md changed, refresh md previews only");
                 }
             }
         }
@@ -79,6 +100,17 @@ impl EventHandler {
             }
         } else if should_refresh_counts {
             state.refresh_mode_counts();
+        } else if should_refresh_md {
+            let now = Instant::now();
+            let should = self
+                .last_md_refresh_time
+                .is_none_or(|t| now.duration_since(t) >= self.debounce_duration);
+            if should {
+                state.refresh_md_previews();
+                self.last_md_refresh_time = Some(now);
+            } else if debug_mode {
+                debug!("Skipping md refresh due to debounce");
+            }
         }
     }
 
@@ -404,6 +436,7 @@ mod tests {
             id: Some("test-id".to_string()),
             key_values: HashMap::new(),
             line_number: 1,
+            md_meta: None,
         }];
         let mut state = crate::app_state::AppState::new(
             todos,
@@ -427,6 +460,7 @@ mod tests {
             id: Some("test-id".to_string()),
             key_values: HashMap::new(),
             line_number: 1,
+            md_meta: None,
         }];
         let mut state = crate::app_state::AppState::new(
             todos,
@@ -913,6 +947,7 @@ mod tests {
             id: Some("test-id".to_string()),
             key_values: HashMap::new(),
             line_number: 1,
+            md_meta: None,
         }];
         let mut state = crate::app_state::AppState::new(
             todos,

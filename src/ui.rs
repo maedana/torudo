@@ -1,5 +1,6 @@
 use crate::app_state::{AppState, ViewMode};
 use crate::help;
+use crate::md_preview::format_elapsed;
 use crate::todo::Item;
 use crate::url::strip_urls;
 use ratatui::{
@@ -8,10 +9,12 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Tabs},
 };
+use std::time::SystemTime;
 use unicode_width::UnicodeWidthChar;
 
 const SELECTED_ICON: &str = "> ";
 const PENDING_FG: Color = Color::Rgb(120, 120, 120);
+const MD_META_FG: Color = Color::Rgb(170, 170, 170);
 
 fn selected_icon_span() -> Span<'static> {
     Span::styled(
@@ -89,17 +92,30 @@ fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
     lines
 }
 
+fn meta_label(todo: &Item, now: SystemTime) -> Option<String> {
+    let meta = todo.md_meta.as_ref()?;
+    let elapsed = format_elapsed(meta.mtime, now);
+    Some(match meta.stats {
+        Some((done, total)) => format!("{done}/{total} {elapsed}"),
+        None => elapsed,
+    })
+}
+
 fn calc_todo_height(todo: &Item, available_width: u16) -> u16 {
     let spans = create_todo_spans(todo);
     let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
 
+    let preview_lines = todo
+        .md_meta
+        .as_ref()
+        .map_or(0, |m| u16::try_from(m.preview.len()).unwrap_or(0));
     if available_width > 10 {
         let effective_width = usize::from(available_width.saturating_sub(2));
         let lines = wrap_text(&text, effective_width).len();
         let lines_u16 = u16::try_from(lines).unwrap_or(u16::MAX);
-        (lines_u16 + 2).min(8) // +2 for borders, cap at 8
+        (lines_u16 + 2).min(8) + preview_lines // +2 for borders, body cap at 8
     } else {
-        4
+        4 + preview_lines
     }
 }
 
@@ -113,6 +129,7 @@ pub fn draw_project_column(
     selected_in_column: usize,
     scroll_offset: usize,
     today: chrono::NaiveDate,
+    now: SystemTime,
 ) -> usize {
     let border_style = if is_active_column {
         Style::default().fg(Color::Yellow)
@@ -198,16 +215,29 @@ pub fn draw_project_column(
             get_todo_border_style(is_selected, is_overdue, todo.completed || is_pending);
 
         let effective_width = usize::from(todo_layout[i].width.saturating_sub(2));
-        let wrapped_lines: Vec<Line<'_>> = wrap_text(&text, effective_width)
+        let mut wrapped_lines: Vec<Line<'_>> = wrap_text(&text, effective_width)
             .into_iter()
             .map(Line::from)
             .collect();
+        if let Some(meta) = &todo.md_meta {
+            for preview_text in &meta.preview {
+                wrapped_lines.push(Line::from(Span::styled(
+                    format!("☐ {preview_text}"),
+                    Style::default().fg(MD_META_FG),
+                )));
+            }
+        }
 
         let mut block = Block::default()
             .borders(Borders::ALL)
             .border_style(border_style);
         if is_selected {
             block = block.title(selected_icon_span());
+        }
+        if let Some(label) = meta_label(todo, now) {
+            block = block.title_bottom(
+                Line::from(Span::styled(label, Style::default().fg(MD_META_FG))).right_aligned(),
+            );
         }
         let mut todo_paragraph = Paragraph::new(wrapped_lines).block(block);
         if is_pending {
@@ -237,6 +267,7 @@ fn draw_tab_bar(f: &mut ratatui::Frame, state: &AppState, area: Rect) {
 }
 
 pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
+    let now = SystemTime::now();
     let size = f.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -289,6 +320,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
                     selected_for_this_column,
                     col_scroll,
                     today,
+                    now,
                 );
 
                 if is_active_column {
@@ -474,6 +506,7 @@ fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect, view_mode: ViewMode, ha
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::md_preview::MdMeta;
     use crate::todo::Item;
     use std::collections::HashMap;
 
@@ -489,6 +522,7 @@ mod tests {
             id: None,
             key_values: HashMap::new(),
             line_number: 0,
+            md_meta: None,
         }
     }
 
@@ -506,6 +540,54 @@ mod tests {
         // width=20 → effective_width=18 → ceil(30/18)=2 → height=4
         let item = make_item("あいうえおかきくけこさしすせそ");
         assert_eq!(calc_todo_height(&item, 20), 4);
+    }
+
+    fn meta_with(now: SystemTime, preview: Vec<String>, stats: Option<(usize, usize)>) -> MdMeta {
+        MdMeta {
+            mtime: now,
+            preview,
+            stats,
+        }
+    }
+
+    #[test]
+    fn calc_todo_height_adds_preview_lines() {
+        let mut item = make_item("テスト");
+        let baseline = calc_todo_height(&item, 30);
+        item.md_meta = Some(meta_with(
+            SystemTime::now(),
+            vec!["a".into(), "b".into(), "c".into()],
+            None,
+        ));
+        assert_eq!(calc_todo_height(&item, 30), baseline + 3);
+    }
+
+    #[test]
+    fn calc_todo_height_no_preview_unchanged() {
+        let item = make_item("テスト");
+        assert_eq!(calc_todo_height(&item, 30), 3);
+    }
+
+    #[test]
+    fn meta_label_none_when_no_meta() {
+        let item = make_item("x");
+        assert!(meta_label(&item, SystemTime::now()).is_none());
+    }
+
+    #[test]
+    fn meta_label_elapsed_only_when_no_stats() {
+        let mut item = make_item("x");
+        let now = SystemTime::now();
+        item.md_meta = Some(meta_with(now, vec![], None));
+        assert_eq!(meta_label(&item, now).as_deref(), Some(" 0s"));
+    }
+
+    #[test]
+    fn meta_label_includes_done_total() {
+        let mut item = make_item("x");
+        let now = SystemTime::now();
+        item.md_meta = Some(meta_with(now, vec![], Some((2, 7))));
+        assert_eq!(meta_label(&item, now).as_deref(), Some("2/7  0s"));
     }
 
     fn render_paragraph_to_lines(description: &str, width: u16, height: u16) -> Vec<String> {

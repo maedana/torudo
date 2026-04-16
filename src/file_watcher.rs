@@ -26,6 +26,11 @@ impl FileWatcher {
     pub fn start_watching(&mut self, todotxt_dir: &str) -> Result<(), Box<dyn Error>> {
         self.watcher
             .watch(Path::new(todotxt_dir), RecursiveMode::NonRecursive)?;
+        let todos_subdir = Path::new(todotxt_dir).join("todos");
+        if todos_subdir.exists() {
+            self.watcher
+                .watch(&todos_subdir, RecursiveMode::NonRecursive)?;
+        }
         Ok(())
     }
 
