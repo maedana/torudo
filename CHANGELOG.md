@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Vimium-like `f` hint mode**: Press `f` to overlay short yellow labels on every visible todo card; type the label to jump selection to that card. Labels are adaptive — `a`–`z` when ≤26 cards are visible, `aa`–`zz` when more, `aaa`–`zzz` beyond that, with no prefix collisions. Works in all modes. `Esc` or any non-matching key cancels
+
+### Changed
+- **`x` completion and md preview in Waiting mode**: The `x` completion key and detail md preview (top unchecked items + progress/elapsed badge) now also work in Waiting mode, matching Todo-mode behavior
+
 ## [0.13.0] - 2026-04-16
 
 ### Added
