@@ -129,18 +129,28 @@ fn hint_label_span(label: &str) -> Span<'static> {
     )
 }
 
+struct ColumnLayout {
+    offset: usize,
+    visible_end: usize,
+    heights: Vec<u16>,
+}
+
 fn compute_column_layout(
     project_todos: &[Item],
     column_area: Rect,
     is_active_column: bool,
     selected_in_column: usize,
     scroll_offset: usize,
-) -> (Rect, usize, usize, Vec<u16>) {
+) -> ColumnLayout {
     let project_block = Block::default().borders(Borders::ALL);
     let inner_area = project_block.inner(column_area);
 
     if project_todos.is_empty() {
-        return (inner_area, scroll_offset, scroll_offset, Vec::new());
+        return ColumnLayout {
+            offset: scroll_offset,
+            visible_end: scroll_offset,
+            heights: Vec::new(),
+        };
     }
 
     let available_width = inner_area.width;
@@ -174,7 +184,22 @@ fn compute_column_layout(
         visible_end += 1;
     }
 
-    (inner_area, offset, visible_end, heights)
+    ColumnLayout {
+        offset,
+        visible_end,
+        heights,
+    }
+}
+
+const fn column_params(state: &AppState, col_idx: usize) -> (bool, usize, usize) {
+    let is_active = col_idx == state.current_column;
+    let selected = if is_active {
+        state.selected_in_column
+    } else {
+        usize::MAX
+    };
+    let scroll = if is_active { state.scroll_offset } else { 0 };
+    (is_active, selected, scroll)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -208,7 +233,7 @@ pub fn draw_project_column(
         .borders(Borders::ALL)
         .border_style(border_style);
 
-    let (_inner_area_unused, offset, visible_end, heights) = compute_column_layout(
+    let layout = compute_column_layout(
         project_todos,
         column_area,
         is_active_column,
@@ -223,8 +248,8 @@ pub fn draw_project_column(
         return scroll_offset;
     }
 
-    let visible_todos = &project_todos[offset..visible_end];
-    let visible_heights = &heights[offset..visible_end];
+    let visible_todos = &project_todos[layout.offset..layout.visible_end];
+    let visible_heights = &layout.heights[layout.offset..layout.visible_end];
 
     let constraints: Vec<Constraint> = visible_heights
         .iter()
@@ -238,7 +263,7 @@ pub fn draw_project_column(
         .split(inner_area);
 
     for (i, todo) in visible_todos.iter().enumerate() {
-        let actual_idx = offset + i;
+        let actual_idx = layout.offset + i;
         let is_pending = todo.is_threshold_pending(today);
         let spans = create_todo_spans(todo);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
@@ -283,7 +308,7 @@ pub fn draw_project_column(
         f.render_widget(todo_paragraph, todo_layout[i]);
     }
 
-    offset
+    layout.offset
 }
 
 fn draw_project_columns(f: &mut ratatui::Frame, state: &mut AppState, area: Rect, now: SystemTime) {
@@ -306,61 +331,37 @@ fn draw_project_columns(f: &mut ratatui::Frame, state: &mut AppState, area: Rect
         .constraints(column_constraints)
         .split(area);
 
-    // Pre-pass: compute visible ranges and collect cells for hint mode
-    let mut visible_cells: Vec<(usize, usize)> = Vec::new();
-    for (col_idx, project_name) in visible_projects.iter().enumerate() {
-        if let Some(project_todos) = state.grouped_todos.get(project_name) {
-            let is_active_column = col_idx == state.current_column;
-            let selected = if is_active_column {
-                state.selected_in_column
-            } else {
-                usize::MAX
-            };
-            let scroll = if is_active_column {
-                state.scroll_offset
-            } else {
-                0
-            };
-            let (_inner, offset, visible_end, _heights) = compute_column_layout(
-                project_todos,
-                columns[col_idx],
-                is_active_column,
-                selected,
-                scroll,
-            );
-            if is_active_column {
-                state.scroll_offset = offset;
-            }
-            for row in offset..visible_end {
-                visible_cells.push((col_idx, row));
-            }
-        }
-    }
-
+    // Pre-pass only when hint mode is about to start; avoids per-frame double layout compute.
     if state.pending_enter_hint {
         state.pending_enter_hint = false;
+        let mut visible_cells: Vec<(usize, usize)> = Vec::new();
+        for (col_idx, project_name) in visible_projects.iter().enumerate() {
+            if let Some(project_todos) = state.grouped_todos.get(project_name) {
+                let (is_active, selected, scroll) = column_params(state, col_idx);
+                let layout = compute_column_layout(
+                    project_todos,
+                    columns[col_idx],
+                    is_active,
+                    selected,
+                    scroll,
+                );
+                for row in layout.offset..layout.visible_end {
+                    visible_cells.push((col_idx, row));
+                }
+            }
+        }
         state.enter_hint_mode(&visible_cells);
     }
 
     for (col_idx, project_name) in visible_projects.iter().enumerate() {
         if let Some(project_todos) = state.grouped_todos.get(project_name) {
-            let is_active_column = col_idx == state.current_column;
-            let selected = if is_active_column {
-                state.selected_in_column
-            } else {
-                usize::MAX
-            };
-            let scroll = if is_active_column {
-                state.scroll_offset
-            } else {
-                0
-            };
+            let (is_active, selected, scroll) = column_params(state, col_idx);
             let new_scroll = draw_project_column(
                 f,
                 project_todos,
                 project_name,
                 columns[col_idx],
-                is_active_column,
+                is_active,
                 selected,
                 scroll,
                 today,
@@ -368,7 +369,7 @@ fn draw_project_columns(f: &mut ratatui::Frame, state: &mut AppState, area: Rect
                 col_idx,
                 state.hint.as_ref(),
             );
-            if is_active_column {
+            if is_active {
                 state.scroll_offset = new_scroll;
             }
         }
