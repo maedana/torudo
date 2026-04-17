@@ -1,6 +1,6 @@
 use crate::crmux::Plan;
 use crate::md_preview::{compute_meta, md_path};
-use crate::templates::{TemplateEntry, compute_appended_content, insert_template, load_templates};
+use crate::templates::{TemplateEntry, insert_template, load_templates};
 use crate::todo::{
     Item, add_missing_ids, append_todo, delete_todo, group_todos_by_project_owned,
     has_todo_with_id, load_todos, mark_complete, move_to_file, set_priority,
@@ -42,17 +42,6 @@ fn strip_frontmatter(content: &str) -> &str {
         let rest = &after_first[end + 4..];
         rest.trim_start_matches('\n')
     })
-}
-
-fn normalize_path(p: &std::path::Path) -> Option<std::path::PathBuf> {
-    if let Ok(c) = p.canonicalize() {
-        return Some(c);
-    }
-    // Fallback: file may not exist yet (e.g. nvim buffer for a not-yet-saved path).
-    // Canonicalize the parent directory and join the filename.
-    let parent = p.parent()?.canonicalize().ok()?;
-    let file = p.file_name()?;
-    Some(parent.join(file))
 }
 
 fn sort_plans_by_mtime(plans: &mut [Plan]) {
@@ -229,28 +218,6 @@ impl AppState {
         // Read the response to confirm command completion before closing the connection
         let _ = rmpv::decode::read_value(&mut stream);
         Ok(())
-    }
-
-    fn send_nvim_rpc_request(
-        &self,
-        method: &str,
-        params: Vec<rmpv::Value>,
-    ) -> Result<rmpv::Value, Box<dyn std::error::Error>> {
-        let payload = Self::build_nvim_rpc_payload(method, params);
-        let mut stream = UnixStream::connect(&self.nvim_socket)?;
-        stream.set_read_timeout(Some(Duration::from_millis(500)))?;
-        stream.write_all(&payload)?;
-        stream.flush()?;
-        let response = rmpv::decode::read_value(&mut stream)?;
-        // Response format: [1 (type), msgid, error, result]
-        let arr = response.as_array().ok_or("nvim response is not an array")?;
-        if arr.len() < 4 {
-            return Err("nvim response too short".into());
-        }
-        if !arr[2].is_nil() {
-            return Err(format!("nvim rpc error: {:?}", arr[2]).into());
-        }
-        Ok(arr[3].clone())
     }
 
     fn send_vim_command(&self, todo_id: &str) {
@@ -572,71 +539,6 @@ impl AppState {
         }
     }
 
-    fn send_nvim_checktime(&self) {
-        match self.send_nvim_rpc_command("checktime") {
-            Ok(()) => debug!("Sent nvim checktime"),
-            Err(e) => debug!("Failed to send nvim checktime: {e}"),
-        }
-    }
-
-    fn find_nvim_buffer_for_path(&self, path: &std::path::Path) -> Option<rmpv::Value> {
-        // Normalize works even when the file does not yet exist on disk
-        // (e.g., nvim has opened the path via `:e` but no `:w` has occurred).
-        let target = normalize_path(path)?;
-        let bufs = self.send_nvim_rpc_request("nvim_list_bufs", vec![]).ok()?;
-        let bufs_arr = bufs.as_array()?;
-        for buf in bufs_arr {
-            let name_val = self
-                .send_nvim_rpc_request("nvim_buf_get_name", vec![buf.clone()])
-                .ok()?;
-            let name = name_val.as_str()?;
-            if name.is_empty() {
-                continue;
-            }
-            if normalize_path(std::path::Path::new(name)).as_deref() == Some(&target) {
-                return Some(buf.clone());
-            }
-        }
-        None
-    }
-
-    fn insert_template_into_nvim_buffer(
-        &self,
-        buf: &rmpv::Value,
-        content: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let get_params = vec![
-            buf.clone(),
-            rmpv::Value::Integer(0.into()),
-            rmpv::Value::Integer((-1).into()),
-            rmpv::Value::Boolean(false),
-        ];
-        let lines_val = self.send_nvim_rpc_request("nvim_buf_get_lines", get_params)?;
-        let lines_arr = lines_val
-            .as_array()
-            .ok_or("nvim_buf_get_lines did not return array")?;
-        let existing_lines: Vec<String> = lines_arr
-            .iter()
-            .map(|v| v.as_str().unwrap_or("").to_string())
-            .collect();
-        let existing_text = existing_lines.join("\n");
-        let new_text = compute_appended_content(&existing_text, content);
-        let new_lines: Vec<rmpv::Value> = new_text
-            .trim_end_matches('\n')
-            .split('\n')
-            .map(|s| rmpv::Value::String(s.into()))
-            .collect();
-        let set_params = vec![
-            buf.clone(),
-            rmpv::Value::Integer(0.into()),
-            rmpv::Value::Integer((-1).into()),
-            rmpv::Value::Boolean(true),
-            rmpv::Value::Array(new_lines),
-        ];
-        self.send_nvim_rpc_request("nvim_buf_set_lines", set_params)?;
-        Ok(())
-    }
-
     pub fn insert_focused_template(&mut self) {
         let Some(t) = self.template.as_ref() else {
             return;
@@ -650,26 +552,25 @@ impl AppState {
             self.template = None;
             return;
         };
-        let path = md_path(&self.todotxt_dir, &todo_id);
-        let path_buf = std::path::PathBuf::from(&path);
 
-        // Prefer inserting into the live nvim buffer to preserve unsaved edits.
-        if let Some(buf) = self.find_nvim_buffer_for_path(&path_buf) {
-            match self.insert_template_into_nvim_buffer(&buf, &entry.content) {
-                Ok(()) => {
-                    self.status_message =
-                        Some(format!("Inserted into buffer (unsaved): {}", entry.name));
-                    self.template = None;
-                    return;
-                }
-                Err(e) => debug!("nvim buffer insert failed, falling back to disk: {e}"),
-            }
+        // Prefer delegating to nvim via `:$read` so unsaved buffer edits stay
+        // intact and we don't race the on-disk file. Escape spaces so vim's
+        // command parser keeps the path as a single argument.
+        let abs = std::fs::canonicalize(&entry.path)
+            .map_or_else(|_| entry.path.clone(), |p| p.to_string_lossy().into_owned());
+        let escaped = abs.replace(' ', "\\ ");
+        let read_cmd = format!("$read {escaped}");
+        if self.send_nvim_rpc_command(&read_cmd).is_ok() {
+            self.status_message = Some(format!("Inserted into buffer (unsaved): {}", entry.name));
+            self.template = None;
+            return;
         }
 
-        match insert_template(&path_buf, &entry.content) {
+        // Fallback: nvim unreachable, write directly to disk.
+        let path = md_path(&self.todotxt_dir, &todo_id);
+        match insert_template(std::path::Path::new(&path), &entry.content) {
             Ok(()) => {
                 self.status_message = Some(format!("Inserted template: {}", entry.name));
-                self.send_nvim_checktime();
             }
             Err(e) => {
                 error!("Failed to insert template: {e}");
@@ -2538,6 +2439,9 @@ mod tests {
     fn make_state_with_todotxt_dir(dir: &std::path::Path) -> AppState {
         let mut state = create_test_state(create_test_todos());
         state.todotxt_dir = dir.to_string_lossy().into_owned();
+        // Point nvim_socket at a non-existent path so template insertion tests
+        // exercise the disk fallback rather than any real nvim running locally.
+        state.nvim_socket = dir.join("unreachable.sock").to_string_lossy().into_owned();
         state
     }
 

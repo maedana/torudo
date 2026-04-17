@@ -1175,6 +1175,9 @@ mod tests {
     fn state_with_templates_dir(dir: &std::path::Path) -> crate::app_state::AppState {
         let mut state = create_test_state_with_crmux();
         state.todotxt_dir = dir.to_string_lossy().into_owned();
+        // Point nvim_socket at a non-existent path so template insertion tests
+        // exercise the disk fallback rather than any real nvim running locally.
+        state.nvim_socket = dir.join("unreachable.sock").to_string_lossy().into_owned();
         state
     }
 
