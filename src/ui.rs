@@ -449,7 +449,6 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
         draw_plan_modal(f, modal, size);
     }
 
-    // Draw template overlay if active
     if let Some(tstate) = state.template.as_ref() {
         draw_template_overlay(f, size, tstate);
     }
@@ -644,7 +643,11 @@ fn draw_template_overlay(f: &mut ratatui::Frame, area: Rect, tstate: &TemplateSt
         .map(|e| {
             let c = &e.content;
             if c.len() > TEMPLATE_PREVIEW_MAX {
-                format!("{}\n...", &c[..TEMPLATE_PREVIEW_MAX])
+                let boundary = (0..=TEMPLATE_PREVIEW_MAX)
+                    .rev()
+                    .find(|&i| c.is_char_boundary(i))
+                    .unwrap_or(0);
+                format!("{}\n...", &c[..boundary])
             } else {
                 c.clone()
             }
@@ -929,6 +932,30 @@ mod tests {
         assert!(dump.contains("design"), "expected design in output");
         assert!(dump.contains("implement"), "expected implement in output");
         assert!(dump.contains("Spec"), "expected preview content");
+    }
+
+    #[test]
+    fn draw_template_overlay_handles_multibyte_content_at_truncation_boundary() {
+        use crate::templates::TemplateEntry;
+        use ratatui::backend::TestBackend;
+
+        // Build content where the byte at TEMPLATE_PREVIEW_MAX falls mid-char.
+        // Each "あ" is 3 bytes; 700 * 3 = 2100 bytes > TEMPLATE_PREVIEW_MAX (2000),
+        // and 2000 % 3 = 2 — not on a char boundary, so a naive byte slice panics.
+        let content: String = "あ".repeat(700);
+        let tstate = TemplateState {
+            entries: vec![TemplateEntry {
+                name: "ja".into(),
+                path: "/x/ja.md".into(),
+                content,
+            }],
+            focused: 0,
+        };
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| draw_template_overlay(f, f.area(), &tstate))
+            .unwrap();
     }
 
     #[test]

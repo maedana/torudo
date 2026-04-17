@@ -158,7 +158,6 @@ impl EventHandler {
                 return false;
             }
 
-            // Handle template mode input (t-key template insertion)
             if state.template.is_some() {
                 match key.code {
                     KeyCode::Esc | KeyCode::Char('q') => state.exit_template_mode(),
