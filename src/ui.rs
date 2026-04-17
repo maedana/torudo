@@ -1,4 +1,4 @@
-use crate::app_state::{AppState, ViewMode};
+use crate::app_state::{AppState, TemplateState, ViewMode};
 use crate::help;
 use crate::md_preview::format_elapsed;
 use crate::todo::Item;
@@ -393,6 +393,10 @@ fn draw_tab_bar(f: &mut ratatui::Frame, state: &AppState, area: Rect) {
 }
 
 pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
+    if state.pending_enter_template {
+        state.pending_enter_template = false;
+        state.enter_template_mode();
+    }
     let now = SystemTime::now();
     let size = f.area();
     let chunks = Layout::default()
@@ -443,6 +447,11 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
     // Draw plan modal overlay if open
     if let Some(modal) = &state.plan_modal {
         draw_plan_modal(f, modal, size);
+    }
+
+    // Draw template overlay if active
+    if let Some(tstate) = state.template.as_ref() {
+        draw_template_overlay(f, size, tstate);
     }
 
     // Draw help overlay if shown
@@ -580,6 +589,76 @@ fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect, view_mode: ViewMode, ha
         .style(Style::default().fg(Color::DarkGray))
         .alignment(Alignment::Center);
     f.render_widget(footer, inner_chunks[1]);
+}
+
+const TEMPLATE_PREVIEW_MAX: usize = 2000;
+
+fn draw_template_overlay(f: &mut ratatui::Frame, area: Rect, tstate: &TemplateState) {
+    let modal_area = centered_rect(70, 70, area);
+    f.render_widget(Clear, modal_area);
+
+    let block = Block::default()
+        .title("Insert Template")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(modal_area);
+    f.render_widget(block, modal_area);
+
+    let body_and_footer = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    let panes = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
+        .split(body_and_footer[0]);
+
+    let list_lines: Vec<Line<'_>> = tstate
+        .entries
+        .iter()
+        .enumerate()
+        .map(|(i, entry)| {
+            let style = if i == tstate.focused {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            Line::from(Span::styled(format!(" {} ", entry.name), style))
+        })
+        .collect();
+
+    let list = Paragraph::new(list_lines).block(
+        Block::default()
+            .borders(Borders::RIGHT)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
+    f.render_widget(list, panes[0]);
+
+    let preview_text = tstate
+        .entries
+        .get(tstate.focused)
+        .map(|e| {
+            let c = &e.content;
+            if c.len() > TEMPLATE_PREVIEW_MAX {
+                format!("{}\n...", &c[..TEMPLATE_PREVIEW_MAX])
+            } else {
+                c.clone()
+            }
+        })
+        .unwrap_or_default();
+    let preview = Paragraph::new(preview_text)
+        .style(Style::default().fg(Color::White))
+        .wrap(ratatui::widgets::Wrap { trim: false });
+    f.render_widget(preview, panes[1]);
+
+    let footer = Paragraph::new("j/k: move | Enter: insert | Esc/q: cancel")
+        .style(Style::default().fg(Color::DarkGray))
+        .alignment(Alignment::Center);
+    f.render_widget(footer, body_and_footer[1]);
 }
 
 #[cfg(test)]
@@ -786,6 +865,70 @@ mod tests {
             line_number: 0,
             md_meta: None,
         }
+    }
+
+    #[test]
+    fn draw_ui_enters_template_mode_when_pending_flag_set() {
+        use ratatui::backend::TestBackend;
+        let tmp = tempfile::tempdir().unwrap();
+        let tpl_dir = tmp.path().join("templates");
+        std::fs::create_dir_all(&tpl_dir).unwrap();
+        std::fs::write(tpl_dir.join("alpha.md"), "A\n").unwrap();
+        std::fs::write(tpl_dir.join("beta.md"), "B\n").unwrap();
+
+        let todos = vec![make_item_with_id("task a", "a", "p1")];
+        let mut state = AppState::new(
+            todos,
+            String::new(),
+            tmp.path().to_string_lossy().into_owned(),
+        );
+        state.pending_enter_template = true;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw_ui(f, &mut state)).unwrap();
+
+        assert!(!state.pending_enter_template);
+        let t = state.template.as_ref().expect("template set");
+        assert_eq!(t.entries.len(), 2);
+    }
+
+    #[test]
+    fn draw_template_overlay_renders_entries() {
+        use crate::templates::TemplateEntry;
+        use ratatui::backend::TestBackend;
+
+        let tstate = TemplateState {
+            entries: vec![
+                TemplateEntry {
+                    name: "design".into(),
+                    path: "/x/design.md".into(),
+                    content: "## Design\n- [ ] Spec\n".into(),
+                },
+                TemplateEntry {
+                    name: "implement".into(),
+                    path: "/x/implement.md".into(),
+                    content: "## Implement\n".into(),
+                },
+            ],
+            focused: 0,
+        };
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| draw_template_overlay(f, f.area(), &tstate))
+            .unwrap();
+
+        let buf = terminal.backend().buffer().clone();
+        let mut dump = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                dump.push_str(buf[(x, y)].symbol());
+            }
+        }
+        assert!(dump.contains("design"), "expected design in output");
+        assert!(dump.contains("implement"), "expected implement in output");
+        assert!(dump.contains("Spec"), "expected preview content");
     }
 
     #[test]

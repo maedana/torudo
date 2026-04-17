@@ -279,6 +279,16 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         footer_key: None,
     },
     HelpEntry {
+        key: "t",
+        desc: "Insert template from templates/*.md (j/k move, Enter insert, Esc/q cancel)",
+        indent: false,
+        todo_only: true,
+        waiting_too: true,
+        requires_claude: false,
+        footer: Some("Tpl"),
+        footer_key: None,
+    },
+    HelpEntry {
         key: "?",
         desc: "Toggle help",
         indent: false,

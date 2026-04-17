@@ -19,6 +19,7 @@ mod md_preview;
 mod rpc_client;
 mod rpc_server;
 mod setup;
+mod templates;
 mod todo;
 mod ui;
 mod update;

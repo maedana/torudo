@@ -158,6 +158,18 @@ impl EventHandler {
                 return false;
             }
 
+            // Handle template mode input (t-key template insertion)
+            if state.template.is_some() {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('q') => state.exit_template_mode(),
+                    KeyCode::Char('j') => state.template_focus_next(),
+                    KeyCode::Char('k') => state.template_focus_prev(),
+                    KeyCode::Enter => state.insert_focused_template(),
+                    _ => {}
+                }
+                return false;
+            }
+
             // Handle multi-stroke sequences
             if !self.pending_keys.is_empty() {
                 self.handle_pending_sequence(key.code, state, todo_file, debug_mode);
@@ -381,6 +393,15 @@ impl EventHandler {
                     debug!("Hint mode requested");
                 }
                 state.pending_enter_hint = true;
+            }
+            KeyCode::Char('t')
+                if matches!(state.view_mode, ViewMode::Todo | ViewMode::Waiting)
+                    && state.get_current_todo_id().is_some() =>
+            {
+                if debug_mode {
+                    debug!("Template mode requested");
+                }
+                state.pending_enter_template = true;
             }
             KeyCode::Char('?') => {
                 state.toggle_help();
@@ -1143,5 +1164,114 @@ mod tests {
         handler.handle_keyboard_event(&make_key_event('z'), &mut state, todo_file, false);
 
         assert!(state.hint.is_none(), "non-prefix char exits hint mode");
+    }
+
+    fn write_template_fixture(dir: &std::path::Path, name: &str, content: &str) {
+        let tpl = dir.join("templates");
+        std::fs::create_dir_all(&tpl).unwrap();
+        std::fs::write(tpl.join(name), content).unwrap();
+    }
+
+    fn state_with_templates_dir(dir: &std::path::Path) -> crate::app_state::AppState {
+        let mut state = create_test_state_with_crmux();
+        state.todotxt_dir = dir.to_string_lossy().into_owned();
+        state
+    }
+
+    #[test]
+    fn test_t_key_requests_template_enter() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_template_fixture(tmp.path(), "a.md", "hello\n");
+        let mut handler = EventHandler::new();
+        let mut state = state_with_templates_dir(tmp.path());
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('t'), &mut state, todo_file, false);
+
+        assert!(
+            state.pending_enter_template,
+            "t should flag pending_enter_template for next frame"
+        );
+        assert!(
+            state.template.is_none(),
+            "template is actually entered by ui.rs"
+        );
+    }
+
+    #[test]
+    fn test_t_key_ignored_in_inbox_mode() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut handler = EventHandler::new();
+        let mut state = state_with_templates_dir(tmp.path());
+        state.view_mode = ViewMode::Inbox;
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('t'), &mut state, todo_file, false);
+
+        assert!(!state.pending_enter_template);
+    }
+
+    #[test]
+    fn test_esc_during_template_mode_cancels() {
+        use crossterm::event::{KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+        let tmp = tempfile::tempdir().unwrap();
+        write_template_fixture(tmp.path(), "a.md", "x\n");
+        let mut handler = EventHandler::new();
+        let mut state = state_with_templates_dir(tmp.path());
+        state.enter_template_mode();
+        let todo_file = "/tmp/dummy.txt";
+
+        let esc = Event::Key(KeyEvent {
+            code: KeyCode::Esc,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        });
+        handler.handle_keyboard_event(&esc, &mut state, todo_file, false);
+
+        assert!(state.template.is_none());
+        assert!(state.status_message.is_none());
+    }
+
+    #[test]
+    fn test_jk_during_template_mode_moves_focus() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_template_fixture(tmp.path(), "a.md", "a");
+        write_template_fixture(tmp.path(), "b.md", "b");
+        let mut handler = EventHandler::new();
+        let mut state = state_with_templates_dir(tmp.path());
+        state.enter_template_mode();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('j'), &mut state, todo_file, false);
+        assert_eq!(state.template.as_ref().unwrap().focused, 1);
+        handler.handle_keyboard_event(&make_key_event('k'), &mut state, todo_file, false);
+        assert_eq!(state.template.as_ref().unwrap().focused, 0);
+    }
+
+    #[test]
+    fn test_enter_during_template_mode_inserts() {
+        use crossterm::event::{KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+        let tmp = tempfile::tempdir().unwrap();
+        write_template_fixture(tmp.path(), "design.md", "## Design\n");
+        std::fs::create_dir_all(tmp.path().join("todos")).unwrap();
+        let mut handler = EventHandler::new();
+        let mut state = state_with_templates_dir(tmp.path());
+        let todo_id = state.get_current_todo_id().unwrap().to_string();
+        let md = tmp.path().join("todos").join(format!("{todo_id}.md"));
+        state.enter_template_mode();
+        let todo_file = "/tmp/dummy.txt";
+
+        let enter = Event::Key(KeyEvent {
+            code: KeyCode::Enter,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        });
+        handler.handle_keyboard_event(&enter, &mut state, todo_file, false);
+
+        assert!(state.template.is_none());
+        let got = std::fs::read_to_string(&md).unwrap();
+        assert_eq!(got, "## Design\n");
     }
 }
