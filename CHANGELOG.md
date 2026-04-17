@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`t` template insertion**: Press `t` (in Todo/Waiting modes) to open a list of `.md` files in `{todotxt_dir}/templates/` and append the selected one to the current todo's detail md. `j`/`k` moves, `Enter` inserts, `Esc`/`q` cancels. Insertion delegates to nvim via `:$read` so unsaved buffer edits stay intact; falls back to writing directly to disk when nvim is unreachable
+
+### Fixed
+- Template preview no longer panics when truncating multi-byte UTF-8 content at the 2000-byte cutoff; the slice now snaps to the nearest char boundary
+
 ## [0.14.0] - 2026-04-17
 
 ### Added
