@@ -334,6 +334,44 @@ pub fn draw_project_column(
     layout.offset
 }
 
+const MIN_PROJECT_COL_WIDTH: u16 = 32;
+
+fn compute_project_grid_rects(area: Rect, num_projects: usize, min_col_width: u16) -> Vec<Rect> {
+    if num_projects == 0 {
+        return vec![];
+    }
+    let min_w = min_col_width.max(1);
+    let cols_per_row = ((area.width / min_w) as usize).max(1).min(num_projects);
+    let rows = num_projects.div_ceil(cols_per_row);
+    let col_width = area.width / u16::try_from(cols_per_row).unwrap_or(1);
+
+    let row_constraints: Vec<Constraint> = (0..rows)
+        .map(|_| Constraint::Ratio(1, u32::try_from(rows).unwrap_or(1)))
+        .collect();
+    let row_areas = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(row_constraints)
+        .split(area);
+
+    let col_constraints: Vec<Constraint> = (0..cols_per_row)
+        .map(|_| Constraint::Length(col_width))
+        .collect();
+
+    let mut rects = Vec::with_capacity(num_projects);
+    for (row_idx, row_area) in row_areas.iter().enumerate() {
+        let col_areas = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(col_constraints.clone())
+            .split(*row_area);
+        let remaining = num_projects - row_idx * cols_per_row;
+        let this_row_cols = remaining.min(cols_per_row);
+        for area_in_row in col_areas.iter().take(this_row_cols) {
+            rects.push(*area_in_row);
+        }
+    }
+    rects
+}
+
 fn draw_project_columns(f: &mut ratatui::Frame, state: &mut AppState, area: Rect, now: SystemTime) {
     let visible_projects = state.project_names.clone();
     let num_columns = visible_projects.len();
@@ -346,13 +384,7 @@ fn draw_project_columns(f: &mut ratatui::Frame, state: &mut AppState, area: Rect
     }
 
     let today = chrono::Local::now().date_naive();
-    let column_constraints: Vec<Constraint> = (0..num_columns)
-        .map(|_| Constraint::Percentage(100 / u16::try_from(num_columns).unwrap_or(1)))
-        .collect();
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(column_constraints)
-        .split(area);
+    let columns = compute_project_grid_rects(area, num_columns, MIN_PROJECT_COL_WIDTH);
 
     // Pre-pass only when hint mode is about to start; avoids per-frame double layout compute.
     if state.pending_enter_hint {
@@ -848,6 +880,58 @@ mod tests {
             line_number: 0,
             md_meta: None,
         }
+    }
+
+    #[test]
+    fn grid_rects_empty_when_no_projects() {
+        let rects = compute_project_grid_rects(Rect::new(0, 0, 100, 50), 0, 32);
+        assert!(rects.is_empty());
+    }
+
+    #[test]
+    fn grid_rects_single_row_when_all_fit() {
+        // width=132, min=32 -> cols_per_row = 132/32 = 4. 4 projects -> 1 row.
+        let rects = compute_project_grid_rects(Rect::new(0, 0, 132, 50), 4, 32);
+        assert_eq!(rects.len(), 4);
+        let expected_w = 132 / 4;
+        assert_eq!(rects[0].width, expected_w);
+        assert_eq!(rects[0].height, 50);
+        assert_eq!(rects[0].x, 0);
+        assert_eq!(rects[0].y, 0);
+        assert_eq!(rects[3].x, expected_w * 3);
+        assert_eq!(rects[3].y, 0);
+    }
+
+    #[test]
+    fn grid_rects_wraps_to_second_row() {
+        // width=132, min=32 -> 4 cols per row. 6 projects -> 2 rows (4+2).
+        let rects = compute_project_grid_rects(Rect::new(0, 0, 132, 50), 6, 32);
+        assert_eq!(rects.len(), 6);
+        let col_w = 132 / 4;
+        let row_h = 50 / 2;
+        assert_eq!(rects[0], Rect::new(0, 0, col_w, row_h));
+        assert_eq!(rects[3], Rect::new(col_w * 3, 0, col_w, row_h));
+        assert_eq!(rects[4], Rect::new(0, row_h, col_w, row_h));
+        assert_eq!(rects[5], Rect::new(col_w, row_h, col_w, row_h));
+    }
+
+    #[test]
+    fn grid_rects_fewer_projects_than_per_row_splits_evenly() {
+        // 3 projects on a wide terminal -> 3 equal cols, full width used.
+        let rects = compute_project_grid_rects(Rect::new(0, 0, 132, 50), 3, 32);
+        assert_eq!(rects.len(), 3);
+        assert_eq!(rects[0].width, 132 / 3);
+    }
+
+    #[test]
+    fn grid_rects_narrow_terminal_single_column_per_row() {
+        // width=20 < min=32 -> 1 col per row, 3 projects -> 3 rows.
+        let rects = compute_project_grid_rects(Rect::new(0, 0, 20, 60), 3, 32);
+        assert_eq!(rects.len(), 3);
+        assert_eq!(rects[0].width, 20);
+        assert_eq!(rects[0].height, 20);
+        assert_eq!(rects[1].y, 20);
+        assert_eq!(rects[2].y, 40);
     }
 
     #[test]
