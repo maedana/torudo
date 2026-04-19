@@ -308,17 +308,27 @@ impl EventHandler {
                 state.status_message =
                     Some("ti → s: short | m: medium | l: long | Esc: Cancel".to_string());
             }
-            ['t', 'i', c @ ('s' | 'm' | 'l')] => {
-                let value = match c {
-                    's' => "short",
-                    'm' => "medium",
-                    'l' => "long",
-                    _ => unreachable!(),
-                };
+            ['t', 'i', 's'] => {
                 if debug_mode {
-                    debug!("Set time:{value} via ti{c}");
+                    debug!("Set time:short via tis");
                 }
-                state.handle_set_time(value);
+                state.handle_set_time("short");
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
+            ['t', 'i', 'm'] => {
+                if debug_mode {
+                    debug!("Set time:medium via tim");
+                }
+                state.handle_set_time("medium");
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
+            ['t', 'i', 'l'] => {
+                if debug_mode {
+                    debug!("Set time:long via til");
+                }
+                state.handle_set_time("long");
                 self.pending_keys.clear();
                 state.status_message = None;
             }
