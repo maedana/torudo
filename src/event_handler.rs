@@ -303,6 +303,25 @@ impl EventHandler {
                 self.pending_keys.clear();
                 state.status_message = None;
             }
+            ['t', 'i'] => {
+                // Intermediate state - wait for third key
+                state.status_message =
+                    Some("ti → s: short | m: medium | l: long | Esc: Cancel".to_string());
+            }
+            ['t', 'i', c @ ('s' | 'm' | 'l')] => {
+                let value = match c {
+                    's' => "short",
+                    'm' => "medium",
+                    'l' => "long",
+                    _ => unreachable!(),
+                };
+                if debug_mode {
+                    debug!("Set time:{value} via ti{c}");
+                }
+                state.handle_set_time(value);
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
             _ => {
                 if debug_mode {
                     debug!("Unknown key sequence: {:?}", self.pending_keys);
@@ -351,6 +370,10 @@ impl EventHandler {
                 self.pending_keys.push('p');
                 state.status_message = Some(build_p_submenu());
             }
+            KeyCode::Char('t') => {
+                self.pending_keys.push('t');
+                state.status_message = Some(build_t_submenu());
+            }
             KeyCode::Tab => {
                 if debug_mode {
                     debug!("Tab: next mode");
@@ -397,6 +420,10 @@ fn build_p_submenu() -> String {
 
 fn build_d_submenu() -> String {
     "d → d: Delete | Esc: Cancel".to_string()
+}
+
+fn build_t_submenu() -> String {
+    "t → i: time | Esc: Cancel".to_string()
 }
 
 fn build_s_submenu(state: &AppState) -> String {
@@ -657,6 +684,146 @@ mod tests {
 
         handler.handle_keyboard_event(&make_key_event('d'), &mut state, todo_file, false);
         handler.handle_keyboard_event(&make_key_event('x'), &mut state, todo_file, false);
+
+        assert!(handler.pending_keys.is_empty());
+        assert!(state.status_message.is_none());
+    }
+
+    #[test]
+    fn test_t_key_shows_intermediate() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('t'), &mut state, todo_file, false);
+        assert_eq!(handler.pending_keys.as_slice(), &['t']);
+        let msg = state.status_message.as_deref().unwrap();
+        assert!(msg.contains("time"));
+    }
+
+    #[test]
+    fn test_ti_intermediate_state() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('t'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('i'), &mut state, todo_file, false);
+        assert_eq!(handler.pending_keys.as_slice(), &['t', 'i']);
+        let msg = state.status_message.as_deref().unwrap();
+        assert!(msg.contains("short"));
+        assert!(msg.contains("medium"));
+        assert!(msg.contains("long"));
+    }
+
+    #[test]
+    fn test_three_stroke_tis_sets_time_short() {
+        use std::fs;
+        let temp_dir = std::env::temp_dir().join("torudo_event_tis");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file_path = temp_dir.join("todo.txt");
+        fs::write(&todo_file_path, "Estimate me +proj id:est-1\n").unwrap();
+
+        let todos = crate::todo::load_todos(todo_file_path.to_str().unwrap()).unwrap();
+        let mut state = crate::app_state::AppState::new(
+            todos,
+            String::new(),
+            temp_dir.to_str().unwrap().to_string(),
+        );
+
+        let mut handler = EventHandler::new();
+        for c in ['t', 'i', 's'] {
+            handler.handle_keyboard_event(
+                &make_key_event(c),
+                &mut state,
+                todo_file_path.to_str().unwrap(),
+                false,
+            );
+        }
+
+        assert!(handler.pending_keys.is_empty());
+        assert!(state.status_message.is_none());
+        let content = fs::read_to_string(&todo_file_path).unwrap();
+        assert!(content.contains("time:short"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_three_stroke_tim_sets_time_medium() {
+        use std::fs;
+        let temp_dir = std::env::temp_dir().join("torudo_event_tim");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file_path = temp_dir.join("todo.txt");
+        fs::write(&todo_file_path, "Estimate me +proj id:est-1 time:short\n").unwrap();
+
+        let todos = crate::todo::load_todos(todo_file_path.to_str().unwrap()).unwrap();
+        let mut state = crate::app_state::AppState::new(
+            todos,
+            String::new(),
+            temp_dir.to_str().unwrap().to_string(),
+        );
+
+        let mut handler = EventHandler::new();
+        for c in ['t', 'i', 'm'] {
+            handler.handle_keyboard_event(
+                &make_key_event(c),
+                &mut state,
+                todo_file_path.to_str().unwrap(),
+                false,
+            );
+        }
+
+        let content = fs::read_to_string(&todo_file_path).unwrap();
+        assert!(content.contains("time:medium"));
+        assert!(!content.contains("time:short"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_three_stroke_til_sets_time_long() {
+        use std::fs;
+        let temp_dir = std::env::temp_dir().join("torudo_event_til");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file_path = temp_dir.join("todo.txt");
+        fs::write(&todo_file_path, "Task +proj id:x-1\n").unwrap();
+
+        let todos = crate::todo::load_todos(todo_file_path.to_str().unwrap()).unwrap();
+        let mut state = crate::app_state::AppState::new(
+            todos,
+            String::new(),
+            temp_dir.to_str().unwrap().to_string(),
+        );
+
+        let mut handler = EventHandler::new();
+        for c in ['t', 'i', 'l'] {
+            handler.handle_keyboard_event(
+                &make_key_event(c),
+                &mut state,
+                todo_file_path.to_str().unwrap(),
+                false,
+            );
+        }
+
+        let content = fs::read_to_string(&todo_file_path).unwrap();
+        assert!(content.contains("time:long"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_ti_then_invalid_cancels() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('t'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('i'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('q'), &mut state, todo_file, false);
 
         assert!(handler.pending_keys.is_empty());
         assert!(state.status_message.is_none());

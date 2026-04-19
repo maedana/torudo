@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`ti` prefix for time estimate**: `tis`/`tim`/`til` sets the selected todo's `time:` tag to `short`/`medium`/`long`. Existing `time:*` is replaced. Reserved namespace: `t` prefix is for tag operations; second letter = target tag key initial (future: `tt` threshold, `td` due). Works in all modes where `p`/`s` work
+
 ## [0.14.0] - 2026-04-17
 
 ### Added

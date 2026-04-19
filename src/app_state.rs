@@ -2,7 +2,7 @@ use crate::crmux::Plan;
 use crate::md_preview::{compute_meta, md_path};
 use crate::todo::{
     Item, add_missing_ids, append_todo, delete_todo, group_todos_by_project_owned,
-    has_todo_with_id, load_todos, mark_complete, move_to_file, set_priority,
+    has_todo_with_id, load_todos, mark_complete, move_to_file, set_key_value, set_priority,
 };
 use crate::url::{extract_urls, open_urls};
 use log::{debug, error};
@@ -427,6 +427,18 @@ impl AppState {
         match set_priority(&file, &id, priority) {
             Ok(()) => self.reload_todos(&file),
             Err(e) => error!("Failed to set priority: {e}"),
+        }
+    }
+
+    pub fn handle_set_time(&mut self, value: &str) {
+        let file = self.active_file();
+        let Some(id) = self.get_current_todo_id().map(str::to_string) else {
+            return;
+        };
+        debug!("Setting time:{value} on {id}");
+        match set_key_value(&file, &id, "time", value) {
+            Ok(()) => self.reload_todos(&file),
+            Err(e) => error!("Failed to set time: {e}"),
         }
     }
 
@@ -1247,6 +1259,50 @@ mod tests {
 
         let current = state.get_current_todo().expect("should have current todo");
         assert_eq!(current.priority, Some('C'));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_handle_set_time_sets_tag() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_time_app");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(&todo_file, "Task one +work id:task-1\n").unwrap();
+
+        let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+
+        state.handle_set_time("short");
+
+        let current = state.get_current_todo().expect("should have current todo");
+        assert_eq!(
+            current.key_values.get("time").map(String::as_str),
+            Some("short")
+        );
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_handle_set_time_replaces_existing() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_time_replace_app");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(&todo_file, "Task +work id:task-1 time:short\n").unwrap();
+
+        let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+
+        state.handle_set_time("medium");
+
+        let current = state.get_current_todo().expect("should have current todo");
+        assert_eq!(
+            current.key_values.get("time").map(String::as_str),
+            Some("medium")
+        );
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert!(!content.contains("time:short"));
 
         fs::remove_dir_all(&temp_dir).ok();
     }

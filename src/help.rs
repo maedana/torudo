@@ -219,6 +219,46 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         footer_key: None,
     },
     HelpEntry {
+        key: "t",
+        desc: "Set tag submenu",
+        indent: false,
+        todo_only: false,
+        waiting_too: false,
+        requires_claude: false,
+        footer: Some("Tag"),
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "tis",
+        desc: "Set time:short",
+        indent: true,
+        todo_only: false,
+        waiting_too: false,
+        requires_claude: false,
+        footer: None,
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "tim",
+        desc: "Set time:medium",
+        indent: true,
+        todo_only: false,
+        waiting_too: false,
+        requires_claude: false,
+        footer: None,
+        footer_key: None,
+    },
+    HelpEntry {
+        key: "til",
+        desc: "Set time:long",
+        indent: true,
+        todo_only: false,
+        waiting_too: false,
+        requires_claude: false,
+        footer: None,
+        footer_key: None,
+    },
+    HelpEntry {
         key: "c",
         desc: "Claude submenu (requires crmux or claude CLI)",
         indent: false,
@@ -367,6 +407,7 @@ mod tests {
         assert!(entries.contains(&("s", "Send")));
         assert!(entries.contains(&("Tab/S-Tab", "Mode")));
         assert!(entries.contains(&("c", "Claude")));
+        assert!(entries.contains(&("t", "Tag")));
         assert!(entries.contains(&("?", "Help")));
         assert!(entries.contains(&("q", "Quit")));
     }

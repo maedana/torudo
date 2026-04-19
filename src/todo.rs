@@ -355,6 +355,48 @@ pub fn set_priority(
     Ok(())
 }
 
+pub fn set_key_value(
+    todo_file: &str,
+    todo_id: &str,
+    key: &str,
+    value: &str,
+) -> Result<(), Box<dyn Error>> {
+    let content = fs::read_to_string(todo_file)?;
+    let lines: Vec<&str> = content.lines().collect();
+    let mut new_lines = Vec::with_capacity(lines.len());
+    let mut changed = false;
+
+    let key_prefix = format!("{key}:");
+    for (line_num, line) in lines.iter().enumerate() {
+        if line.trim().is_empty() || line.starts_with("x ") {
+            new_lines.push((*line).to_string());
+            continue;
+        }
+        let todo = Item::parse(line, line_num + 1);
+        if todo.id.as_deref() != Some(todo_id) {
+            new_lines.push((*line).to_string());
+            continue;
+        }
+        let kept: Vec<&str> = line
+            .split_whitespace()
+            .filter(|tok| !tok.starts_with(&key_prefix))
+            .collect();
+        let new_line = format!("{} {key}:{value}", kept.join(" "));
+        new_lines.push(new_line);
+        changed = true;
+    }
+
+    if changed {
+        let mut out = new_lines.join("\n");
+        if content.ends_with('\n') {
+            out.push('\n');
+        }
+        fs::write(todo_file, out)?;
+        debug!("Set {key}:{value} on {todo_id} in {todo_file}");
+    }
+    Ok(())
+}
+
 pub fn move_to_file(
     source_file: &str,
     dest_file: &str,
@@ -1129,6 +1171,96 @@ Learn Rust +learning @coding id:task-003";
         fs::write(&todo_file, initial).unwrap();
 
         set_priority(todo_file.to_str().unwrap(), "t1", Some('C')).unwrap();
+
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(content, initial);
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_set_key_value_adds_to_plain_item() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_kv_add");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(&todo_file, "2024-01-10 Task one +proj id:t1\n").unwrap();
+
+        set_key_value(todo_file.to_str().unwrap(), "t1", "time", "short").unwrap();
+
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(content, "2024-01-10 Task one +proj id:t1 time:short\n");
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_set_key_value_replaces_existing() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_kv_replace");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(&todo_file, "Task id:t1 time:short\n").unwrap();
+
+        set_key_value(todo_file.to_str().unwrap(), "t1", "time", "medium").unwrap();
+
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(content, "Task id:t1 time:medium\n");
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_set_key_value_preserves_other_keys() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_kv_other_keys");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(&todo_file, "Task due:2026-01-01 id:t1\n").unwrap();
+
+        set_key_value(todo_file.to_str().unwrap(), "t1", "time", "long").unwrap();
+
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(content, "Task due:2026-01-01 id:t1 time:long\n");
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_set_key_value_preserves_other_lines() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_kv_preserve_lines");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        let initial = "Task one id:t1\nTask two id:t2\nTask three id:t3\n";
+        fs::write(&todo_file, initial).unwrap();
+
+        set_key_value(todo_file.to_str().unwrap(), "t2", "time", "short").unwrap();
+
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(
+            content,
+            "Task one id:t1\nTask two id:t2 time:short\nTask three id:t3\n"
+        );
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_set_key_value_nonexistent_id() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_kv_nonexistent");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        let initial = "Task id:t1\n";
+        fs::write(&todo_file, initial).unwrap();
+
+        set_key_value(todo_file.to_str().unwrap(), "nonexistent", "time", "short").unwrap();
+
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(content, initial);
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_set_key_value_skips_completed_line() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_kv_completed");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        let initial = "x 2024-01-20 2024-01-10 Done task id:t1\n";
+        fs::write(&todo_file, initial).unwrap();
+
+        set_key_value(todo_file.to_str().unwrap(), "t1", "time", "short").unwrap();
 
         let content = fs::read_to_string(&todo_file).unwrap();
         assert_eq!(content, initial);
