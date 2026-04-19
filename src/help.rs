@@ -89,6 +89,16 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         footer_key: None,
     },
     HelpEntry {
+        key: "n",
+        desc: "Now filter: energy (l/h/a) + time (s/m/l/a); nc clears",
+        indent: false,
+        todo_only: true,
+        waiting_too: false,
+        requires_claude: false,
+        footer: Some("Filter"),
+        footer_key: None,
+    },
+    HelpEntry {
         key: "s",
         desc: "Send to... submenu",
         indent: false,

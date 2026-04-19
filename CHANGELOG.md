@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **S/M/L time chip on Todo cards**: Cards now show a colored `S`/`M`/`L` chip at the bottom-right (left of the existing `{done}/{total} {elapsed}` badge) when `time:` is set. Colors: green/yellow/red for short/medium/long
 - **`te` prefix for energy level (GTD)**: `tel`/`teh` sets the selected todo's `energy:` tag to `low`/`high`. Existing `energy:*` is replaced. Only two levels (no medium). Works in all modes where `p`/`s` work
 - **↓/↑ energy chip on Todo cards**: Cards now show a colored `↓`/`↑` chip (green for `energy:low`, red for `energy:high`) at the bottom-right, left of the S/M/L time chip
+- **`n` prefix for Now-filter (GTD, Todo mode only)**: `n` → energy (`l`/`h`/`a`) → time (`s`/`m`/`l`/`a`) narrows the Todo view to items strictly matching the specified attributes. `a` = any (no constraint on that axis). `nc` clears the filter (option only shown in submenu while filter is active). Filter only applies in Todo mode; state persists when switching away and back
+- **Active filter chip on tab bar**: When a filter is active in Todo mode, a `[Filter ↓ S]` chip is right-aligned on the tab bar using the same glyphs as the card chips
 
 ## [0.14.0] - 2026-04-17
 

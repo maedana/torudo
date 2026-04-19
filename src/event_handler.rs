@@ -352,6 +352,36 @@ impl EventHandler {
                 self.pending_keys.clear();
                 state.status_message = None;
             }
+            ['n', 'c'] => {
+                if debug_mode {
+                    debug!("Clear filter via nc");
+                }
+                state.handle_clear_filter();
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
+            ['n', e @ ('l' | 'h' | 'a')] => {
+                state.status_message = Some(build_nt_submenu(*e));
+            }
+            ['n', e @ ('l' | 'h' | 'a'), t @ ('s' | 'm' | 'l' | 'a')] => {
+                let energy = match *e {
+                    'l' => Some("low"),
+                    'h' => Some("high"),
+                    _ => None,
+                };
+                let time = match *t {
+                    's' => Some("short"),
+                    'm' => Some("medium"),
+                    'l' => Some("long"),
+                    _ => None,
+                };
+                if debug_mode {
+                    debug!("Set filter energy={energy:?} time={time:?} via n{e}{t}");
+                }
+                state.handle_set_filter(energy, time);
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
             _ => {
                 if debug_mode {
                     debug!("Unknown key sequence: {:?}", self.pending_keys);
@@ -435,6 +465,10 @@ impl EventHandler {
                 }
                 state.pending_enter_hint = true;
             }
+            KeyCode::Char('n') if state.view_mode == ViewMode::Todo => {
+                self.pending_keys.push('n');
+                state.status_message = Some(build_n_submenu(state.current_filter.is_some()));
+            }
             KeyCode::Char('?') => {
                 state.toggle_help();
             }
@@ -454,6 +488,24 @@ fn build_d_submenu() -> String {
 
 fn build_t_submenu() -> String {
     "t → i: time | e: energy | Esc: Cancel".to_string()
+}
+
+fn build_n_submenu(has_filter: bool) -> String {
+    let mut parts = String::from("n → l: low | h: high | a: any energy");
+    if has_filter {
+        parts.push_str(" | c: clear filter");
+    }
+    parts.push_str(" | Esc: Cancel");
+    parts
+}
+
+fn build_nt_submenu(energy_key: char) -> String {
+    let label = match energy_key {
+        'l' => "low",
+        'h' => "high",
+        _ => "any",
+    };
+    format!("n{label} → s: short | m: medium | l: long | a: any time | Esc: Cancel")
 }
 
 fn build_s_submenu(state: &AppState) -> String {
@@ -1436,5 +1488,211 @@ mod tests {
         handler.handle_keyboard_event(&make_key_event('z'), &mut state, todo_file, false);
 
         assert!(state.hint.is_none(), "non-prefix char exits hint mode");
+    }
+
+    fn make_filter_test_state() -> (crate::app_state::AppState, tempfile::TempDir) {
+        use std::fs;
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        fs::write(
+            temp_dir.path().join("todo.txt"),
+            "A +p1 id:a energy:low time:short\n\
+             B +p1 id:b energy:high time:long\n\
+             C +p2 id:c\n",
+        )
+        .unwrap();
+        let todos =
+            crate::todo::load_todos(temp_dir.path().join("todo.txt").to_str().unwrap()).unwrap();
+        let state = crate::app_state::AppState::new(
+            todos,
+            String::new(),
+            temp_dir.path().to_str().unwrap().to_string(),
+        );
+        (state, temp_dir)
+    }
+
+    #[test]
+    fn test_n_key_shows_energy_submenu() {
+        let (mut state, _dir) = make_filter_test_state();
+        let mut handler = EventHandler::new();
+        let todo_file = "/tmp/dummy.txt";
+        handler.handle_keyboard_event(&make_key_event('n'), &mut state, todo_file, false);
+        assert_eq!(handler.pending_keys.as_slice(), &['n']);
+        let msg = state.status_message.as_deref().unwrap();
+        assert!(msg.contains("low"));
+        assert!(msg.contains("high"));
+        assert!(msg.contains("any"));
+    }
+
+    #[test]
+    fn test_nl_shows_time_submenu() {
+        let (mut state, _dir) = make_filter_test_state();
+        let mut handler = EventHandler::new();
+        let todo_file = "/tmp/dummy.txt";
+        for c in ['n', 'l'] {
+            handler.handle_keyboard_event(&make_key_event(c), &mut state, todo_file, false);
+        }
+        assert_eq!(handler.pending_keys.as_slice(), &['n', 'l']);
+        let msg = state.status_message.as_deref().unwrap();
+        assert!(msg.contains("short"));
+        assert!(msg.contains("medium"));
+        assert!(msg.contains("long"));
+        assert!(msg.contains("any"));
+    }
+
+    #[test]
+    fn test_three_stroke_nls_filters_low_short() {
+        let (mut state, dir) = make_filter_test_state();
+        let mut handler = EventHandler::new();
+        let todo_file = dir.path().join("todo.txt");
+        for c in ['n', 'l', 's'] {
+            handler.handle_keyboard_event(
+                &make_key_event(c),
+                &mut state,
+                todo_file.to_str().unwrap(),
+                false,
+            );
+        }
+        assert!(handler.pending_keys.is_empty());
+        assert!(state.status_message.is_none());
+        assert!(state.current_filter.is_some());
+        let total: usize = state.grouped_todos.values().map(Vec::len).sum();
+        assert_eq!(total, 1, "only the low+short todo should remain");
+    }
+
+    #[test]
+    fn test_three_stroke_nas_filters_time_only() {
+        let (mut state, dir) = make_filter_test_state();
+        let mut handler = EventHandler::new();
+        let todo_file = dir.path().join("todo.txt");
+        for c in ['n', 'a', 's'] {
+            handler.handle_keyboard_event(
+                &make_key_event(c),
+                &mut state,
+                todo_file.to_str().unwrap(),
+                false,
+            );
+        }
+        let total: usize = state.grouped_todos.values().map(Vec::len).sum();
+        assert_eq!(total, 1, "only time:short remains regardless of energy");
+    }
+
+    #[test]
+    fn test_three_stroke_naa_clears_filter() {
+        let (mut state, dir) = make_filter_test_state();
+        let mut handler = EventHandler::new();
+        let todo_file = dir.path().join("todo.txt");
+        // First apply a filter
+        for c in ['n', 'l', 's'] {
+            handler.handle_keyboard_event(
+                &make_key_event(c),
+                &mut state,
+                todo_file.to_str().unwrap(),
+                false,
+            );
+        }
+        assert!(state.current_filter.is_some());
+        // Then n→a→a should clear
+        for c in ['n', 'a', 'a'] {
+            handler.handle_keyboard_event(
+                &make_key_event(c),
+                &mut state,
+                todo_file.to_str().unwrap(),
+                false,
+            );
+        }
+        assert!(state.current_filter.is_none());
+        let total: usize = state.grouped_todos.values().map(Vec::len).sum();
+        assert_eq!(total, 3);
+    }
+
+    #[test]
+    fn test_nc_clears_filter() {
+        let (mut state, dir) = make_filter_test_state();
+        let mut handler = EventHandler::new();
+        let todo_file = dir.path().join("todo.txt");
+        for c in ['n', 'l', 's'] {
+            handler.handle_keyboard_event(
+                &make_key_event(c),
+                &mut state,
+                todo_file.to_str().unwrap(),
+                false,
+            );
+        }
+        assert!(state.current_filter.is_some());
+
+        for c in ['n', 'c'] {
+            handler.handle_keyboard_event(
+                &make_key_event(c),
+                &mut state,
+                todo_file.to_str().unwrap(),
+                false,
+            );
+        }
+        assert!(state.current_filter.is_none());
+        assert!(handler.pending_keys.is_empty());
+        assert!(state.status_message.is_none());
+    }
+
+    #[test]
+    fn test_n_submenu_includes_clear_when_filter_active() {
+        let (mut state, dir) = make_filter_test_state();
+        let mut handler = EventHandler::new();
+        let todo_file = dir.path().join("todo.txt");
+        for c in ['n', 'l', 's'] {
+            handler.handle_keyboard_event(
+                &make_key_event(c),
+                &mut state,
+                todo_file.to_str().unwrap(),
+                false,
+            );
+        }
+        // filter is now active — press n again; submenu should include "clear"
+        handler.handle_keyboard_event(
+            &make_key_event('n'),
+            &mut state,
+            todo_file.to_str().unwrap(),
+            false,
+        );
+        let msg = state.status_message.as_deref().unwrap();
+        assert!(msg.contains("clear"));
+    }
+
+    #[test]
+    fn test_n_submenu_no_clear_when_no_filter() {
+        let (mut state, _dir) = make_filter_test_state();
+        let mut handler = EventHandler::new();
+        handler.handle_keyboard_event(&make_key_event('n'), &mut state, "/tmp/x.txt", false);
+        let msg = state.status_message.as_deref().unwrap();
+        assert!(!msg.contains("clear"));
+    }
+
+    #[test]
+    fn test_n_then_invalid_cancels() {
+        let (mut state, _dir) = make_filter_test_state();
+        let mut handler = EventHandler::new();
+        let todo_file = "/tmp/dummy.txt";
+        handler.handle_keyboard_event(&make_key_event('n'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('q'), &mut state, todo_file, false);
+        assert!(handler.pending_keys.is_empty());
+        assert!(state.status_message.is_none());
+        assert!(state.current_filter.is_none());
+    }
+
+    #[test]
+    fn test_n_noop_outside_todo_mode() {
+        let (mut state, dir) = make_filter_test_state();
+        // Create waiting.txt so set_view_mode has a file to load
+        std::fs::write(dir.path().join("waiting.txt"), "W +p id:w\n").unwrap();
+        state.set_view_mode(ViewMode::Waiting);
+        let mut handler = EventHandler::new();
+        let todo_file = dir.path().join("waiting.txt");
+        handler.handle_keyboard_event(
+            &make_key_event('n'),
+            &mut state,
+            todo_file.to_str().unwrap(),
+            false,
+        );
+        assert!(handler.pending_keys.is_empty());
+        assert!(state.status_message.is_none());
     }
 }

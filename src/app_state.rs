@@ -81,6 +81,32 @@ pub enum HintOutcome {
     Cancelled,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NowFilter {
+    pub energy: Option<String>,
+    pub time: Option<String>,
+}
+
+impl NowFilter {
+    pub const fn is_active(&self) -> bool {
+        self.energy.is_some() || self.time.is_some()
+    }
+
+    pub fn matches(&self, todo: &Item) -> bool {
+        if let Some(e) = &self.energy
+            && todo.energy_estimate() != Some(e.as_str())
+        {
+            return false;
+        }
+        if let Some(t) = &self.time
+            && todo.time_estimate() != Some(t.as_str())
+        {
+            return false;
+        }
+        true
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ViewMode {
     Todo,
@@ -179,6 +205,7 @@ pub struct AppState {
     pub mode_counts: [usize; ViewMode::COUNT],
     pub hint: Option<HintState>,
     pub pending_enter_hint: bool,
+    pub current_filter: Option<NowFilter>,
 }
 
 impl AppState {
@@ -242,6 +269,7 @@ impl AppState {
             mode_counts: [0; ViewMode::COUNT],
             hint: None,
             pending_enter_hint: false,
+            current_filter: None,
         };
         state.update_derived_state();
         state.refresh_mode_counts();
@@ -271,8 +299,7 @@ impl AppState {
     }
 
     pub fn refresh_md_previews(&mut self) {
-        self.refresh_md_meta();
-        self.grouped_todos = group_todos_by_project_owned(&self.todos);
+        self.update_derived_state();
     }
 
     fn refresh_md_meta(&mut self) {
@@ -290,7 +317,16 @@ impl AppState {
 
     fn update_derived_state(&mut self) {
         self.refresh_md_meta();
-        self.grouped_todos = group_todos_by_project_owned(&self.todos);
+        let source: Vec<Item> = match &self.current_filter {
+            Some(f) if f.is_active() && self.view_mode == ViewMode::Todo => self
+                .todos
+                .iter()
+                .filter(|t| f.matches(t))
+                .cloned()
+                .collect(),
+            _ => self.todos.clone(),
+        };
+        self.grouped_todos = group_todos_by_project_owned(&source);
         self.project_names = self.grouped_todos.keys().cloned().collect();
         self.project_names.sort();
 
@@ -451,6 +487,31 @@ impl AppState {
         match set_key_value(&file, &id, "energy", value) {
             Ok(()) => self.reload_todos(&file),
             Err(e) => error!("Failed to set energy: {e}"),
+        }
+    }
+
+    pub fn handle_set_filter(&mut self, energy: Option<&str>, time: Option<&str>) {
+        self.current_filter = if energy.is_none() && time.is_none() {
+            None
+        } else {
+            Some(NowFilter {
+                energy: energy.map(String::from),
+                time: time.map(String::from),
+            })
+        };
+        self.current_column = 0;
+        self.selected_in_column = 0;
+        self.scroll_offset = 0;
+        self.update_derived_state();
+    }
+
+    pub fn handle_clear_filter(&mut self) {
+        if self.current_filter.is_some() {
+            self.current_filter = None;
+            self.current_column = 0;
+            self.selected_in_column = 0;
+            self.scroll_offset = 0;
+            self.update_derived_state();
         }
     }
 
@@ -2437,5 +2498,203 @@ mod tests {
         assert_eq!(hint.cell_label(0, 0), Some("a"));
         assert_eq!(hint.cell_label(1, 0), Some("b"));
         assert_eq!(hint.cell_label(2, 0), None);
+    }
+
+    #[test]
+    fn test_now_filter_default_is_not_active() {
+        let f = NowFilter::default();
+        assert!(!f.is_active());
+    }
+
+    #[test]
+    fn test_now_filter_is_active_when_energy_set() {
+        let f = NowFilter {
+            energy: Some("low".to_string()),
+            time: None,
+        };
+        assert!(f.is_active());
+    }
+
+    #[test]
+    fn test_now_filter_is_active_when_time_set() {
+        let f = NowFilter {
+            energy: None,
+            time: Some("short".to_string()),
+        };
+        assert!(f.is_active());
+    }
+
+    #[test]
+    fn test_now_filter_matches_strict_both_axes() {
+        let f = NowFilter {
+            energy: Some("low".to_string()),
+            time: Some("short".to_string()),
+        };
+        assert!(f.matches(&Item::parse("Task energy:low time:short id:a", 1)));
+        assert!(!f.matches(&Item::parse("Task energy:low time:medium id:b", 1)));
+        assert!(!f.matches(&Item::parse("Task energy:high time:short id:c", 1)));
+        assert!(!f.matches(&Item::parse("Task energy:low id:d", 1)));
+        assert!(!f.matches(&Item::parse("Task id:e", 1)));
+    }
+
+    #[test]
+    fn test_now_filter_matches_energy_only() {
+        let f = NowFilter {
+            energy: Some("high".to_string()),
+            time: None,
+        };
+        assert!(f.matches(&Item::parse("Task energy:high id:a", 1)));
+        assert!(f.matches(&Item::parse("Task energy:high time:long id:b", 1)));
+        assert!(!f.matches(&Item::parse("Task energy:low id:c", 1)));
+        assert!(!f.matches(&Item::parse("Task id:d", 1)));
+    }
+
+    #[test]
+    fn test_now_filter_matches_time_only() {
+        let f = NowFilter {
+            energy: None,
+            time: Some("medium".to_string()),
+        };
+        assert!(f.matches(&Item::parse("Task time:medium id:a", 1)));
+        assert!(f.matches(&Item::parse("Task energy:high time:medium id:b", 1)));
+        assert!(!f.matches(&Item::parse("Task time:short id:c", 1)));
+        assert!(!f.matches(&Item::parse("Task id:d", 1)));
+    }
+
+    #[test]
+    fn test_now_filter_default_matches_everything() {
+        let f = NowFilter::default();
+        assert!(f.matches(&Item::parse("Task id:a", 1)));
+        assert!(f.matches(&Item::parse("Task energy:low time:short id:b", 1)));
+    }
+
+    fn write_todo_file(dir: &std::path::Path, content: &str) -> std::path::PathBuf {
+        let path = dir.join("todo.txt");
+        fs::write(&path, content).unwrap();
+        path
+    }
+
+    fn total_grouped_todos(state: &AppState) -> usize {
+        state.grouped_todos.values().map(Vec::len).sum()
+    }
+
+    #[test]
+    fn test_handle_set_filter_narrows_todo_list() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_filter");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = write_todo_file(
+            &temp_dir,
+            "A +p1 id:a energy:low time:short\n\
+             B +p1 id:b energy:low time:medium\n\
+             C +p2 id:c energy:high time:short\n\
+             D +p2 id:d\n",
+        );
+
+        let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+        assert_eq!(total_grouped_todos(&state), 4);
+
+        state.handle_set_filter(Some("low"), Some("short"));
+
+        assert_eq!(total_grouped_todos(&state), 1);
+        let a = state
+            .grouped_todos
+            .values()
+            .flatten()
+            .next()
+            .expect("should have one todo");
+        assert_eq!(a.id.as_deref(), Some("a"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_handle_set_filter_energy_only() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_filter_e_only");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = write_todo_file(
+            &temp_dir,
+            "A +p1 id:a energy:low\n\
+             B +p1 id:b energy:high\n\
+             C +p2 id:c\n",
+        );
+
+        let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+        state.handle_set_filter(Some("low"), None);
+
+        assert_eq!(total_grouped_todos(&state), 1);
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_handle_set_filter_both_any_clears_filter() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_filter_any_any");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = write_todo_file(&temp_dir, "A +p1 id:a energy:low\nB +p1 id:b\n");
+
+        let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+        state.handle_set_filter(None, None);
+
+        assert!(state.current_filter.is_none());
+        assert_eq!(total_grouped_todos(&state), 2);
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_handle_clear_filter_restores_all_todos() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_clear_filter");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file =
+            write_todo_file(&temp_dir, "A +p1 id:a energy:low\nB +p1 id:b energy:high\n");
+
+        let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+        state.handle_set_filter(Some("low"), None);
+        assert_eq!(total_grouped_todos(&state), 1);
+
+        state.handle_clear_filter();
+
+        assert!(state.current_filter.is_none());
+        assert_eq!(total_grouped_todos(&state), 2);
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_filter_only_applies_in_todo_mode() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_filter_non_todo");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        write_todo_file(&temp_dir, "A +p1 id:a energy:low\nB +p1 id:b energy:high\n");
+        // Also create waiting.txt so switching modes finds a file to load
+        fs::write(
+            temp_dir.join("waiting.txt"),
+            "W1 +p1 id:w1 energy:high\nW2 +p1 id:w2\n",
+        )
+        .unwrap();
+
+        let todos = load_todos(temp_dir.join("todo.txt").to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+        state.handle_set_filter(Some("low"), None);
+        assert_eq!(total_grouped_todos(&state), 1);
+
+        // Switch to Waiting — filter stored but inactive; all waiting todos visible
+        state.set_view_mode(ViewMode::Waiting);
+        assert_eq!(total_grouped_todos(&state), 2);
+        assert!(state.current_filter.is_some()); // preserved
+
+        // Back to Todo — filter re-applies
+        state.set_view_mode(ViewMode::Todo);
+        assert_eq!(total_grouped_todos(&state), 1);
+
+        fs::remove_dir_all(&temp_dir).ok();
     }
 }

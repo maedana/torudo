@@ -1,4 +1,4 @@
-use crate::app_state::{AppState, ViewMode};
+use crate::app_state::{AppState, NowFilter, ViewMode};
 use crate::help;
 use crate::md_preview::format_elapsed;
 use crate::todo::Item;
@@ -101,8 +101,8 @@ fn meta_label(todo: &Item, now: SystemTime) -> Option<String> {
     })
 }
 
-fn time_chip_span(todo: &Item) -> Option<Span<'static>> {
-    let (letter, color) = match todo.time_estimate()? {
+fn time_value_span(value: &str) -> Option<Span<'static>> {
+    let (letter, color) = match value {
         "short" => ("S", Color::Green),
         "medium" => ("M", Color::Yellow),
         "long" => ("L", Color::Red),
@@ -114,8 +114,8 @@ fn time_chip_span(todo: &Item) -> Option<Span<'static>> {
     ))
 }
 
-fn energy_chip_span(todo: &Item) -> Option<Span<'static>> {
-    let (glyph, color) = match todo.energy_estimate()? {
+fn energy_value_span(value: &str) -> Option<Span<'static>> {
+    let (glyph, color) = match value {
         "low" => ("↓", Color::Green),
         "high" => ("↑", Color::Red),
         _ => return None,
@@ -124,6 +124,42 @@ fn energy_chip_span(todo: &Item) -> Option<Span<'static>> {
         glyph,
         Style::default().fg(color).add_modifier(Modifier::BOLD),
     ))
+}
+
+fn time_chip_span(todo: &Item) -> Option<Span<'static>> {
+    time_value_span(todo.time_estimate()?)
+}
+
+fn energy_chip_span(todo: &Item) -> Option<Span<'static>> {
+    energy_value_span(todo.energy_estimate()?)
+}
+
+fn filter_chip_spans(filter: &NowFilter) -> Vec<Span<'static>> {
+    let mut spans: Vec<Span<'static>> = vec![Span::styled(
+        "[Filter",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )];
+    if let Some(e) = filter.energy.as_deref()
+        && let Some(s) = energy_value_span(e)
+    {
+        spans.push(Span::raw(" "));
+        spans.push(s);
+    }
+    if let Some(t) = filter.time.as_deref()
+        && let Some(s) = time_value_span(t)
+    {
+        spans.push(Span::raw(" "));
+        spans.push(s);
+    }
+    spans.push(Span::styled(
+        "]",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    ));
+    spans
 }
 
 fn calc_todo_height(todo: &Item, available_width: u16) -> u16 {
@@ -458,7 +494,34 @@ fn draw_tab_bar(f: &mut ratatui::Frame, state: &AppState, area: Rect) {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         );
-    f.render_widget(tabs, area);
+
+    let filter_spans = if state.view_mode == ViewMode::Todo
+        && let Some(f) = state.current_filter.as_ref()
+        && f.is_active()
+    {
+        Some(filter_chip_spans(f))
+    } else {
+        None
+    };
+
+    if let Some(spans) = filter_spans {
+        let chip_width = u16::try_from(
+            spans
+                .iter()
+                .map(|s| unicode_width::UnicodeWidthStr::width(s.content.as_ref()))
+                .sum::<usize>(),
+        )
+        .unwrap_or(0);
+        let chunks =
+            Layout::horizontal([Constraint::Min(0), Constraint::Length(chip_width)]).split(area);
+        f.render_widget(tabs, chunks[0]);
+        f.render_widget(
+            Paragraph::new(Line::from(spans)).alignment(Alignment::Right),
+            chunks[1],
+        );
+    } else {
+        f.render_widget(tabs, area);
+    }
 }
 
 pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
@@ -791,6 +854,46 @@ mod tests {
     #[test]
     fn energy_chip_span_none_for_invalid_value() {
         assert!(energy_chip_span(&item_with_energy("medium")).is_none());
+    }
+
+    #[test]
+    fn filter_chip_spans_energy_and_time() {
+        let f = NowFilter {
+            energy: Some("low".to_string()),
+            time: Some("short".to_string()),
+        };
+        let spans = filter_chip_spans(&f);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("Filter"));
+        assert!(text.contains('↓'));
+        assert!(text.contains('S'));
+    }
+
+    #[test]
+    fn filter_chip_spans_energy_only() {
+        let f = NowFilter {
+            energy: Some("high".to_string()),
+            time: None,
+        };
+        let spans = filter_chip_spans(&f);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains('↑'));
+        assert!(!text.contains('S'));
+        assert!(!text.contains('M'));
+        assert!(!text.contains('L'));
+    }
+
+    #[test]
+    fn filter_chip_spans_time_only() {
+        let f = NowFilter {
+            energy: None,
+            time: Some("long".to_string()),
+        };
+        let spans = filter_chip_spans(&f);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains('L'));
+        assert!(!text.contains('↓'));
+        assert!(!text.contains('↑'));
     }
 
     #[test]
