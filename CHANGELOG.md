@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **`ti` prefix for time estimate**: `tis`/`tim`/`til` sets the selected todo's `time:` tag to `short`/`medium`/`long`. Existing `time:*` is replaced. Reserved namespace: `t` prefix is for tag operations; second letter = target tag key initial (future: `tt` threshold, `td` due). Works in all modes where `p`/`s` work
 - **S/M/L time chip on Todo cards**: Cards now show a colored `S`/`M`/`L` chip at the bottom-right (left of the existing `{done}/{total} {elapsed}` badge) when `time:` is set. Colors: green/yellow/red for short/medium/long
+- **`te` prefix for energy level (GTD)**: `tel`/`teh` sets the selected todo's `energy:` tag to `low`/`high`. Existing `energy:*` is replaced. Only two levels (no medium). Works in all modes where `p`/`s` work
+- **↓/↑ energy chip on Todo cards**: Cards now show a colored `↓`/`↑` chip (green for `energy:low`, red for `energy:high`) at the bottom-right, left of the S/M/L time chip
 
 ## [0.14.0] - 2026-04-17
 

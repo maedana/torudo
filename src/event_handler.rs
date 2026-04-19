@@ -332,6 +332,26 @@ impl EventHandler {
                 self.pending_keys.clear();
                 state.status_message = None;
             }
+            ['t', 'e'] => {
+                // Intermediate state - wait for third key
+                state.status_message = Some("te → l: low | h: high | Esc: Cancel".to_string());
+            }
+            ['t', 'e', 'l'] => {
+                if debug_mode {
+                    debug!("Set energy:low via tel");
+                }
+                state.handle_set_energy("low");
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
+            ['t', 'e', 'h'] => {
+                if debug_mode {
+                    debug!("Set energy:high via teh");
+                }
+                state.handle_set_energy("high");
+                self.pending_keys.clear();
+                state.status_message = None;
+            }
             _ => {
                 if debug_mode {
                     debug!("Unknown key sequence: {:?}", self.pending_keys);
@@ -433,7 +453,7 @@ fn build_d_submenu() -> String {
 }
 
 fn build_t_submenu() -> String {
-    "t → i: time | Esc: Cancel".to_string()
+    "t → i: time | e: energy | Esc: Cancel".to_string()
 }
 
 fn build_s_submenu(state: &AppState) -> String {
@@ -709,6 +729,7 @@ mod tests {
         assert_eq!(handler.pending_keys.as_slice(), &['t']);
         let msg = state.status_message.as_deref().unwrap();
         assert!(msg.contains("time"));
+        assert!(msg.contains("energy"));
     }
 
     #[test]
@@ -823,6 +844,101 @@ mod tests {
         assert!(content.contains("time:long"));
 
         fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_te_intermediate_state() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('t'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('e'), &mut state, todo_file, false);
+        assert_eq!(handler.pending_keys.as_slice(), &['t', 'e']);
+        let msg = state.status_message.as_deref().unwrap();
+        assert!(msg.contains("low"));
+        assert!(msg.contains("high"));
+    }
+
+    #[test]
+    fn test_three_stroke_tel_sets_energy_low() {
+        use std::fs;
+        let temp_dir = std::env::temp_dir().join("torudo_event_tel");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file_path = temp_dir.join("todo.txt");
+        fs::write(&todo_file_path, "Estimate me +proj id:est-1\n").unwrap();
+
+        let todos = crate::todo::load_todos(todo_file_path.to_str().unwrap()).unwrap();
+        let mut state = crate::app_state::AppState::new(
+            todos,
+            String::new(),
+            temp_dir.to_str().unwrap().to_string(),
+        );
+
+        let mut handler = EventHandler::new();
+        for c in ['t', 'e', 'l'] {
+            handler.handle_keyboard_event(
+                &make_key_event(c),
+                &mut state,
+                todo_file_path.to_str().unwrap(),
+                false,
+            );
+        }
+
+        assert!(handler.pending_keys.is_empty());
+        assert!(state.status_message.is_none());
+        let content = fs::read_to_string(&todo_file_path).unwrap();
+        assert!(content.contains("energy:low"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_three_stroke_teh_sets_energy_high() {
+        use std::fs;
+        let temp_dir = std::env::temp_dir().join("torudo_event_teh");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file_path = temp_dir.join("todo.txt");
+        fs::write(&todo_file_path, "Estimate me +proj id:est-1 energy:low\n").unwrap();
+
+        let todos = crate::todo::load_todos(todo_file_path.to_str().unwrap()).unwrap();
+        let mut state = crate::app_state::AppState::new(
+            todos,
+            String::new(),
+            temp_dir.to_str().unwrap().to_string(),
+        );
+
+        let mut handler = EventHandler::new();
+        for c in ['t', 'e', 'h'] {
+            handler.handle_keyboard_event(
+                &make_key_event(c),
+                &mut state,
+                todo_file_path.to_str().unwrap(),
+                false,
+            );
+        }
+
+        let content = fs::read_to_string(&todo_file_path).unwrap();
+        assert!(content.contains("energy:high"));
+        assert!(!content.contains("energy:low"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_te_then_invalid_cancels() {
+        let mut handler = EventHandler::new();
+        let mut state = create_test_state_with_crmux();
+        let todo_file = "/tmp/dummy.txt";
+
+        handler.handle_keyboard_event(&make_key_event('t'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('e'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('q'), &mut state, todo_file, false);
+
+        assert!(handler.pending_keys.is_empty());
+        assert!(state.status_message.is_none());
     }
 
     #[test]

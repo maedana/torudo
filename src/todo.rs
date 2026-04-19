@@ -118,6 +118,13 @@ impl Item {
         }
     }
 
+    pub fn energy_estimate(&self) -> Option<&str> {
+        match self.key_values.get("energy").map(String::as_str) {
+            Some(v @ ("low" | "high")) => Some(v),
+            _ => None,
+        }
+    }
+
     fn parse_key_date(&self, key: &str) -> Option<NaiveDate> {
         self.key_values
             .get(key)
@@ -1659,5 +1666,29 @@ Learn Rust +learning @coding id:task-003";
     fn test_time_estimate_none_when_invalid() {
         let item = Item::parse("Task time:xl", 1);
         assert_eq!(item.time_estimate(), None);
+    }
+
+    #[test]
+    fn test_energy_estimate_low() {
+        let item = Item::parse("Task energy:low", 1);
+        assert_eq!(item.energy_estimate(), Some("low"));
+    }
+
+    #[test]
+    fn test_energy_estimate_high() {
+        let item = Item::parse("Task energy:high", 1);
+        assert_eq!(item.energy_estimate(), Some("high"));
+    }
+
+    #[test]
+    fn test_energy_estimate_none_when_missing() {
+        let item = Item::parse("Task without energy", 1);
+        assert_eq!(item.energy_estimate(), None);
+    }
+
+    #[test]
+    fn test_energy_estimate_none_when_invalid() {
+        let item = Item::parse("Task energy:medium", 1);
+        assert_eq!(item.energy_estimate(), None);
     }
 }

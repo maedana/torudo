@@ -442,6 +442,18 @@ impl AppState {
         }
     }
 
+    pub fn handle_set_energy(&mut self, value: &str) {
+        let file = self.active_file();
+        let Some(id) = self.get_current_todo_id().map(str::to_string) else {
+            return;
+        };
+        debug!("Setting energy:{value} on {id}");
+        match set_key_value(&file, &id, "energy", value) {
+            Ok(()) => self.reload_todos(&file),
+            Err(e) => error!("Failed to set energy: {e}"),
+        }
+    }
+
     pub fn handle_open_urls(&mut self) {
         if let Some(todo) = self.get_current_todo() {
             let urls = extract_urls(&todo.description);
@@ -1303,6 +1315,50 @@ mod tests {
         );
         let content = fs::read_to_string(&todo_file).unwrap();
         assert!(!content.contains("time:short"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_handle_set_energy_sets_tag() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_energy_app");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(&todo_file, "Task one +work id:task-1\n").unwrap();
+
+        let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+
+        state.handle_set_energy("low");
+
+        let current = state.get_current_todo().expect("should have current todo");
+        assert_eq!(
+            current.key_values.get("energy").map(String::as_str),
+            Some("low")
+        );
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_handle_set_energy_replaces_existing() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_set_energy_replace_app");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(&todo_file, "Task +work id:task-1 energy:low\n").unwrap();
+
+        let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+
+        state.handle_set_energy("high");
+
+        let current = state.get_current_todo().expect("should have current todo");
+        assert_eq!(
+            current.key_values.get("energy").map(String::as_str),
+            Some("high")
+        );
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert!(!content.contains("energy:low"));
 
         fs::remove_dir_all(&temp_dir).ok();
     }

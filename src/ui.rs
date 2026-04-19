@@ -114,6 +114,18 @@ fn time_chip_span(todo: &Item) -> Option<Span<'static>> {
     ))
 }
 
+fn energy_chip_span(todo: &Item) -> Option<Span<'static>> {
+    let (glyph, color) = match todo.energy_estimate()? {
+        "low" => ("↓", Color::Green),
+        "high" => ("↑", Color::Red),
+        _ => return None,
+    };
+    Some(Span::styled(
+        glyph,
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
+    ))
+}
+
 fn calc_todo_height(todo: &Item, available_width: u16) -> u16 {
     let spans = create_todo_spans(todo);
     let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
@@ -309,10 +321,17 @@ pub fn draw_project_column(
             block = block.title(Line::from(hint_label_span(label)).right_aligned());
         }
         let badge_label = meta_label(todo, now);
-        let chip = time_chip_span(todo);
-        if badge_label.is_some() || chip.is_some() {
+        let energy_chip = energy_chip_span(todo);
+        let time_chip = time_chip_span(todo);
+        if badge_label.is_some() || energy_chip.is_some() || time_chip.is_some() {
             let mut spans: Vec<Span> = Vec::new();
-            if let Some(c) = chip {
+            if let Some(c) = energy_chip {
+                spans.push(c);
+                if time_chip.is_some() || badge_label.is_some() {
+                    spans.push(Span::raw(" "));
+                }
+            }
+            if let Some(c) = time_chip {
                 spans.push(c);
                 if badge_label.is_some() {
                     spans.push(Span::raw(" "));
@@ -336,26 +355,25 @@ pub fn draw_project_column(
 
 const MIN_PROJECT_COL_WIDTH: u16 = 32;
 
-fn compute_project_grid_rects(area: Rect, num_projects: usize, min_col_width: u16) -> Vec<Rect> {
+fn compute_project_grid_rects(area: Rect, num_projects: usize) -> Vec<Rect> {
     if num_projects == 0 {
         return vec![];
     }
-    let min_w = min_col_width.max(1);
-    let cols_per_row = ((area.width / min_w) as usize).max(1).min(num_projects);
+    let cols_per_row = ((area.width / MIN_PROJECT_COL_WIDTH) as usize)
+        .max(1)
+        .min(num_projects);
     let rows = num_projects.div_ceil(cols_per_row);
     let col_width = area.width / u16::try_from(cols_per_row).unwrap_or(1);
 
-    let row_constraints: Vec<Constraint> = (0..rows)
-        .map(|_| Constraint::Ratio(1, u32::try_from(rows).unwrap_or(1)))
-        .collect();
     let row_areas = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(row_constraints)
+        .constraints(vec![
+            Constraint::Ratio(1, u32::try_from(rows).unwrap_or(1));
+            rows
+        ])
         .split(area);
 
-    let col_constraints: Vec<Constraint> = (0..cols_per_row)
-        .map(|_| Constraint::Length(col_width))
-        .collect();
+    let col_constraints = vec![Constraint::Length(col_width); cols_per_row];
 
     let mut rects = Vec::with_capacity(num_projects);
     for (row_idx, row_area) in row_areas.iter().enumerate() {
@@ -384,7 +402,7 @@ fn draw_project_columns(f: &mut ratatui::Frame, state: &mut AppState, area: Rect
     }
 
     let today = chrono::Local::now().date_naive();
-    let columns = compute_project_grid_rects(area, num_columns, MIN_PROJECT_COL_WIDTH);
+    let columns = compute_project_grid_rects(area, num_columns);
 
     // Pre-pass only when hint mode is about to start; avoids per-frame double layout compute.
     if state.pending_enter_hint {
@@ -747,6 +765,38 @@ mod tests {
         assert!(time_chip_span(&item_with_time("xl")).is_none());
     }
 
+    fn item_with_energy(value: &str) -> Item {
+        let mut item = make_item("x");
+        item.key_values
+            .insert("energy".to_string(), value.to_string());
+        item
+    }
+
+    #[test]
+    fn energy_chip_span_low_is_green_down_arrow() {
+        let span = energy_chip_span(&item_with_energy("low")).expect("should have chip");
+        assert_eq!(span.content, "↓");
+        assert_eq!(span.style.fg, Some(Color::Green));
+        assert!(span.style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn energy_chip_span_high_is_red_up_arrow() {
+        let span = energy_chip_span(&item_with_energy("high")).expect("should have chip");
+        assert_eq!(span.content, "↑");
+        assert_eq!(span.style.fg, Some(Color::Red));
+    }
+
+    #[test]
+    fn energy_chip_span_none_without_tag() {
+        assert!(energy_chip_span(&make_item("x")).is_none());
+    }
+
+    #[test]
+    fn energy_chip_span_none_for_invalid_value() {
+        assert!(energy_chip_span(&item_with_energy("medium")).is_none());
+    }
+
     #[test]
     fn meta_label_elapsed_only_when_no_stats() {
         let mut item = make_item("x");
@@ -884,28 +934,23 @@ mod tests {
 
     #[test]
     fn grid_rects_empty_when_no_projects() {
-        let rects = compute_project_grid_rects(Rect::new(0, 0, 100, 50), 0, 32);
+        let rects = compute_project_grid_rects(Rect::new(0, 0, 100, 50), 0);
         assert!(rects.is_empty());
     }
 
     #[test]
     fn grid_rects_single_row_when_all_fit() {
-        // width=132, min=32 -> cols_per_row = 132/32 = 4. 4 projects -> 1 row.
-        let rects = compute_project_grid_rects(Rect::new(0, 0, 132, 50), 4, 32);
+        let rects = compute_project_grid_rects(Rect::new(0, 0, 132, 50), 4);
         assert_eq!(rects.len(), 4);
         let expected_w = 132 / 4;
-        assert_eq!(rects[0].width, expected_w);
-        assert_eq!(rects[0].height, 50);
-        assert_eq!(rects[0].x, 0);
-        assert_eq!(rects[0].y, 0);
+        assert_eq!(rects[0], Rect::new(0, 0, expected_w, 50));
         assert_eq!(rects[3].x, expected_w * 3);
         assert_eq!(rects[3].y, 0);
     }
 
     #[test]
     fn grid_rects_wraps_to_second_row() {
-        // width=132, min=32 -> 4 cols per row. 6 projects -> 2 rows (4+2).
-        let rects = compute_project_grid_rects(Rect::new(0, 0, 132, 50), 6, 32);
+        let rects = compute_project_grid_rects(Rect::new(0, 0, 132, 50), 6);
         assert_eq!(rects.len(), 6);
         let col_w = 132 / 4;
         let row_h = 50 / 2;
@@ -917,16 +962,14 @@ mod tests {
 
     #[test]
     fn grid_rects_fewer_projects_than_per_row_splits_evenly() {
-        // 3 projects on a wide terminal -> 3 equal cols, full width used.
-        let rects = compute_project_grid_rects(Rect::new(0, 0, 132, 50), 3, 32);
+        let rects = compute_project_grid_rects(Rect::new(0, 0, 132, 50), 3);
         assert_eq!(rects.len(), 3);
         assert_eq!(rects[0].width, 132 / 3);
     }
 
     #[test]
     fn grid_rects_narrow_terminal_single_column_per_row() {
-        // width=20 < min=32 -> 1 col per row, 3 projects -> 3 rows.
-        let rects = compute_project_grid_rects(Rect::new(0, 0, 20, 60), 3, 32);
+        let rects = compute_project_grid_rects(Rect::new(0, 0, 20, 60), 3);
         assert_eq!(rects.len(), 3);
         assert_eq!(rects[0].width, 20);
         assert_eq!(rects[0].height, 20);
