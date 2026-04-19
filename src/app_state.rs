@@ -1,6 +1,5 @@
 use crate::crmux::Plan;
 use crate::md_preview::{compute_meta, md_path};
-use crate::templates::{TemplateEntry, insert_template, load_templates};
 use crate::todo::{
     Item, add_missing_ids, append_todo, delete_todo, group_todos_by_project_owned,
     has_todo_with_id, load_todos, mark_complete, move_to_file, set_priority,
@@ -65,11 +64,6 @@ pub struct PlanModal {
 pub struct HintState {
     pub labels: HashMap<String, (usize, usize)>,
     pub buffer: String,
-}
-
-pub struct TemplateState {
-    pub entries: Vec<TemplateEntry>,
-    pub focused: usize,
 }
 
 impl HintState {
@@ -168,7 +162,6 @@ pub fn count_items_in_file(path: &str) -> usize {
         .unwrap_or(0)
 }
 
-#[allow(clippy::struct_excessive_bools)]
 pub struct AppState {
     pub todos: Vec<Item>,
     pub grouped_todos: HashMap<String, Vec<Item>>,
@@ -188,8 +181,6 @@ pub struct AppState {
     pub mode_counts: [usize; ViewMode::COUNT],
     pub hint: Option<HintState>,
     pub pending_enter_hint: bool,
-    pub template: Option<TemplateState>,
-    pub pending_enter_template: bool,
 }
 
 impl AppState {
@@ -253,8 +244,6 @@ impl AppState {
             mode_counts: [0; ViewMode::COUNT],
             hint: None,
             pending_enter_hint: false,
-            template: None,
-            pending_enter_template: false,
         };
         state.update_derived_state();
         state.refresh_mode_counts();
@@ -490,94 +479,6 @@ impl AppState {
     pub fn exit_hint_mode(&mut self) {
         self.hint = None;
         self.status_message = None;
-    }
-
-    fn templates_dir(&self) -> std::path::PathBuf {
-        std::path::PathBuf::from(&self.todotxt_dir).join("templates")
-    }
-
-    pub fn enter_template_mode(&mut self) {
-        let dir = self.templates_dir();
-        match load_templates(&dir) {
-            Ok(entries) if entries.is_empty() => {
-                self.status_message = Some("No templates found".to_string());
-                self.template = None;
-            }
-            Ok(entries) => {
-                self.template = Some(TemplateState {
-                    entries,
-                    focused: 0,
-                });
-                self.status_message = Some("Template: j/k move, Enter insert".to_string());
-            }
-            Err(_) => {
-                self.status_message = Some("No templates directory".to_string());
-                self.template = None;
-            }
-        }
-    }
-
-    pub fn exit_template_mode(&mut self) {
-        self.template = None;
-        self.status_message = None;
-    }
-
-    pub const fn template_focus_next(&mut self) {
-        if let Some(t) = self.template.as_mut()
-            && !t.entries.is_empty()
-        {
-            t.focused = (t.focused + 1) % t.entries.len();
-        }
-    }
-
-    pub const fn template_focus_prev(&mut self) {
-        if let Some(t) = self.template.as_mut()
-            && !t.entries.is_empty()
-        {
-            let len = t.entries.len();
-            t.focused = (t.focused + len - 1) % len;
-        }
-    }
-
-    pub fn insert_focused_template(&mut self) {
-        let Some(t) = self.template.as_ref() else {
-            return;
-        };
-        let Some(entry) = t.entries.get(t.focused).cloned() else {
-            self.exit_template_mode();
-            return;
-        };
-        let Some(todo_id) = self.get_current_todo_id().map(str::to_string) else {
-            self.status_message = Some("No todo selected".to_string());
-            self.template = None;
-            return;
-        };
-
-        // Prefer delegating to nvim via `:$read` so unsaved buffer edits stay
-        // intact and we don't race the on-disk file. Escape spaces so vim's
-        // command parser keeps the path as a single argument.
-        let abs = std::fs::canonicalize(&entry.path)
-            .map_or_else(|_| entry.path.clone(), |p| p.to_string_lossy().into_owned());
-        let escaped = abs.replace(' ', "\\ ");
-        let read_cmd = format!("$read {escaped}");
-        if self.send_nvim_rpc_command(&read_cmd).is_ok() {
-            self.status_message = Some(format!("Inserted into buffer (unsaved): {}", entry.name));
-            self.template = None;
-            return;
-        }
-
-        // Fallback: nvim unreachable, write directly to disk.
-        let path = md_path(&self.todotxt_dir, &todo_id);
-        match insert_template(std::path::Path::new(&path), &entry.content) {
-            Ok(()) => {
-                self.status_message = Some(format!("Inserted template: {}", entry.name));
-            }
-            Err(e) => {
-                error!("Failed to insert template: {e}");
-                self.status_message = Some(format!("Failed to insert template: {e}"));
-            }
-        }
-        self.template = None;
     }
 
     pub fn type_hint_char(&mut self, c: char) -> HintOutcome {
@@ -2434,126 +2335,5 @@ mod tests {
         assert_eq!(hint.cell_label(0, 0), Some("a"));
         assert_eq!(hint.cell_label(1, 0), Some("b"));
         assert_eq!(hint.cell_label(2, 0), None);
-    }
-
-    fn make_state_with_todotxt_dir(dir: &std::path::Path) -> AppState {
-        let mut state = create_test_state(create_test_todos());
-        state.todotxt_dir = dir.to_string_lossy().into_owned();
-        // Point nvim_socket at a non-existent path so template insertion tests
-        // exercise the disk fallback rather than any real nvim running locally.
-        state.nvim_socket = dir.join("unreachable.sock").to_string_lossy().into_owned();
-        state
-    }
-
-    fn write_template(dir: &std::path::Path, name: &str, content: &str) {
-        let tpl_dir = dir.join("templates");
-        std::fs::create_dir_all(&tpl_dir).unwrap();
-        std::fs::write(tpl_dir.join(name), content).unwrap();
-    }
-
-    #[test]
-    fn test_enter_template_mode_missing_dir_sets_status() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut state = make_state_with_todotxt_dir(tmp.path());
-        state.enter_template_mode();
-        assert!(state.template.is_none());
-        assert_eq!(
-            state.status_message.as_deref(),
-            Some("No templates directory")
-        );
-    }
-
-    #[test]
-    fn test_enter_template_mode_empty_dir_sets_status() {
-        let tmp = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(tmp.path().join("templates")).unwrap();
-        let mut state = make_state_with_todotxt_dir(tmp.path());
-        state.enter_template_mode();
-        assert!(state.template.is_none());
-        assert_eq!(state.status_message.as_deref(), Some("No templates found"));
-    }
-
-    #[test]
-    fn test_enter_template_mode_loads_entries_sorted() {
-        let tmp = tempfile::tempdir().unwrap();
-        write_template(tmp.path(), "zebra.md", "z\n");
-        write_template(tmp.path(), "alpha.md", "a\n");
-        let mut state = make_state_with_todotxt_dir(tmp.path());
-        state.enter_template_mode();
-        let t = state.template.as_ref().expect("template should be set");
-        assert_eq!(t.entries.len(), 2);
-        assert_eq!(t.entries[0].name, "alpha");
-        assert_eq!(t.entries[1].name, "zebra");
-        assert_eq!(t.focused, 0);
-    }
-
-    #[test]
-    fn test_template_focus_next_wraps() {
-        let tmp = tempfile::tempdir().unwrap();
-        write_template(tmp.path(), "a.md", "a");
-        write_template(tmp.path(), "b.md", "b");
-        let mut state = make_state_with_todotxt_dir(tmp.path());
-        state.enter_template_mode();
-        state.template_focus_next();
-        assert_eq!(state.template.as_ref().unwrap().focused, 1);
-        state.template_focus_next();
-        assert_eq!(state.template.as_ref().unwrap().focused, 0);
-    }
-
-    #[test]
-    fn test_template_focus_prev_wraps() {
-        let tmp = tempfile::tempdir().unwrap();
-        write_template(tmp.path(), "a.md", "a");
-        write_template(tmp.path(), "b.md", "b");
-        let mut state = make_state_with_todotxt_dir(tmp.path());
-        state.enter_template_mode();
-        state.template_focus_prev();
-        assert_eq!(state.template.as_ref().unwrap().focused, 1);
-    }
-
-    #[test]
-    fn test_exit_template_mode_clears_state_and_status() {
-        let tmp = tempfile::tempdir().unwrap();
-        write_template(tmp.path(), "a.md", "a");
-        let mut state = make_state_with_todotxt_dir(tmp.path());
-        state.enter_template_mode();
-        state.exit_template_mode();
-        assert!(state.template.is_none());
-        assert!(state.status_message.is_none());
-    }
-
-    #[test]
-    fn test_insert_focused_template_appends_to_md() {
-        let tmp = tempfile::tempdir().unwrap();
-        write_template(tmp.path(), "design.md", "## Design\n- [ ] spec\n");
-        std::fs::create_dir_all(tmp.path().join("todos")).unwrap();
-        let mut state = make_state_with_todotxt_dir(tmp.path());
-        let todo_id = state.get_current_todo_id().unwrap().to_string();
-        let md = tmp.path().join("todos").join(format!("{todo_id}.md"));
-        std::fs::write(&md, "# Head\n").unwrap();
-
-        state.enter_template_mode();
-        state.insert_focused_template();
-
-        assert!(state.template.is_none());
-        let got = std::fs::read_to_string(&md).unwrap();
-        assert_eq!(got, "# Head\n\n## Design\n- [ ] spec\n");
-        assert!(state.status_message.as_deref().unwrap().contains("design"));
-    }
-
-    #[test]
-    fn test_insert_focused_template_creates_md_when_missing() {
-        let tmp = tempfile::tempdir().unwrap();
-        write_template(tmp.path(), "design.md", "body\n");
-        std::fs::create_dir_all(tmp.path().join("todos")).unwrap();
-        let mut state = make_state_with_todotxt_dir(tmp.path());
-        let todo_id = state.get_current_todo_id().unwrap().to_string();
-        let md = tmp.path().join("todos").join(format!("{todo_id}.md"));
-        assert!(!md.exists());
-
-        state.enter_template_mode();
-        state.insert_focused_template();
-
-        assert_eq!(std::fs::read_to_string(&md).unwrap(), "body\n");
     }
 }
