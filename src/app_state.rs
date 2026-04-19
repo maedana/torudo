@@ -157,9 +157,7 @@ pub fn generate_hint_labels(n: usize) -> Vec<String> {
 }
 
 pub fn count_items_in_file(path: &str) -> usize {
-    fs::read_to_string(path)
-        .map(|c| c.lines().filter(|l| !l.trim().is_empty()).count())
-        .unwrap_or(0)
+    fs::read_to_string(path).map_or(0, |c| c.lines().filter(|l| !l.trim().is_empty()).count())
 }
 
 pub struct AppState {
@@ -359,30 +357,26 @@ impl AppState {
                     }
                 }
             }
-            'h' => {
-                if !visible.is_empty() {
-                    let len = visible.len();
-                    let new_col = (self.current_column + len - 1) % len;
-                    if new_col != self.current_column {
-                        self.current_column = new_col;
-                        self.selected_in_column = 0;
-                        self.scroll_offset = 0;
-                        if let Some(todo_id) = self.get_current_todo_id() {
-                            self.send_vim_command(todo_id);
-                        }
+            'h' if !visible.is_empty() => {
+                let len = visible.len();
+                let new_col = (self.current_column + len - 1) % len;
+                if new_col != self.current_column {
+                    self.current_column = new_col;
+                    self.selected_in_column = 0;
+                    self.scroll_offset = 0;
+                    if let Some(todo_id) = self.get_current_todo_id() {
+                        self.send_vim_command(todo_id);
                     }
                 }
             }
-            'l' => {
-                if !visible.is_empty() {
-                    let new_col = (self.current_column + 1) % visible.len();
-                    if new_col != self.current_column {
-                        self.current_column = new_col;
-                        self.selected_in_column = 0;
-                        self.scroll_offset = 0;
-                        if let Some(todo_id) = self.get_current_todo_id() {
-                            self.send_vim_command(todo_id);
-                        }
+            'l' if !visible.is_empty() => {
+                let new_col = (self.current_column + 1) % visible.len();
+                if new_col != self.current_column {
+                    self.current_column = new_col;
+                    self.selected_in_column = 0;
+                    self.scroll_offset = 0;
+                    if let Some(todo_id) = self.get_current_todo_id() {
+                        self.send_vim_command(todo_id);
                     }
                 }
             }
@@ -664,15 +658,11 @@ impl AppState {
             return;
         };
         match key_char {
-            'j' => {
-                if modal.selected < modal.plans.len().saturating_sub(1) {
-                    modal.selected += 1;
-                }
+            'j' if modal.selected < modal.plans.len().saturating_sub(1) => {
+                modal.selected += 1;
             }
-            'k' => {
-                if modal.selected > 0 {
-                    modal.selected -= 1;
-                }
+            'k' if modal.selected > 0 => {
+                modal.selected -= 1;
             }
             ' ' => {
                 let idx = modal.selected;

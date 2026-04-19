@@ -20,7 +20,7 @@ fn read_mtime<P: AsRef<Path>>(path: P) -> Option<SystemTime> {
 }
 
 pub fn format_elapsed(mtime: SystemTime, now: SystemTime) -> String {
-    let secs = now.duration_since(mtime).map(|d| d.as_secs()).unwrap_or(0);
+    let secs = now.duration_since(mtime).map_or(0, |d| d.as_secs());
     if secs < 60 {
         format!("{secs:2}s")
     } else if secs < 3600 {
@@ -105,7 +105,7 @@ mod tests {
     #[test]
     fn format_elapsed_future_mtime_returns_zero() {
         let now = SystemTime::now();
-        let future = now + Duration::from_secs(60);
+        let future = now + Duration::from_mins(1);
         assert_eq!(format_elapsed(future, now), " 0s");
     }
 
