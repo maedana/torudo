@@ -320,25 +320,21 @@ pub fn draw_project_column(
         if let Some(label) = hint.and_then(|h| h.cell_label(col_idx, actual_idx)) {
             block = block.title(Line::from(hint_label_span(label)).right_aligned());
         }
-        let badge_label = meta_label(todo, now);
-        let energy_chip = energy_chip_span(todo);
-        let time_chip = time_chip_span(todo);
-        if badge_label.is_some() || energy_chip.is_some() || time_chip.is_some() {
-            let mut spans: Vec<Span> = Vec::new();
-            if let Some(c) = energy_chip {
-                spans.push(c);
-                if time_chip.is_some() || badge_label.is_some() {
+        let parts: Vec<Span> = [
+            energy_chip_span(todo),
+            time_chip_span(todo),
+            meta_label(todo, now).map(|l| Span::styled(l, Style::default().fg(MD_META_FG))),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        if !parts.is_empty() {
+            let mut spans: Vec<Span> = Vec::with_capacity(parts.len() * 2 - 1);
+            for (i, part) in parts.into_iter().enumerate() {
+                if i > 0 {
                     spans.push(Span::raw(" "));
                 }
-            }
-            if let Some(c) = time_chip {
-                spans.push(c);
-                if badge_label.is_some() {
-                    spans.push(Span::raw(" "));
-                }
-            }
-            if let Some(label) = badge_label {
-                spans.push(Span::styled(label, Style::default().fg(MD_META_FG)));
+                spans.push(part);
             }
             block = block.title_bottom(Line::from(spans).right_aligned());
         }
