@@ -111,6 +111,13 @@ impl Item {
         self.due_date().is_some_and(|d| d <= today)
     }
 
+    pub fn time_estimate(&self) -> Option<&str> {
+        match self.key_values.get("time").map(String::as_str) {
+            Some(v @ ("short" | "medium" | "long")) => Some(v),
+            _ => None,
+        }
+    }
+
     fn parse_key_date(&self, key: &str) -> Option<NaiveDate> {
         self.key_values
             .get(key)
@@ -1622,5 +1629,35 @@ Learn Rust +learning @coding id:task-003";
         let item = Item::parse("Task without due", 1);
         let today = NaiveDate::from_ymd_opt(2026, 4, 14).unwrap();
         assert!(!item.is_overdue(today));
+    }
+
+    #[test]
+    fn test_time_estimate_short() {
+        let item = Item::parse("Task time:short", 1);
+        assert_eq!(item.time_estimate(), Some("short"));
+    }
+
+    #[test]
+    fn test_time_estimate_medium() {
+        let item = Item::parse("Task time:medium", 1);
+        assert_eq!(item.time_estimate(), Some("medium"));
+    }
+
+    #[test]
+    fn test_time_estimate_long() {
+        let item = Item::parse("Task time:long", 1);
+        assert_eq!(item.time_estimate(), Some("long"));
+    }
+
+    #[test]
+    fn test_time_estimate_none_when_missing() {
+        let item = Item::parse("Task without time", 1);
+        assert_eq!(item.time_estimate(), None);
+    }
+
+    #[test]
+    fn test_time_estimate_none_when_invalid() {
+        let item = Item::parse("Task time:xl", 1);
+        assert_eq!(item.time_estimate(), None);
     }
 }

@@ -101,6 +101,19 @@ fn meta_label(todo: &Item, now: SystemTime) -> Option<String> {
     })
 }
 
+fn time_chip_span(todo: &Item) -> Option<Span<'static>> {
+    let (letter, color) = match todo.time_estimate()? {
+        "short" => ("S", Color::Green),
+        "medium" => ("M", Color::Yellow),
+        "long" => ("L", Color::Red),
+        _ => return None,
+    };
+    Some(Span::styled(
+        letter,
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
+    ))
+}
+
 fn calc_todo_height(todo: &Item, available_width: u16) -> u16 {
     let spans = create_todo_spans(todo);
     let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
@@ -295,10 +308,20 @@ pub fn draw_project_column(
         if let Some(label) = hint.and_then(|h| h.cell_label(col_idx, actual_idx)) {
             block = block.title(Line::from(hint_label_span(label)).right_aligned());
         }
-        if let Some(label) = meta_label(todo, now) {
-            block = block.title_bottom(
-                Line::from(Span::styled(label, Style::default().fg(MD_META_FG))).right_aligned(),
-            );
+        let badge_label = meta_label(todo, now);
+        let chip = time_chip_span(todo);
+        if badge_label.is_some() || chip.is_some() {
+            let mut spans: Vec<Span> = Vec::new();
+            if let Some(c) = chip {
+                spans.push(c);
+                if badge_label.is_some() {
+                    spans.push(Span::raw(" "));
+                }
+            }
+            if let Some(label) = badge_label {
+                spans.push(Span::styled(label, Style::default().fg(MD_META_FG)));
+            }
+            block = block.title_bottom(Line::from(spans).right_aligned());
         }
         let mut todo_paragraph = Paragraph::new(wrapped_lines).block(block);
         if is_pending {
@@ -651,6 +674,45 @@ mod tests {
     fn meta_label_none_when_no_meta() {
         let item = make_item("x");
         assert!(meta_label(&item, SystemTime::now()).is_none());
+    }
+
+    fn item_with_time(value: &str) -> Item {
+        let mut item = make_item("x");
+        item.key_values
+            .insert("time".to_string(), value.to_string());
+        item
+    }
+
+    #[test]
+    fn time_chip_span_short_is_green_s() {
+        let span = time_chip_span(&item_with_time("short")).expect("should have chip");
+        assert_eq!(span.content, "S");
+        assert_eq!(span.style.fg, Some(Color::Green));
+        assert!(span.style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn time_chip_span_medium_is_yellow_m() {
+        let span = time_chip_span(&item_with_time("medium")).expect("should have chip");
+        assert_eq!(span.content, "M");
+        assert_eq!(span.style.fg, Some(Color::Yellow));
+    }
+
+    #[test]
+    fn time_chip_span_long_is_red_l() {
+        let span = time_chip_span(&item_with_time("long")).expect("should have chip");
+        assert_eq!(span.content, "L");
+        assert_eq!(span.style.fg, Some(Color::Red));
+    }
+
+    #[test]
+    fn time_chip_span_none_without_tag() {
+        assert!(time_chip_span(&make_item("x")).is_none());
+    }
+
+    #[test]
+    fn time_chip_span_none_for_invalid_value() {
+        assert!(time_chip_span(&item_with_time("xl")).is_none());
     }
 
     #[test]
