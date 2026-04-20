@@ -487,6 +487,12 @@ fn draw_tab_bar(f: &mut ratatui::Frame, state: &AppState, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         );
 
+    let version_label = format!("torudo v{}  ", env!("CARGO_PKG_VERSION"));
+    let version_width = u16::try_from(unicode_width::UnicodeWidthStr::width(
+        version_label.as_str(),
+    ))
+    .unwrap_or(0);
+
     let filter_spans = if state.view_mode == ViewMode::Todo
         && let Some(f) = state.current_filter.as_ref()
         && f.is_active()
@@ -496,23 +502,28 @@ fn draw_tab_bar(f: &mut ratatui::Frame, state: &AppState, area: Rect) {
         None
     };
 
-    if let Some(spans) = filter_spans {
-        let chip_width = u16::try_from(
+    let mut constraints = vec![Constraint::Length(version_width), Constraint::Min(0)];
+    let chip_width = filter_spans.as_ref().map(|spans| {
+        u16::try_from(
             spans
                 .iter()
                 .map(|s| unicode_width::UnicodeWidthStr::width(s.content.as_ref()))
                 .sum::<usize>(),
         )
-        .unwrap_or(0);
-        let chunks =
-            Layout::horizontal([Constraint::Min(0), Constraint::Length(chip_width)]).split(area);
-        f.render_widget(tabs, chunks[0]);
+        .unwrap_or(0)
+    });
+    if let Some(w) = chip_width {
+        constraints.push(Constraint::Length(w));
+    }
+
+    let chunks = Layout::horizontal(constraints).split(area);
+    f.render_widget(Paragraph::new(version_label), chunks[0]);
+    f.render_widget(tabs, chunks[1]);
+    if let Some(spans) = filter_spans {
         f.render_widget(
             Paragraph::new(Line::from(spans)).alignment(Alignment::Right),
-            chunks[1],
+            chunks[2],
         );
-    } else {
-        f.render_widget(tabs, area);
     }
 }
 
@@ -536,14 +547,13 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
 
     draw_project_columns(f, state, chunks[1], now);
 
-    let version = env!("CARGO_PKG_VERSION");
     let footer_spans: Vec<Span<'_>> = if let Some(ref msg) = state.status_message {
         vec![Span::styled(msg.clone(), Style::default().fg(Color::Green))]
     } else {
-        let mut spans = vec![Span::raw(format!("torudo v{version}"))];
+        let mut spans: Vec<Span<'_>> = Vec::new();
         if let Some(ref v) = state.update_available {
             spans.push(Span::styled(
-                format!(" ({v} available! Run: torudo update)"),
+                format!("({v} available! Run: torudo update) "),
                 Style::default().fg(Color::Yellow),
             ));
         }
@@ -555,7 +565,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
             .map(|(key, desc)| format!("{key}:{desc}"))
             .collect::<Vec<_>>()
             .join(" │ ");
-        spans.push(Span::raw(format!(" │ {footer_str}")));
+        spans.push(Span::raw(footer_str));
         spans
     };
     let footer = Paragraph::new(Line::from(footer_spans))

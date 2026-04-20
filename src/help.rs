@@ -26,7 +26,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         waiting_too: false,
         requires_claude: false,
         footer: Some("Nav"),
-        footer_key: None,
+        footer_key: Some("hjkl/Tab/S-Tab"),
     },
     HelpEntry {
         key: "Tab",
@@ -35,8 +35,8 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         todo_only: false,
         waiting_too: false,
         requires_claude: false,
-        footer: Some("Mode"),
-        footer_key: Some("Tab/S-Tab"),
+        footer: None,
+        footer_key: None,
     },
     HelpEntry {
         key: "S-Tab",
@@ -95,7 +95,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         todo_only: true,
         waiting_too: false,
         requires_claude: false,
-        footer: Some("Filter"),
+        footer: Some("Now"),
         footer_key: None,
     },
     HelpEntry {
@@ -431,15 +431,15 @@ mod tests {
     #[test]
     fn test_footer_entries_contains_short_labels() {
         let entries = footer_entries(true, false, true);
-        assert!(entries.contains(&("hjkl", "Nav")));
+        assert!(entries.contains(&("hjkl/Tab/S-Tab", "Nav")));
         assert!(entries.contains(&("x", "Done")));
         assert!(entries.contains(&("o", "URL")));
         assert!(entries.contains(&("s", "Send")));
-        assert!(entries.contains(&("Tab/S-Tab", "Mode")));
         assert!(entries.contains(&("c", "Claude")));
         assert!(entries.contains(&("t", "Tag")));
         assert!(entries.contains(&("?", "Help")));
         assert!(entries.contains(&("q", "Quit")));
+        assert!(!entries.iter().any(|(_, desc)| *desc == "Mode"));
     }
 
     #[test]
@@ -459,17 +459,14 @@ mod tests {
     }
 
     #[test]
-    fn test_footer_entries_tab_mode_placed_right_after_hjkl() {
-        // Tab/S-Tab is also a navigation key, so it should sit adjacent to hjkl
+    fn test_footer_entries_nav_merged_into_single_entry() {
+        // Nav+Mode are collapsed into a single `hjkl/Tab/S-Tab:Nav` footer entry.
         let entries = footer_entries(true, false, true);
-        let keys: Vec<&str> = entries.iter().map(|(k, _)| *k).collect();
-        let hjkl_pos = keys.iter().position(|k| *k == "hjkl").unwrap();
-        let tab_pos = keys.iter().position(|k| *k == "Tab/S-Tab").unwrap();
-        assert_eq!(
-            tab_pos,
-            hjkl_pos + 1,
-            "Tab/S-Tab should come right after hjkl, got keys: {keys:?}"
-        );
+        let nav_count = entries
+            .iter()
+            .filter(|(k, _)| *k == "hjkl/Tab/S-Tab")
+            .count();
+        assert_eq!(nav_count, 1);
     }
 
     #[test]
