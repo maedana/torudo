@@ -499,20 +499,22 @@ impl AppState {
                 time: time.map(String::from),
             })
         };
-        self.current_column = 0;
-        self.selected_in_column = 0;
-        self.scroll_offset = 0;
+        self.reset_navigation();
         self.update_derived_state();
     }
 
     pub fn handle_clear_filter(&mut self) {
         if self.current_filter.is_some() {
             self.current_filter = None;
-            self.current_column = 0;
-            self.selected_in_column = 0;
-            self.scroll_offset = 0;
+            self.reset_navigation();
             self.update_derived_state();
         }
+    }
+
+    const fn reset_navigation(&mut self) {
+        self.current_column = 0;
+        self.selected_in_column = 0;
+        self.scroll_offset = 0;
     }
 
     pub fn handle_open_urls(&mut self) {
@@ -629,9 +631,7 @@ impl AppState {
             return;
         }
         self.reload_todos(&file);
-        self.current_column = 0;
-        self.selected_in_column = 0;
-        self.scroll_offset = 0;
+        self.reset_navigation();
     }
 
     pub fn handle_send_to(&mut self, target_mode: ViewMode) {

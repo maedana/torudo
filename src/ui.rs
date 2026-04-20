@@ -134,13 +134,10 @@ fn energy_chip_span(todo: &Item) -> Option<Span<'static>> {
     energy_value_span(todo.energy_estimate()?)
 }
 
+const FILTER_BRACKET_STYLE: Style = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+
 fn filter_chip_spans(filter: &NowFilter) -> Vec<Span<'static>> {
-    let mut spans: Vec<Span<'static>> = vec![Span::styled(
-        "[Filter",
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    )];
+    let mut spans: Vec<Span<'static>> = vec![Span::styled("[Filter", FILTER_BRACKET_STYLE)];
     if let Some(e) = filter.energy.as_deref()
         && let Some(s) = energy_value_span(e)
     {
@@ -153,12 +150,7 @@ fn filter_chip_spans(filter: &NowFilter) -> Vec<Span<'static>> {
         spans.push(Span::raw(" "));
         spans.push(s);
     }
-    spans.push(Span::styled(
-        "]",
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    ));
+    spans.push(Span::styled("]", FILTER_BRACKET_STYLE));
     spans
 }
 
