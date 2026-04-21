@@ -2766,7 +2766,6 @@ mod tests {
     fn toggle_layout_updates_grouped_todos_to_pick_columns() {
         let mut state = create_test_state(create_test_todos());
         state.handle_toggle_layout();
-        // create_test_todos has 1 priority=A todo, all energy unset -> columns: (A), 未設定
         assert!(state.project_names.contains(&"(A)".to_string()));
         assert!(state.project_names.contains(&"未設定".to_string()));
         assert!(!state.project_names.contains(&"work".to_string()));

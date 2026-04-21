@@ -513,27 +513,32 @@ pub const PICK_HIGH_COLUMN: &str = "High";
 pub const PICK_LOW_COLUMN: &str = "Low";
 pub const PICK_UNSET_COLUMN: &str = "未設定";
 
-const PICK_COLUMN_ORDER: &[&str] = &[
-    PICK_A_COLUMN,
-    PICK_HIGH_COLUMN,
-    PICK_LOW_COLUMN,
-    PICK_UNSET_COLUMN,
+// (column name, whether shorter time estimates should sort first).
+// `None` means no time-based ordering — only threshold-pending demotion applies.
+const PICK_COLUMN_ORDER: &[(&str, Option<bool>)] = &[
+    (PICK_A_COLUMN, None),
+    (PICK_HIGH_COLUMN, Some(false)),
+    (PICK_LOW_COLUMN, Some(true)),
+    (PICK_UNSET_COLUMN, Some(false)),
 ];
 
-fn time_rank_long_first(t: Option<&str>) -> u8 {
+fn time_rank(t: Option<&str>, short_first: bool) -> u8 {
     match t {
-        Some("long") => 0,
+        Some("long") => {
+            if short_first {
+                2
+            } else {
+                0
+            }
+        }
         Some("medium") => 1,
-        Some("short") => 2,
-        _ => 3,
-    }
-}
-
-fn time_rank_short_first(t: Option<&str>) -> u8 {
-    match t {
-        Some("short") => 0,
-        Some("medium") => 1,
-        Some("long") => 2,
+        Some("short") => {
+            if short_first {
+                0
+            } else {
+                2
+            }
+        }
         _ => 3,
     }
 }
@@ -551,57 +556,32 @@ pub fn group_todos_for_pick(
                 .or_default()
                 .push(todo.clone());
         }
-        match todo.energy_estimate() {
-            Some("high") => grouped
-                .entry(PICK_HIGH_COLUMN.to_string())
-                .or_default()
-                .push(todo.clone()),
-            Some("low") => grouped
-                .entry(PICK_LOW_COLUMN.to_string())
-                .or_default()
-                .push(todo.clone()),
-            _ => grouped
-                .entry(PICK_UNSET_COLUMN.to_string())
-                .or_default()
-                .push(todo.clone()),
-        }
+        let energy_col = match todo.energy_estimate() {
+            Some("high") => PICK_HIGH_COLUMN,
+            Some("low") => PICK_LOW_COLUMN,
+            _ => PICK_UNSET_COLUMN,
+        };
+        grouped
+            .entry(energy_col.to_string())
+            .or_default()
+            .push(todo.clone());
     }
 
-    // Sort each column. Threshold-pending items always sink to the bottom
-    // regardless of the time/energy ordering so that items whose `t:` date
-    // is still in the future don't crowd the top of the Pick columns.
-    if let Some(col) = grouped.get_mut(PICK_A_COLUMN) {
-        col.sort_by_key(|t| t.is_threshold_pending(today));
-    }
-    if let Some(col) = grouped.get_mut(PICK_HIGH_COLUMN) {
-        col.sort_by_key(|t| {
-            (
-                t.is_threshold_pending(today),
-                time_rank_long_first(t.time_estimate()),
-            )
-        });
-    }
-    if let Some(col) = grouped.get_mut(PICK_LOW_COLUMN) {
-        col.sort_by_key(|t| {
-            (
-                t.is_threshold_pending(today),
-                time_rank_short_first(t.time_estimate()),
-            )
-        });
-    }
-    if let Some(col) = grouped.get_mut(PICK_UNSET_COLUMN) {
-        col.sort_by_key(|t| {
-            (
-                t.is_threshold_pending(today),
-                time_rank_long_first(t.time_estimate()),
-            )
-        });
+    // Threshold-pending items sink below active ones in every column so that
+    // `t:` dates still in the future don't crowd the top of the Pick list.
+    for (col_name, short_first) in PICK_COLUMN_ORDER {
+        if let Some(col) = grouped.get_mut(*col_name) {
+            col.sort_by_cached_key(|t| {
+                let time_key = short_first.map_or(0, |sf| time_rank(t.time_estimate(), sf));
+                (t.is_threshold_pending(today), time_key)
+            });
+        }
     }
 
     let names: Vec<String> = PICK_COLUMN_ORDER
         .iter()
-        .filter(|c| grouped.contains_key(**c))
-        .map(|s| (*s).to_string())
+        .filter(|(c, _)| grouped.contains_key(*c))
+        .map(|(s, _)| (*s).to_string())
         .collect();
 
     (names, grouped)
@@ -1013,7 +993,7 @@ Learn Rust +learning @coding id:rust-001";
 
     #[test]
     fn group_todos_for_pick_pending_threshold_items_sink_to_bottom_of_column() {
-        let today = NaiveDate::from_ymd_opt(2026, 4, 21).unwrap();
+        let today = pick_test_today();
         let mut pending = make_pick_item("pending", None, Some("high"), Some("long"));
         pending
             .key_values
@@ -1029,7 +1009,7 @@ Learn Rust +learning @coding id:rust-001";
 
     #[test]
     fn group_todos_for_pick_pending_threshold_in_a_column_goes_bottom() {
-        let today = NaiveDate::from_ymd_opt(2026, 4, 21).unwrap();
+        let today = pick_test_today();
         let mut pending = make_pick_item("p-a", Some('A'), None, None);
         pending
             .key_values
