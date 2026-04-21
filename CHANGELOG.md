@@ -8,12 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **`ti` prefix for time estimate**: `tis`/`tim`/`til` sets the selected todo's `time:` tag to `short`/`medium`/`long`. Existing `time:*` is replaced. Reserved namespace: `t` prefix is for tag operations; second letter = target tag key initial (future: `tt` threshold, `td` due). Works in all modes where `p`/`s` work
-- **S/M/L time chip on Todo cards**: Cards now show a colored `S`/`M`/`L` chip at the bottom-right (left of the existing `{done}/{total} {elapsed}` badge) when `time:` is set. Colors: green/yellow/red for short/medium/long
-- **`te` prefix for energy level (GTD)**: `tel`/`teh` sets the selected todo's `energy:` tag to `low`/`high`. Existing `energy:*` is replaced. Only two levels (no medium). Works in all modes where `p`/`s` work
-- **↓/↑ energy chip on Todo cards**: Cards now show a colored `↓`/`↑` chip (green for `energy:low`, red for `energy:high`) at the bottom-right, left of the S/M/L time chip
-- **`n` prefix for Now-filter (GTD, Todo mode only)**: `n` → energy (`l`/`h`/`a`) → time (`s`/`m`/`l`/`a`) narrows the Todo view to items strictly matching the specified attributes. `a` = any (no constraint on that axis). `nc` clears the filter (option only shown in submenu while filter is active). Filter only applies in Todo mode; state persists when switching away and back
-- **Active filter chip on tab bar**: When a filter is active in Todo mode, a `[Filter ↓ S]` chip is right-aligned on the tab bar using the same glyphs as the card chips
+- **`t` prefix for GTD tags**: `ti{s,m,l}` sets `time:short/medium/long`, `te{l,h}` sets `energy:low/high`. Existing values are replaced. Namespace reserved for future tag ops (e.g. `tt` threshold, `td` due)
+- **GTD chips on Todo cards**: Colored `S`/`M`/`L` (time) and `↓`/`↑` (energy) chips at the card's bottom-right, left of the `{done}/{total} {elapsed}` badge
+- **`n` Now-filter (Todo mode)**: `n` → energy (`l`/`h`/`a`) → time (`s`/`m`/`l`/`a`) narrows the view to matching items; `a` = any, `nc` clears. A `[Filter ↓ S]` chip appears on the tab bar while active
+- **`v` Pick layout (Todo mode)**: Toggles between Project and Pick columns — `(A)` / `High` (L→M→S) / `Low` (S→M→L) / `未設定`. Priority-A items also appear in the matching energy column. Threshold-pending items sink to each column's bottom. Composes with `n` filter. A `[Pick]` chip appears on the tab bar while active
 
 ## [0.14.0] - 2026-04-17
 
