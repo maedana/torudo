@@ -7,6 +7,7 @@ A terminal-based todo.txt viewer and manager written in Rust with TUI interface.
 ## Features
 
 - Project-based column view with priority sorting
+- **Pick layout** (Todo mode, `v` to toggle): groups todos into `(A)` / `High` / `Low` / `No Energy` columns for GTD next-action pickup; composes with the `n` energy/time filter
 - **GTD modes** (Inbox, Todo, Waiting, Ref, Someday) switchable with `Tab` / `Shift+Tab`
 - **Vimium-like `f` jump**: press `f` to overlay short labels on every visible card and jump selection with one keystroke
 - **External capture** via `torudo inbox add "..."` — add items to the inbox from scripts, launchers, or editor bindings without the TUI running
