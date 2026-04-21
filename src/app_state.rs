@@ -2767,7 +2767,7 @@ mod tests {
         let mut state = create_test_state(create_test_todos());
         state.handle_toggle_layout();
         assert!(state.project_names.contains(&"(A)".to_string()));
-        assert!(state.project_names.contains(&"未設定".to_string()));
+        assert!(state.project_names.contains(&"No Energy".to_string()));
         assert!(!state.project_names.contains(&"work".to_string()));
     }
 

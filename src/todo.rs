@@ -511,7 +511,7 @@ pub fn append_todo(file_path: &str, line: &str) -> Result<(), Box<dyn Error>> {
 pub const PICK_A_COLUMN: &str = "(A)";
 pub const PICK_HIGH_COLUMN: &str = "High";
 pub const PICK_LOW_COLUMN: &str = "Low";
-pub const PICK_UNSET_COLUMN: &str = "未設定";
+pub const PICK_UNSET_COLUMN: &str = "No Energy";
 
 // (column name, whether shorter time estimates should sort first).
 // `None` means no time-based ordering — only threshold-pending demotion applies.
@@ -921,8 +921,8 @@ Learn Rust +learning @coding id:rust-001";
         assert_eq!(grouped.get("High").unwrap()[0].description, "h1");
         assert_eq!(grouped.get("Low").unwrap().len(), 1);
         assert_eq!(grouped.get("Low").unwrap()[0].description, "l1");
-        assert_eq!(grouped.get("未設定").unwrap().len(), 1);
-        assert_eq!(grouped.get("未設定").unwrap()[0].description, "u1");
+        assert_eq!(grouped.get("No Energy").unwrap().len(), 1);
+        assert_eq!(grouped.get("No Energy").unwrap()[0].description, "u1");
     }
 
     #[test]
@@ -975,7 +975,7 @@ Learn Rust +learning @coding id:rust-001";
             make_pick_item("u2", Some('B'), None, None),
         ];
         let (_names, grouped) = group_todos_for_pick(&todos, today);
-        let unset = grouped.get("未設定").unwrap();
+        let unset = grouped.get("No Energy").unwrap();
         assert_eq!(unset.len(), 2);
     }
 
@@ -988,7 +988,7 @@ Learn Rust +learning @coding id:rust-001";
         assert_eq!(names, vec!["High".to_string()]);
         assert!(!grouped.contains_key("(A)"));
         assert!(!grouped.contains_key("Low"));
-        assert!(!grouped.contains_key("未設定"));
+        assert!(!grouped.contains_key("No Energy"));
     }
 
     #[test]
@@ -1038,7 +1038,7 @@ Learn Rust +learning @coding id:rust-001";
                 "(A)".to_string(),
                 "High".to_string(),
                 "Low".to_string(),
-                "未設定".to_string()
+                "No Energy".to_string()
             ]
         );
     }

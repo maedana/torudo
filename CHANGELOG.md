@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`t` prefix for GTD tags**: `ti{s,m,l}` sets `time:short/medium/long`, `te{l,h}` sets `energy:low/high`. Existing values are replaced. Namespace reserved for future tag ops (e.g. `tt` threshold, `td` due)
 - **GTD chips on Todo cards**: Colored `S`/`M`/`L` (time) and `↓`/`↑` (energy) chips at the card's bottom-right, left of the `{done}/{total} {elapsed}` badge
 - **`n` Now-filter (Todo mode)**: `n` → energy (`l`/`h`/`a`) → time (`s`/`m`/`l`/`a`) narrows the view to matching items; `a` = any, `nc` clears. A `[Filter ↓ S]` chip appears on the tab bar while active
-- **`v` Pick layout (Todo mode)**: Toggles between Project and Pick columns — `(A)` / `High` (L→M→S) / `Low` (S→M→L) / `未設定`. Priority-A items also appear in the matching energy column. Threshold-pending items sink to each column's bottom. Composes with `n` filter. A `[Pick]` chip appears on the tab bar while active
+- **`v` Pick layout (Todo mode)**: Toggles between Project and Pick columns — `(A)` / `High` (L→M→S) / `Low` (S→M→L) / `No Energy`. Priority-A items also appear in the matching energy column. Threshold-pending items sink to each column's bottom. Composes with `n` filter. A `[Pick]` chip appears on the tab bar while active
 
 ## [0.14.0] - 2026-04-17
 
