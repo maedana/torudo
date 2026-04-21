@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-04-22
+
 ### Added
 - **`t` prefix for GTD tags**: `ti{s,m,l}` sets `time:short/medium/long`, `te{l,h}` sets `energy:low/high`. Existing values are replaced. Namespace reserved for future tag ops (e.g. `tt` threshold, `td` due)
 - **GTD chips on Todo cards**: Colored `S`/`M`/`L` (time) and `↓`/`↑` (energy) chips at the card's bottom-right, left of the `{done}/{total} {elapsed}` badge
