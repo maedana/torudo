@@ -2,7 +2,8 @@ use crate::crmux::Plan;
 use crate::md_preview::{compute_meta, md_path};
 use crate::todo::{
     Item, add_missing_ids, append_todo, delete_todo, group_todos_by_project_owned,
-    has_todo_with_id, load_todos, mark_complete, move_to_file, set_key_value, set_priority,
+    group_todos_for_pick, has_todo_with_id, load_todos, mark_complete, move_to_file, set_key_value,
+    set_priority,
 };
 use crate::url::{extract_urls, open_urls};
 use log::{debug, error};
@@ -107,6 +108,29 @@ impl NowFilter {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TodoLayout {
+    #[default]
+    Project,
+    Pick,
+}
+
+impl TodoLayout {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Project => "Project",
+            Self::Pick => "Pick",
+        }
+    }
+
+    pub const fn toggled(self) -> Self {
+        match self {
+            Self::Project => Self::Pick,
+            Self::Pick => Self::Project,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ViewMode {
     Todo,
@@ -206,6 +230,7 @@ pub struct AppState {
     pub hint: Option<HintState>,
     pub pending_enter_hint: bool,
     pub current_filter: Option<NowFilter>,
+    pub todo_layout: TodoLayout,
 }
 
 impl AppState {
@@ -270,6 +295,7 @@ impl AppState {
             hint: None,
             pending_enter_hint: false,
             current_filter: None,
+            todo_layout: TodoLayout::default(),
         };
         state.update_derived_state();
         state.refresh_mode_counts();
@@ -326,9 +352,18 @@ impl AppState {
                 .collect(),
             _ => self.todos.clone(),
         };
-        self.grouped_todos = group_todos_by_project_owned(&source);
-        self.project_names = self.grouped_todos.keys().cloned().collect();
-        self.project_names.sort();
+        let (names, grouped) =
+            if self.view_mode == ViewMode::Todo && self.todo_layout == TodoLayout::Pick {
+                let today = chrono::Local::now().date_naive();
+                group_todos_for_pick(&source, today)
+            } else {
+                let g = group_todos_by_project_owned(&source);
+                let mut n: Vec<String> = g.keys().cloned().collect();
+                n.sort();
+                (n, g)
+            };
+        self.grouped_todos = grouped;
+        self.project_names = names;
 
         let visible = &self.project_names;
         if self.current_column >= visible.len() {
@@ -509,6 +544,12 @@ impl AppState {
             self.reset_navigation();
             self.update_derived_state();
         }
+    }
+
+    pub fn handle_toggle_layout(&mut self) {
+        self.todo_layout = self.todo_layout.toggled();
+        self.reset_navigation();
+        self.update_derived_state();
     }
 
     const fn reset_navigation(&mut self) {
@@ -2694,6 +2735,64 @@ mod tests {
         // Back to Todo — filter re-applies
         state.set_view_mode(ViewMode::Todo);
         assert_eq!(total_grouped_todos(&state), 1);
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn toggle_layout_flips_between_project_and_pick() {
+        let state = create_test_state(create_test_todos());
+        assert_eq!(state.todo_layout, TodoLayout::Project);
+        let mut state = state;
+        state.handle_toggle_layout();
+        assert_eq!(state.todo_layout, TodoLayout::Pick);
+        state.handle_toggle_layout();
+        assert_eq!(state.todo_layout, TodoLayout::Project);
+    }
+
+    #[test]
+    fn toggle_layout_resets_navigation() {
+        let mut state = create_test_state(create_test_todos());
+        state.current_column = 2;
+        state.selected_in_column = 5;
+        state.scroll_offset = 3;
+        state.handle_toggle_layout();
+        assert_eq!(state.current_column, 0);
+        assert_eq!(state.selected_in_column, 0);
+        assert_eq!(state.scroll_offset, 0);
+    }
+
+    #[test]
+    fn toggle_layout_updates_grouped_todos_to_pick_columns() {
+        let mut state = create_test_state(create_test_todos());
+        state.handle_toggle_layout();
+        // create_test_todos has 1 priority=A todo, all energy unset -> columns: (A), 未設定
+        assert!(state.project_names.contains(&"(A)".to_string()));
+        assert!(state.project_names.contains(&"未設定".to_string()));
+        assert!(!state.project_names.contains(&"work".to_string()));
+    }
+
+    #[test]
+    fn pick_layout_respects_now_filter() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_pick_filter");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(
+            temp_dir.join("todo.txt"),
+            "(A) T1 +p1 id:t1 energy:high time:long\n\
+             T2 +p1 id:t2 energy:low time:short\n\
+             T3 +p1 id:t3 energy:high time:short\n",
+        )
+        .unwrap();
+
+        let todos = load_todos(temp_dir.join("todo.txt").to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+        state.handle_toggle_layout();
+        state.handle_set_filter(Some("low"), None);
+
+        // Only the energy=low item (T2) survives filtering; it lands in Low column.
+        assert_eq!(total_grouped_todos(&state), 1);
+        assert_eq!(state.project_names, vec!["Low".to_string()]);
 
         fs::remove_dir_all(&temp_dir).ok();
     }

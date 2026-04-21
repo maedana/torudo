@@ -99,6 +99,16 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         footer_key: None,
     },
     HelpEntry {
+        key: "v",
+        desc: "Toggle Project/Pick layout",
+        indent: false,
+        todo_only: true,
+        waiting_too: false,
+        requires_claude: false,
+        footer: Some("Layout"),
+        footer_key: None,
+    },
+    HelpEntry {
         key: "s",
         desc: "Send to... submenu",
         indent: false,

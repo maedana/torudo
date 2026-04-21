@@ -1,4 +1,4 @@
-use crate::app_state::{AppState, NowFilter, ViewMode};
+use crate::app_state::{AppState, NowFilter, TodoLayout, ViewMode};
 use crate::help;
 use crate::md_preview::format_elapsed;
 use crate::todo::Item;
@@ -135,6 +135,13 @@ fn energy_chip_span(todo: &Item) -> Option<Span<'static>> {
 }
 
 const FILTER_BRACKET_STYLE: Style = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+
+fn layout_chip_spans(layout: TodoLayout) -> Vec<Span<'static>> {
+    vec![Span::styled(
+        format!("[{}]", layout.label()),
+        FILTER_BRACKET_STYLE,
+    )]
+}
 
 fn filter_chip_spans(filter: &NowFilter) -> Vec<Span<'static>> {
     let mut spans: Vec<Span<'static>> = vec![Span::styled("[Filter", FILTER_BRACKET_STYLE)];
@@ -493,6 +500,9 @@ fn draw_tab_bar(f: &mut ratatui::Frame, state: &AppState, area: Rect) {
     ))
     .unwrap_or(0);
 
+    let layout_spans = (state.view_mode == ViewMode::Todo && state.todo_layout == TodoLayout::Pick)
+        .then(|| layout_chip_spans(state.todo_layout));
+
     let filter_spans = if state.view_mode == ViewMode::Todo
         && let Some(f) = state.current_filter.as_ref()
         && f.is_active()
@@ -502,8 +512,7 @@ fn draw_tab_bar(f: &mut ratatui::Frame, state: &AppState, area: Rect) {
         None
     };
 
-    let mut constraints = vec![Constraint::Length(version_width), Constraint::Min(0)];
-    let chip_width = filter_spans.as_ref().map(|spans| {
+    let spans_width = |spans: &[Span<'static>]| -> u16 {
         u16::try_from(
             spans
                 .iter()
@@ -511,18 +520,31 @@ fn draw_tab_bar(f: &mut ratatui::Frame, state: &AppState, area: Rect) {
                 .sum::<usize>(),
         )
         .unwrap_or(0)
-    });
-    if let Some(w) = chip_width {
-        constraints.push(Constraint::Length(w));
+    };
+
+    let mut constraints = vec![Constraint::Length(version_width), Constraint::Min(0)];
+    if let Some(spans) = &layout_spans {
+        constraints.push(Constraint::Length(spans_width(spans).saturating_add(1)));
+    }
+    if let Some(spans) = &filter_spans {
+        constraints.push(Constraint::Length(spans_width(spans)));
     }
 
     let chunks = Layout::horizontal(constraints).split(area);
     f.render_widget(Paragraph::new(version_label), chunks[0]);
     f.render_widget(tabs, chunks[1]);
+    let mut next_chunk = 2;
+    if let Some(spans) = layout_spans {
+        f.render_widget(
+            Paragraph::new(Line::from(spans)).alignment(Alignment::Right),
+            chunks[next_chunk],
+        );
+        next_chunk += 1;
+    }
     if let Some(spans) = filter_spans {
         f.render_widget(
             Paragraph::new(Line::from(spans)).alignment(Alignment::Right),
-            chunks[2],
+            chunks[next_chunk],
         );
     }
 }

@@ -508,6 +508,105 @@ pub fn append_todo(file_path: &str, line: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+pub const PICK_A_COLUMN: &str = "(A)";
+pub const PICK_HIGH_COLUMN: &str = "High";
+pub const PICK_LOW_COLUMN: &str = "Low";
+pub const PICK_UNSET_COLUMN: &str = "未設定";
+
+const PICK_COLUMN_ORDER: &[&str] = &[
+    PICK_A_COLUMN,
+    PICK_HIGH_COLUMN,
+    PICK_LOW_COLUMN,
+    PICK_UNSET_COLUMN,
+];
+
+fn time_rank_long_first(t: Option<&str>) -> u8 {
+    match t {
+        Some("long") => 0,
+        Some("medium") => 1,
+        Some("short") => 2,
+        _ => 3,
+    }
+}
+
+fn time_rank_short_first(t: Option<&str>) -> u8 {
+    match t {
+        Some("short") => 0,
+        Some("medium") => 1,
+        Some("long") => 2,
+        _ => 3,
+    }
+}
+
+pub fn group_todos_for_pick(
+    todos: &[Item],
+    today: NaiveDate,
+) -> (Vec<String>, HashMap<String, Vec<Item>>) {
+    let mut grouped: HashMap<String, Vec<Item>> = HashMap::new();
+
+    for todo in todos {
+        if todo.priority == Some('A') {
+            grouped
+                .entry(PICK_A_COLUMN.to_string())
+                .or_default()
+                .push(todo.clone());
+        }
+        match todo.energy_estimate() {
+            Some("high") => grouped
+                .entry(PICK_HIGH_COLUMN.to_string())
+                .or_default()
+                .push(todo.clone()),
+            Some("low") => grouped
+                .entry(PICK_LOW_COLUMN.to_string())
+                .or_default()
+                .push(todo.clone()),
+            _ => grouped
+                .entry(PICK_UNSET_COLUMN.to_string())
+                .or_default()
+                .push(todo.clone()),
+        }
+    }
+
+    // Sort each column. Threshold-pending items always sink to the bottom
+    // regardless of the time/energy ordering so that items whose `t:` date
+    // is still in the future don't crowd the top of the Pick columns.
+    if let Some(col) = grouped.get_mut(PICK_A_COLUMN) {
+        col.sort_by_key(|t| t.is_threshold_pending(today));
+    }
+    if let Some(col) = grouped.get_mut(PICK_HIGH_COLUMN) {
+        col.sort_by_key(|t| {
+            (
+                t.is_threshold_pending(today),
+                time_rank_long_first(t.time_estimate()),
+            )
+        });
+    }
+    if let Some(col) = grouped.get_mut(PICK_LOW_COLUMN) {
+        col.sort_by_key(|t| {
+            (
+                t.is_threshold_pending(today),
+                time_rank_short_first(t.time_estimate()),
+            )
+        });
+    }
+    if let Some(col) = grouped.get_mut(PICK_UNSET_COLUMN) {
+        col.sort_by_key(|t| {
+            (
+                t.is_threshold_pending(today),
+                time_rank_long_first(t.time_estimate()),
+            )
+        });
+    }
+
+    let names: Vec<String> = PICK_COLUMN_ORDER
+        .iter()
+        .filter(|c| grouped.contains_key(**c))
+        .map(|s| (*s).to_string())
+        .collect();
+
+    (names, grouped)
+}
+
 pub fn group_todos_by_project_owned(todos: &[Item]) -> HashMap<String, Vec<Item>> {
     let mut grouped = HashMap::new();
     for todo in todos {
@@ -781,6 +880,187 @@ Learn Rust +learning @coding id:rust-001";
         assert_eq!(grouped.get("personal").unwrap().len(), 1); // Task 2
         assert_eq!(grouped.get("No Project").unwrap().len(), 1); // Task 3
         assert_eq!(grouped.get("urgent").unwrap().len(), 1); // Task 4
+    }
+
+    fn pick_test_today() -> NaiveDate {
+        NaiveDate::from_ymd_opt(2026, 4, 21).unwrap()
+    }
+
+    fn make_pick_item(
+        desc: &str,
+        priority: Option<char>,
+        energy: Option<&str>,
+        time: Option<&str>,
+    ) -> Item {
+        let mut kv = HashMap::new();
+        if let Some(e) = energy {
+            kv.insert("energy".to_string(), e.to_string());
+        }
+        if let Some(t) = time {
+            kv.insert("time".to_string(), t.to_string());
+        }
+        Item {
+            completed: false,
+            priority,
+            creation_date: None,
+            completion_date: None,
+            description: desc.to_string(),
+            projects: vec![],
+            contexts: vec![],
+            id: Some(desc.to_string()),
+            key_values: kv,
+            line_number: 0,
+            md_meta: None,
+        }
+    }
+
+    #[test]
+    fn group_todos_for_pick_puts_priority_a_in_a_column() {
+        let today = pick_test_today();
+        let todos = vec![
+            make_pick_item("t1", Some('A'), None, None),
+            make_pick_item("t2", Some('B'), None, None),
+            make_pick_item("t3", None, None, None),
+        ];
+        let (_names, grouped) = group_todos_for_pick(&todos, today);
+        let a_col = grouped.get("(A)").expect("(A) column exists");
+        assert_eq!(a_col.len(), 1);
+        assert_eq!(a_col[0].description, "t1");
+    }
+
+    #[test]
+    fn group_todos_for_pick_groups_by_energy() {
+        let today = pick_test_today();
+        let todos = vec![
+            make_pick_item("h1", None, Some("high"), None),
+            make_pick_item("l1", None, Some("low"), None),
+            make_pick_item("u1", None, None, None),
+        ];
+        let (_names, grouped) = group_todos_for_pick(&todos, today);
+        assert_eq!(grouped.get("High").unwrap().len(), 1);
+        assert_eq!(grouped.get("High").unwrap()[0].description, "h1");
+        assert_eq!(grouped.get("Low").unwrap().len(), 1);
+        assert_eq!(grouped.get("Low").unwrap()[0].description, "l1");
+        assert_eq!(grouped.get("未設定").unwrap().len(), 1);
+        assert_eq!(grouped.get("未設定").unwrap()[0].description, "u1");
+    }
+
+    #[test]
+    fn group_todos_for_pick_duplicates_priority_a_into_energy_columns() {
+        // A priority item with energy=high should show up in BOTH (A) and High columns
+        let today = pick_test_today();
+        let todos = vec![make_pick_item("ah", Some('A'), Some("high"), Some("long"))];
+        let (_names, grouped) = group_todos_for_pick(&todos, today);
+        assert_eq!(grouped.get("(A)").unwrap().len(), 1);
+        assert_eq!(grouped.get("High").unwrap().len(), 1);
+        assert_eq!(grouped.get("(A)").unwrap()[0].description, "ah");
+        assert_eq!(grouped.get("High").unwrap()[0].description, "ah");
+    }
+
+    #[test]
+    fn group_todos_for_pick_sorts_high_column_by_time_long_first() {
+        let today = pick_test_today();
+        let todos = vec![
+            make_pick_item("hs", None, Some("high"), Some("short")),
+            make_pick_item("hl", None, Some("high"), Some("long")),
+            make_pick_item("hm", None, Some("high"), Some("medium")),
+            make_pick_item("hu", None, Some("high"), None),
+        ];
+        let (_names, grouped) = group_todos_for_pick(&todos, today);
+        let high = grouped.get("High").unwrap();
+        let descs: Vec<&str> = high.iter().map(|t| t.description.as_str()).collect();
+        assert_eq!(descs, vec!["hl", "hm", "hs", "hu"]);
+    }
+
+    #[test]
+    fn group_todos_for_pick_sorts_low_column_by_time_short_first() {
+        let today = pick_test_today();
+        let todos = vec![
+            make_pick_item("ll", None, Some("low"), Some("long")),
+            make_pick_item("ls", None, Some("low"), Some("short")),
+            make_pick_item("lm", None, Some("low"), Some("medium")),
+            make_pick_item("lu", None, Some("low"), None),
+        ];
+        let (_names, grouped) = group_todos_for_pick(&todos, today);
+        let low = grouped.get("Low").unwrap();
+        let descs: Vec<&str> = low.iter().map(|t| t.description.as_str()).collect();
+        assert_eq!(descs, vec!["ls", "lm", "ll", "lu"]);
+    }
+
+    #[test]
+    fn group_todos_for_pick_puts_energy_missing_into_unset_column() {
+        let today = pick_test_today();
+        let todos = vec![
+            make_pick_item("u1", None, None, Some("short")),
+            make_pick_item("u2", Some('B'), None, None),
+        ];
+        let (_names, grouped) = group_todos_for_pick(&todos, today);
+        let unset = grouped.get("未設定").unwrap();
+        assert_eq!(unset.len(), 2);
+    }
+
+    #[test]
+    fn group_todos_for_pick_excludes_empty_columns_from_column_list() {
+        // Only high-energy items -> only High column in names
+        let today = pick_test_today();
+        let todos = vec![make_pick_item("h1", None, Some("high"), Some("long"))];
+        let (names, grouped) = group_todos_for_pick(&todos, today);
+        assert_eq!(names, vec!["High".to_string()]);
+        assert!(!grouped.contains_key("(A)"));
+        assert!(!grouped.contains_key("Low"));
+        assert!(!grouped.contains_key("未設定"));
+    }
+
+    #[test]
+    fn group_todos_for_pick_pending_threshold_items_sink_to_bottom_of_column() {
+        let today = NaiveDate::from_ymd_opt(2026, 4, 21).unwrap();
+        let mut pending = make_pick_item("pending", None, Some("high"), Some("long"));
+        pending
+            .key_values
+            .insert("t".to_string(), "2099-01-01".to_string());
+        let active = make_pick_item("active", None, Some("high"), Some("short"));
+        let todos = vec![pending, active];
+        let (_names, grouped) = group_todos_for_pick(&todos, today);
+        let high = grouped.get("High").unwrap();
+        let descs: Vec<&str> = high.iter().map(|t| t.description.as_str()).collect();
+        // Normally long > short, but pending sinks below active
+        assert_eq!(descs, vec!["active", "pending"]);
+    }
+
+    #[test]
+    fn group_todos_for_pick_pending_threshold_in_a_column_goes_bottom() {
+        let today = NaiveDate::from_ymd_opt(2026, 4, 21).unwrap();
+        let mut pending = make_pick_item("p-a", Some('A'), None, None);
+        pending
+            .key_values
+            .insert("t".to_string(), "2099-01-01".to_string());
+        let active = make_pick_item("a-a", Some('A'), None, None);
+        let todos = vec![pending, active];
+        let (_names, grouped) = group_todos_for_pick(&todos, today);
+        let a_col = grouped.get("(A)").unwrap();
+        let descs: Vec<&str> = a_col.iter().map(|t| t.description.as_str()).collect();
+        assert_eq!(descs, vec!["a-a", "p-a"]);
+    }
+
+    #[test]
+    fn group_todos_for_pick_column_order_is_a_high_low_unset() {
+        let today = pick_test_today();
+        let todos = vec![
+            make_pick_item("u", None, None, None),
+            make_pick_item("l", None, Some("low"), Some("short")),
+            make_pick_item("h", None, Some("high"), Some("long")),
+            make_pick_item("a", Some('A'), None, None),
+        ];
+        let (names, _grouped) = group_todos_for_pick(&todos, today);
+        assert_eq!(
+            names,
+            vec![
+                "(A)".to_string(),
+                "High".to_string(),
+                "Low".to_string(),
+                "未設定".to_string()
+            ]
+        );
     }
 
     #[test]

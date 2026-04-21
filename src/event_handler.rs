@@ -469,6 +469,12 @@ impl EventHandler {
                 self.pending_keys.push('n');
                 state.status_message = Some(build_n_submenu(state.current_filter.is_some()));
             }
+            KeyCode::Char('v') if state.view_mode == ViewMode::Todo => {
+                if debug_mode {
+                    debug!("Toggle todo layout");
+                }
+                state.handle_toggle_layout();
+            }
             KeyCode::Char('?') => {
                 state.toggle_help();
             }
@@ -1676,6 +1682,46 @@ mod tests {
         assert!(handler.pending_keys.is_empty());
         assert!(state.status_message.is_none());
         assert!(state.current_filter.is_none());
+    }
+
+    #[test]
+    fn v_key_toggles_layout_in_todo_mode() {
+        let (mut state, dir) = make_filter_test_state();
+        let todo_file = dir.path().join("todo.txt");
+        let mut handler = EventHandler::new();
+        assert_eq!(state.todo_layout, crate::app_state::TodoLayout::Project);
+        handler.handle_keyboard_event(
+            &make_key_event('v'),
+            &mut state,
+            todo_file.to_str().unwrap(),
+            false,
+        );
+        assert_eq!(state.todo_layout, crate::app_state::TodoLayout::Pick);
+        handler.handle_keyboard_event(
+            &make_key_event('v'),
+            &mut state,
+            todo_file.to_str().unwrap(),
+            false,
+        );
+        assert_eq!(state.todo_layout, crate::app_state::TodoLayout::Project);
+    }
+
+    #[test]
+    fn v_key_ignored_in_ref_mode() {
+        let (mut state, dir) = make_filter_test_state();
+        std::fs::write(dir.path().join("ref.txt"), "R +p id:r\n").unwrap();
+        state.set_view_mode(ViewMode::Ref);
+        let mut handler = EventHandler::new();
+        let todo_file = dir.path().join("ref.txt");
+        handler.handle_keyboard_event(
+            &make_key_event('v'),
+            &mut state,
+            todo_file.to_str().unwrap(),
+            false,
+        );
+        // Layout stays on default; no pending key buffered
+        assert_eq!(state.todo_layout, crate::app_state::TodoLayout::Project);
+        assert!(handler.pending_keys.is_empty());
     }
 
     #[test]
