@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **nvim cursor jump on md save**: Saving a long detail md no longer resets the Neovim cursor/scroll position. Since 0.15.0 the file watcher routed `refresh_md_previews` through `update_derived_state`, which re-sent an `:e` command to nvim on every save. The Now-filter only consults todo.txt tags, so the integration was unnecessary; `refresh_md_previews` now only rebuilds md_meta and grouping
+
 ## [0.15.0] - 2026-04-22
 
 ### Added
