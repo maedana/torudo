@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-04-25
+
 ### Fixed
 - **nvim cursor jump on md save**: Saving a long detail md no longer resets the Neovim cursor/scroll position. Regression introduced in 0.15.0
 
@@ -201,7 +203,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Contexts (@context_name)
   - Custom IDs (id:unique_identifier)
 
-[Unreleased]: https://github.com/maedana/torudo/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/maedana/torudo/compare/v0.15.1...HEAD
+[0.15.1]: https://github.com/maedana/torudo/compare/v0.15.0...v0.15.1
 [0.12.0]: https://github.com/maedana/torudo/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/maedana/torudo/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/maedana/torudo/compare/v0.10.0...v0.11.0
