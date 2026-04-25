@@ -231,6 +231,8 @@ pub struct AppState {
     pub pending_enter_hint: bool,
     pub current_filter: Option<NowFilter>,
     pub todo_layout: TodoLayout,
+    #[cfg(test)]
+    pub vim_send_log: std::cell::RefCell<Vec<String>>,
 }
 
 impl AppState {
@@ -262,6 +264,9 @@ impl AppState {
     }
 
     fn send_vim_command(&self, todo_id: &str) {
+        #[cfg(test)]
+        self.vim_send_log.borrow_mut().push(todo_id.to_string());
+
         let file_path = md_path(&self.todotxt_dir, todo_id);
         let cmd = format!("e {file_path}");
 
@@ -296,6 +301,8 @@ impl AppState {
             pending_enter_hint: false,
             current_filter: None,
             todo_layout: TodoLayout::default(),
+            #[cfg(test)]
+            vim_send_log: std::cell::RefCell::new(Vec::new()),
         };
         state.update_derived_state();
         state.refresh_mode_counts();
@@ -325,7 +332,30 @@ impl AppState {
     }
 
     pub fn refresh_md_previews(&mut self) {
-        self.update_derived_state();
+        // Triggered by md file watcher. Must not send any nvim :e command,
+        // otherwise the user's cursor/scroll position would jump on every save.
+        self.refresh_md_meta();
+        let source: Vec<Item> = match &self.current_filter {
+            Some(f) if f.is_active() && self.view_mode == ViewMode::Todo => self
+                .todos
+                .iter()
+                .filter(|t| f.matches(t))
+                .cloned()
+                .collect(),
+            _ => self.todos.clone(),
+        };
+        let (names, grouped) =
+            if self.view_mode == ViewMode::Todo && self.todo_layout == TodoLayout::Pick {
+                let today = chrono::Local::now().date_naive();
+                group_todos_for_pick(&source, today)
+            } else {
+                let g = group_todos_by_project_owned(&source);
+                let mut n: Vec<String> = g.keys().cloned().collect();
+                n.sort();
+                (n, g)
+            };
+        self.grouped_todos = grouped;
+        self.project_names = names;
     }
 
     fn refresh_md_meta(&mut self) {
@@ -2794,5 +2824,102 @@ mod tests {
         assert_eq!(state.project_names, vec!["Low".to_string()]);
 
         fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_refresh_md_previews_does_not_send_vim_command() {
+        let todos = create_test_todos();
+        let mut state = create_test_state(todos);
+
+        // Clear the log populated during AppState::new() initialization.
+        state.vim_send_log.borrow_mut().clear();
+
+        state.refresh_md_previews();
+
+        assert!(
+            state.vim_send_log.borrow().is_empty(),
+            "refresh_md_previews must not send any nvim :e command on md save (got {:?})",
+            state.vim_send_log.borrow()
+        );
+    }
+
+    #[test]
+    fn test_refresh_md_previews_updates_md_meta_in_grouped_todos() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_refresh_md_meta");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(temp_dir.join("todos")).unwrap();
+        fs::write(temp_dir.join("todo.txt"), "Task one +work id:task-1\n").unwrap();
+        let md_file = temp_dir.join("todos/task-1.md");
+        fs::write(&md_file, "no checkboxes yet\n").unwrap();
+
+        let todos = load_todos(temp_dir.join("todo.txt").to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+
+        // Sanity: initial state has no checkbox stats.
+        let initial = state
+            .grouped_todos
+            .get("work")
+            .and_then(|v| v.first())
+            .and_then(|i| i.md_meta.as_ref())
+            .expect("md_meta should be Some after new()");
+        assert!(initial.stats.is_none());
+
+        // Update md content with a checkbox, then refresh.
+        fs::write(&md_file, "- [ ] new task line\n").unwrap();
+        state.refresh_md_previews();
+
+        let after = state
+            .grouped_todos
+            .get("work")
+            .and_then(|v| v.first())
+            .and_then(|i| i.md_meta.as_ref())
+            .expect("md_meta should remain Some");
+        assert_eq!(after.stats, Some((0, 1)));
+        assert_eq!(after.preview, vec!["new task line".to_string()]);
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_refresh_md_previews_keeps_now_filter() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_refresh_keeps_filter");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(
+            temp_dir.join("todo.txt"),
+            "T1 +p1 id:t1 energy:low\n\
+             T2 +p1 id:t2 energy:high\n",
+        )
+        .unwrap();
+
+        let todos = load_todos(temp_dir.join("todo.txt").to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+        state.handle_set_filter(Some("low"), None);
+        assert_eq!(total_grouped_todos(&state), 1);
+
+        state.refresh_md_previews();
+
+        assert_eq!(
+            total_grouped_todos(&state),
+            1,
+            "Now filter must remain applied across md preview refresh"
+        );
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_refresh_md_previews_keeps_pick_layout() {
+        let mut state = create_test_state(create_test_todos());
+        state.handle_toggle_layout();
+        let pick_columns = state.project_names.clone();
+        assert!(pick_columns.contains(&"No Energy".to_string()));
+
+        state.refresh_md_previews();
+
+        assert_eq!(
+            state.project_names, pick_columns,
+            "Pick layout columns must be preserved across md preview refresh"
+        );
     }
 }
