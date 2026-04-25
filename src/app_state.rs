@@ -335,6 +335,10 @@ impl AppState {
         // Triggered by md file watcher. Must not send any nvim :e command,
         // otherwise the user's cursor/scroll position would jump on every save.
         self.refresh_md_meta();
+        self.rebuild_grouping();
+    }
+
+    fn rebuild_grouping(&mut self) {
         let source: Vec<Item> = match &self.current_filter {
             Some(f) if f.is_active() && self.view_mode == ViewMode::Todo => self
                 .todos
@@ -373,27 +377,7 @@ impl AppState {
 
     fn update_derived_state(&mut self) {
         self.refresh_md_meta();
-        let source: Vec<Item> = match &self.current_filter {
-            Some(f) if f.is_active() && self.view_mode == ViewMode::Todo => self
-                .todos
-                .iter()
-                .filter(|t| f.matches(t))
-                .cloned()
-                .collect(),
-            _ => self.todos.clone(),
-        };
-        let (names, grouped) =
-            if self.view_mode == ViewMode::Todo && self.todo_layout == TodoLayout::Pick {
-                let today = chrono::Local::now().date_naive();
-                group_todos_for_pick(&source, today)
-            } else {
-                let g = group_todos_by_project_owned(&source);
-                let mut n: Vec<String> = g.keys().cloned().collect();
-                n.sort();
-                (n, g)
-            };
-        self.grouped_todos = grouped;
-        self.project_names = names;
+        self.rebuild_grouping();
 
         let visible = &self.project_names;
         if self.current_column >= visible.len() {
