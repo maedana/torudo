@@ -68,26 +68,35 @@ pub fn get_todo_border_style(is_selected: bool, is_overdue: bool, is_dimmed: boo
     }
 }
 
-fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
-    if text.is_empty() || max_width == 0 {
-        return vec![String::new()];
+/// Wrap styled spans to `max_width` display cells, keeping each span's style.
+fn wrap_spans(spans: &[Span<'static>], max_width: usize) -> Vec<Line<'static>> {
+    if max_width == 0 {
+        return vec![Line::default()];
     }
 
-    let mut lines = Vec::new();
-    let mut current_line = String::new();
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut current: Vec<Span<'static>> = Vec::new();
     let mut line_width: usize = 0;
 
-    for ch in text.chars() {
-        let ch_width = ch.width().unwrap_or(0);
-        if line_width + ch_width > max_width && line_width > 0 {
-            lines.push(current_line);
-            current_line = String::new();
-            line_width = 0;
+    for span in spans {
+        let mut chunk = String::new();
+        for ch in span.content.chars() {
+            let ch_width = ch.width().unwrap_or(0);
+            if line_width + ch_width > max_width && line_width > 0 {
+                if !chunk.is_empty() {
+                    current.push(Span::styled(std::mem::take(&mut chunk), span.style));
+                }
+                lines.push(Line::from(std::mem::take(&mut current)));
+                line_width = 0;
+            }
+            chunk.push(ch);
+            line_width += ch_width;
         }
-        current_line.push(ch);
-        line_width += ch_width;
+        if !chunk.is_empty() {
+            current.push(Span::styled(chunk, span.style));
+        }
     }
-    lines.push(current_line);
+    lines.push(Line::from(current));
 
     lines
 }
@@ -163,7 +172,6 @@ fn filter_chip_spans(filter: &NowFilter) -> Vec<Span<'static>> {
 
 fn calc_todo_height(todo: &Item, available_width: u16) -> u16 {
     let spans = create_todo_spans(todo);
-    let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
 
     let preview_lines = todo
         .md_meta
@@ -171,7 +179,7 @@ fn calc_todo_height(todo: &Item, available_width: u16) -> u16 {
         .map_or(0, |m| u16::try_from(m.preview.len()).unwrap_or(0));
     if available_width > 10 {
         let effective_width = usize::from(available_width.saturating_sub(2));
-        let lines = wrap_text(&text, effective_width).len();
+        let lines = wrap_spans(&spans, effective_width).len();
         let lines_u16 = u16::try_from(lines).unwrap_or(u16::MAX);
         (lines_u16 + 2).min(8) + preview_lines // +2 for borders, body cap at 8
     } else {
@@ -326,17 +334,13 @@ pub fn draw_project_column(
         let actual_idx = layout.offset + i;
         let is_pending = todo.is_threshold_pending(today);
         let spans = create_todo_spans(todo);
-        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         let is_selected = is_active_column && actual_idx == selected_in_column;
         let is_overdue = todo.is_overdue(today);
         let border_style =
             get_todo_border_style(is_selected, is_overdue, todo.completed || is_pending);
 
         let effective_width = usize::from(todo_layout[i].width.saturating_sub(2));
-        let mut wrapped_lines: Vec<Line<'_>> = wrap_text(&text, effective_width)
-            .into_iter()
-            .map(Line::from)
-            .collect();
+        let mut wrapped_lines: Vec<Line<'_>> = wrap_spans(&spans, effective_width);
         if let Some(meta) = &todo.md_meta {
             for preview_text in &meta.preview {
                 wrapped_lines.push(Line::from(Span::styled(
@@ -946,12 +950,8 @@ mod tests {
         let backend = TestBackend::new(width, height);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
 
-        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         let effective_width = usize::from(width.saturating_sub(2));
-        let wrapped_lines: Vec<Line<'_>> = wrap_text(&text, effective_width)
-            .into_iter()
-            .map(Line::from)
-            .collect();
+        let wrapped_lines: Vec<Line<'_>> = wrap_spans(&spans, effective_width);
 
         terminal
             .draw(|f| {
@@ -1013,6 +1013,93 @@ mod tests {
             "[要望] テストの確認のために結果投稿のレスポンスにURLが欲しい [#12345] https://example.com/projects/52/tasks/12345",
             30,
         );
+    }
+
+    fn priority_span(priority: char) -> Span<'static> {
+        let mut item = make_item("x");
+        item.priority = Some(priority);
+        create_todo_spans(&item)
+            .into_iter()
+            .next()
+            .expect("priority span should come first")
+    }
+
+    #[test]
+    fn priority_a_span_is_red() {
+        let span = priority_span('A');
+        assert_eq!(span.content, "(A) ");
+        assert_eq!(span.style.fg, Some(Color::Red));
+        assert!(span.style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn priority_b_span_is_yellow() {
+        assert_eq!(priority_span('B').style.fg, Some(Color::Yellow));
+    }
+
+    #[test]
+    fn priority_c_span_is_blue() {
+        assert_eq!(priority_span('C').style.fg, Some(Color::Blue));
+    }
+
+    #[test]
+    fn priority_beyond_c_is_white() {
+        let span = priority_span('D');
+        assert_eq!(span.content, "(D) ");
+        assert_eq!(span.style.fg, Some(Color::White));
+    }
+
+    #[test]
+    fn wrap_spans_preserves_each_span_style() {
+        let spans = vec![
+            Span::styled("(A) ", Style::default().fg(Color::Cyan)),
+            Span::raw("task"),
+        ];
+        let lines = wrap_spans(&spans, 20);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].spans[0].content, "(A) ");
+        assert_eq!(lines[0].spans[0].style.fg, Some(Color::Cyan));
+        assert_eq!(lines[0].spans[1].content, "task");
+        assert_eq!(lines[0].spans[1].style.fg, None);
+    }
+
+    #[test]
+    fn wrap_spans_keeps_style_when_splitting_inside_a_span() {
+        // 5 CJK chars = 10 cells, max_width 4 → 3 lines
+        let spans = vec![Span::styled("あいうえお", Style::default().fg(Color::Cyan))];
+        let lines = wrap_spans(&spans, 4);
+        assert_eq!(lines.len(), 3);
+        assert!(
+            lines
+                .iter()
+                .flat_map(|l| &l.spans)
+                .all(|s| s.style.fg == Some(Color::Cyan)),
+            "style should survive the wrap"
+        );
+        let text: String = lines
+            .iter()
+            .flat_map(|l| &l.spans)
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert_eq!(text, "あいうえお");
+    }
+
+    #[test]
+    fn wrap_spans_wraps_across_span_boundary_by_display_width() {
+        let spans = vec![Span::raw("あい"), Span::raw("うえ")];
+        // 4 CJK chars = 8 cells, max_width 4 → 2 lines of 2 chars each
+        let lines = wrap_spans(&spans, 4);
+        assert_eq!(lines.len(), 2);
+        let line_text =
+            |l: &Line<'static>| -> String { l.spans.iter().map(|s| s.content.as_ref()).collect() };
+        assert_eq!(line_text(&lines[0]), "あい");
+        assert_eq!(line_text(&lines[1]), "うえ");
+    }
+
+    #[test]
+    fn wrap_spans_empty_input_yields_one_line() {
+        assert_eq!(wrap_spans(&[], 10).len(), 1);
+        assert_eq!(wrap_spans(&[Span::raw("x")], 0).len(), 1);
     }
 
     #[test]
@@ -1098,6 +1185,31 @@ mod tests {
         assert_eq!(rects[0].height, 20);
         assert_eq!(rects[1].y, 20);
         assert_eq!(rects[2].y, 40);
+    }
+
+    #[test]
+    fn draw_ui_paints_priority_prefix_with_its_color() {
+        use ratatui::backend::TestBackend;
+
+        let mut todo = make_item_with_id("task a", "a", "p1");
+        todo.priority = Some('A');
+        let mut state = AppState::new(vec![todo], String::new(), String::new());
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw_ui(f, &mut state)).unwrap();
+
+        let buf = terminal.backend().buffer().clone();
+        let painted_red = (0..buf.area.height).any(|y| {
+            (0..buf.area.width).any(|x| {
+                let cell = buf.cell((x, y)).expect("cell in area");
+                cell.symbol() == "A" && cell.fg == Color::Red
+            })
+        });
+        assert!(
+            painted_red,
+            "priority letter should reach the buffer in red, not as plain text"
+        );
     }
 
     #[test]
