@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.2] - 2026-08-04
+
 ### Fixed
 - **Colors on Todo cards**: The priority prefix `(A)`/`(B)`/`(C)` (red/yellow/blue), the `✓` completion mark, the `🔗` link mark, and `@context` tags now actually render in color. They were styled but the color was dropped when card text was wrapped
 
@@ -206,7 +208,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Contexts (@context_name)
   - Custom IDs (id:unique_identifier)
 
-[Unreleased]: https://github.com/maedana/torudo/compare/v0.15.1...HEAD
+[Unreleased]: https://github.com/maedana/torudo/compare/v0.15.2...HEAD
+[0.15.2]: https://github.com/maedana/torudo/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/maedana/torudo/compare/v0.15.0...v0.15.1
 [0.12.0]: https://github.com/maedana/torudo/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/maedana/torudo/compare/v0.11.0...v0.11.1
