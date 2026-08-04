@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Colors on Todo cards**: The priority prefix `(A)`/`(B)`/`(C)` (red/yellow/blue), the `✓` completion mark, the `🔗` link mark, and `@context` tags now actually render in color. They were styled but the color was dropped when card text was wrapped
+
 ## [0.15.1] - 2026-04-25
 
 ### Fixed
