@@ -76,9 +76,9 @@ torudo -d
 torudo --nvim-listen /tmp/my-nvim.sock
 ```
 
-### Capturing to Inbox from Outside the TUI
+### Working with Modes from Outside the TUI
 
-The `torudo inbox add` subcommand appends a new item to `inbox.txt` without requiring the TUI to be running. It is meant for quick capture from launchers, shell scripts, editor keybindings, or anywhere you don't want to open the full UI.
+Every GTD mode is reachable from the CLI without the TUI running, which makes torudo usable from launchers, shell scripts, editor keybindings, and agents. `<mode>` is one of `inbox`, `todo`, `waiting`, `ref`, `someday`.
 
 ```bash
 # Capture a new task into the inbox
@@ -89,9 +89,34 @@ torudo inbox add "Draft blog post +writing" | jq -r .id
 
 # Preserve an explicit id (otherwise a UUID is generated)
 torudo inbox add "Fix #123 id:my-custom-id"
+
+# List a mode — plain todo.txt lines, or JSON for scripting
+torudo inbox list
+torudo todo list --json
+
+# Set GTD tags on an item (--time short|medium|long, --energy low|high)
+torudo todo set <id> --time short --energy low
+
+# Move an item to another mode
+torudo inbox promote <id> --to todo
 ```
 
-The command prints the added item as JSON in the same format as `torudo current`. When a TUI session is running, the file watcher picks up the change and the Inbox tab updates automatically.
+`add`, `set`, and `promote` print the resulting item as JSON in the same format as `torudo current`; `set` and `promote` exit non-zero on an unknown id. When a TUI session is running, the file watcher picks up the change and the affected tab updates automatically.
+
+### Driving torudo from Claude Code
+
+This repository ships an [Agent Skill](skills/torudo/SKILL.md) that lets Claude Code run the
+above for you in plain language — "inboxに牛乳を買うを追加して", "短時間・低エネルギーにして
+todoに移して", or a bare URL, in which case Claude resolves a readable title (using a
+host-specific CLI when one exists, otherwise fetching the page) and confirms the line before
+adding it. It also writes the `- [ ]` checklist in `todos/{id}.md` for an item.
+
+```bash
+# Install globally
+npx skills add maedana/torudo --skill torudo -g
+```
+
+Or copy `skills/torudo/SKILL.md` to `~/.claude/skills/torudo/SKILL.md` by hand.
 
 ### Updating
 

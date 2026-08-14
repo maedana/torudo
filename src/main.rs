@@ -11,6 +11,7 @@ use std::{env, error::Error, io};
 
 mod app_state;
 mod claude;
+mod cli;
 mod crmux;
 mod event_handler;
 mod file_watcher;
@@ -68,18 +69,40 @@ enum Commands {
     /// Inbox operations
     Inbox {
         #[command(subcommand)]
-        action: InboxAction,
+        action: cli::ModeAction,
+    },
+    /// Todo operations
+    Todo {
+        #[command(subcommand)]
+        action: cli::ModeAction,
+    },
+    /// Waiting operations
+    Waiting {
+        #[command(subcommand)]
+        action: cli::ModeAction,
+    },
+    /// Ref operations
+    Ref {
+        #[command(subcommand)]
+        action: cli::ModeAction,
+    },
+    /// Someday operations
+    Someday {
+        #[command(subcommand)]
+        action: cli::ModeAction,
     },
 }
 
-#[derive(Subcommand)]
-enum InboxAction {
-    /// Add a new item to inbox.txt and print it as JSON
-    Add {
-        /// Todo text (priority, projects, contexts, id, key:value are all supported)
-        #[arg(trailing_var_arg = true, num_args = 1..)]
-        text: Vec<String>,
-    },
+/// Map a mode subcommand to the GTD mode it operates on.
+const fn mode_command(command: &Commands) -> Option<(app_state::ViewMode, &cli::ModeAction)> {
+    match command {
+        Commands::Inbox { action } => Some((app_state::ViewMode::Inbox, action)),
+        Commands::Todo { action } => Some((app_state::ViewMode::Todo, action)),
+        Commands::Waiting { action } => Some((app_state::ViewMode::Waiting, action)),
+        Commands::Ref { action } => Some((app_state::ViewMode::Ref, action)),
+        Commands::Someday { action } => Some((app_state::ViewMode::Someday, action)),
+        _ => None,
+    }
 }
 
 fn resolve_todotxt_dir(cli: Option<String>) -> String {
@@ -103,17 +126,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         handle_update(force, check);
         return Ok(());
     }
-    if let Some(Commands::Inbox {
-        action: InboxAction::Add { text },
-    }) = &args.command
+    if let Some(command) = &args.command
+        && let Some((mode, action)) = mode_command(command)
     {
         let todotxt_dir = resolve_todotxt_dir(args.todotxt_dir.clone());
-        let inbox_path = format!("{todotxt_dir}/{}", app_state::ViewMode::Inbox.filename());
-        let joined = text.join(" ");
-        let item = todo::add_item(&inbox_path, &joined)?;
-        let json = todo::item_to_json(&item, &todotxt_dir)?;
-        println!("{json}");
-        return Ok(());
+        return cli::run(mode, action, &todotxt_dir);
     }
 
     let todotxt_dir = resolve_todotxt_dir(args.todotxt_dir);

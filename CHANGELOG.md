@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **CLI for every mode**: `torudo <mode> list` shows what a mode holds (`--json` for scripting), `torudo <mode> set <id> --time/--energy` sets the GTD tags, and `torudo <mode> promote <id> --to <mode>` moves an item between modes. `add` now works on any mode, not just the inbox. All of it runs without the TUI open
+- **Claude Code skill**: `skills/torudo/SKILL.md` lets Claude drive the above from plain language ("inboxに〜を追加して", "短時間にしてtodoに移して"). Given a URL it looks up a readable title and confirms the line before adding, and it can write the `- [ ]` checklist in an item's detail md
+
 ## [0.15.2] - 2026-08-04
 
 ### Fixed
