@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "torudo",
+  "owner": {
+    "name": "maedana"
+  },
+  "plugins": [
+    {
+      "name": "torudo",
+      "source": "./",
+      "description": "Drive torudo, a todo.txt TUI, from natural language: capture into the inbox, break items into checklists, tag and promote them between GTD modes, and complete them.",
+      "homepage": "https://github.com/maedana/torudo",
+      "category": "productivity"
+    }
+  ]
+}
