@@ -91,6 +91,11 @@ enum Commands {
         #[command(subcommand)]
         action: cli::ModeAction,
     },
+    /// Completed items archive
+    Done {
+        #[command(subcommand)]
+        action: cli::DoneAction,
+    },
 }
 
 /// Map a mode subcommand to the GTD mode it operates on.
@@ -131,6 +136,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     {
         let todotxt_dir = resolve_todotxt_dir(args.todotxt_dir.clone());
         return cli::run(mode, action, &todotxt_dir);
+    }
+    if let Some(Commands::Done { action }) = &args.command {
+        let todotxt_dir = resolve_todotxt_dir(args.todotxt_dir.clone());
+        return cli::run_done(action, &todotxt_dir);
     }
 
     let todotxt_dir = resolve_todotxt_dir(args.todotxt_dir);

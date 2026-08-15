@@ -102,6 +102,10 @@ torudo inbox promote <id> --to todo
 
 # Complete an item — moves it to done.txt with today's date (Todo / Waiting only)
 torudo todo complete <id>
+
+# Look at the archive, and undo a completion
+torudo done list --json
+torudo todo reopen <id>
 ```
 
 `add`, `set`, and `promote` print the resulting item as JSON in the same format as `torudo current`; `set` and `promote` exit non-zero on an unknown id. When a TUI session is running, the file watcher picks up the change and the affected tab updates automatically.

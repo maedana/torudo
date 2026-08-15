@@ -35,6 +35,11 @@ pub enum ModeAction {
         /// Id of the item to complete
         id: String,
     },
+    /// Bring a completed item back from done.txt into this mode
+    Reopen {
+        /// Id of the completed item to bring back
+        id: String,
+    },
     /// Move an item to another mode and print it as JSON
     Promote {
         /// Id of the item to move
@@ -105,16 +110,7 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
             let item = todo::add_item(&file, &text.join(" "))?;
             println!("{}", todo::item_to_json(&item, todotxt_dir)?);
         }
-        ModeAction::List { json } => {
-            let items = load_mode_items(&file)?;
-            if *json {
-                println!("{}", serde_json::to_string_pretty(&items)?);
-            } else {
-                for item in &items {
-                    println!("{}", format_item(item));
-                }
-            }
-        }
+        ModeAction::List { json } => print_items(&load_mode_items(&file)?, *json)?,
         ModeAction::Set { id, time, energy } => {
             if time.is_none() && energy.is_none() {
                 return Err("specify at least one of --time or --energy".into());
@@ -139,7 +135,14 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
             }
             require_item(&file, mode, id)?;
             todo::mark_complete(&file, id)?;
-            print_item(&format!("{todotxt_dir}/done.txt"), id, todotxt_dir)?;
+            print_item(&done_file(todotxt_dir), id, todotxt_dir)?;
+        }
+        ModeAction::Reopen { id } => {
+            let done = done_file(todotxt_dir);
+            if !todo::reopen_item(&done, &file, id)? {
+                return Err(format!("no completed item with id:{id} in done.txt").into());
+            }
+            print_item(&file, id, todotxt_dir)?;
         }
         ModeAction::Promote { id, to } => {
             let target = to.view_mode();
@@ -153,6 +156,39 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
         }
     }
     Ok(())
+}
+
+/// Actions available under the `done` subcommand. `done.txt` is an archive, not a
+/// GTD mode, so it is read-only here — items leave it through `<mode> reopen`.
+#[derive(Subcommand)]
+pub enum DoneAction {
+    /// List the completed items
+    List {
+        /// Print the items as a JSON array instead of one todo.txt line each
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+pub fn run_done(action: &DoneAction, todotxt_dir: &str) -> Result<(), Box<dyn Error>> {
+    match action {
+        DoneAction::List { json } => print_items(&load_mode_items(&done_file(todotxt_dir))?, *json),
+    }
+}
+
+fn print_items(items: &[Item], json: bool) -> Result<(), Box<dyn Error>> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(items)?);
+    } else {
+        for item in items {
+            println!("{}", format_item(item));
+        }
+    }
+    Ok(())
+}
+
+fn done_file(todotxt_dir: &str) -> String {
+    format!("{todotxt_dir}/done.txt")
 }
 
 fn require_item(file: &str, mode: ViewMode, id: &str) -> Result<(), Box<dyn Error>> {

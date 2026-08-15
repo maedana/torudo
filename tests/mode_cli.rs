@@ -351,6 +351,104 @@ fn complete_on_unknown_id_fails() {
 }
 
 #[test]
+fn reopen_brings_an_item_back_from_done() {
+    let dir = fresh_dir("torudo_it_reopen");
+    fs::write(
+        dir.join("done.txt"),
+        "x 2026-08-15 2026-08-01 Write docs +torudo id:d1\nx 2026-08-14 Other id:d2\n",
+    )
+    .unwrap();
+    fs::write(dir.join("todo.txt"), "Existing id:t9\n").unwrap();
+
+    let output = run(&dir, &["todo", "reopen", "d1"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["id"], "d1");
+    assert_eq!(json["completed"], false);
+    assert_eq!(json["completion_date"], serde_json::Value::Null);
+    assert_eq!(json["creation_date"], "2026-08-01");
+
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(todo.contains("Write docs"), "back in todo.txt: {todo}");
+    assert!(todo.contains("+torudo"), "tags survive: {todo}");
+    assert!(todo.contains("Existing id:t9"), "others stay: {todo}");
+
+    let done = fs::read_to_string(dir.join("done.txt")).unwrap();
+    assert!(!done.contains("id:d1"), "gone from done.txt: {done}");
+    assert!(done.contains("id:d2"), "other completions stay: {done}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn reopen_can_target_any_mode() {
+    let dir = fresh_dir("torudo_it_reopen_mode");
+    fs::write(dir.join("done.txt"), "x 2026-08-15 Rethink this id:d1\n").unwrap();
+
+    let output = run(&dir, &["someday", "reopen", "d1"]);
+    stdout_of(&output);
+
+    let someday = fs::read_to_string(dir.join("someday.txt")).unwrap();
+    assert!(someday.contains("Rethink this"));
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn reopen_on_unknown_id_fails() {
+    let dir = fresh_dir("torudo_it_reopen_unknown");
+    fs::write(dir.join("done.txt"), "x 2026-08-15 Write docs id:d1\n").unwrap();
+
+    let output = run(&dir, &["todo", "reopen", "nope"]);
+
+    assert!(!output.status.success(), "unknown id should exit non-zero");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("nope"),
+        "stderr should name the id: {stderr}"
+    );
+
+    let done = fs::read_to_string(dir.join("done.txt")).unwrap();
+    assert!(done.contains("id:d1"), "done.txt is untouched: {done}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn done_list_shows_completed_items() {
+    let dir = fresh_dir("torudo_it_done_list");
+    fs::write(
+        dir.join("done.txt"),
+        "x 2026-08-15 2026-08-01 Write docs id:d1\nx 2026-08-14 Other id:d2\n",
+    )
+    .unwrap();
+
+    let output = run(&dir, &["done", "list", "--json"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    let items = json.as_array().expect("stdout is a JSON array");
+    assert_eq!(items.len(), 2);
+    assert!(items.iter().all(|i| i["completed"] == true));
+    let ids: Vec<&str> = items.iter().map(|i| i["id"].as_str().unwrap()).collect();
+    assert!(ids.contains(&"d1"));
+    assert!(ids.contains(&"d2"));
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn done_list_on_missing_file_returns_empty_array() {
+    let dir = fresh_dir("torudo_it_done_list_missing");
+
+    let output = run(&dir, &["done", "list", "--json"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json, serde_json::json!([]));
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn list_without_json_prints_one_line_per_item() {
     let dir = fresh_dir("torudo_it_list_plain");
     fs::write(

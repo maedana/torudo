@@ -15,6 +15,8 @@ torudo <mode> list [--json]                          # list the mode's items
 torudo <mode> set <id> [--time ...] [--energy ...]   # set GTD tags
 torudo <mode> promote <id> --to <mode>               # move to another mode
 torudo <mode> complete <id>                          # finish it: move to done.txt
+torudo <mode> reopen <id>                            # pull it back out of done.txt
+torudo done list [--json]                            # what has been completed
 ```
 
 `<mode>` is one of `inbox` / `todo` / `waiting` / `ref` / `someday`. Everything works
@@ -134,13 +136,18 @@ torudo inbox promote i1 --to todo               # move inbox.txt → todo.txt
 
 ```bash
 torudo todo complete <id>      # → done.txt, stamped with today's date
+torudo done list --json        # find what was completed, and its id
+torudo todo reopen <id>        # done.txt → todo.txt, completion marker cleared
 ```
 
 - Only **Todo** and **Waiting** can complete, matching the TUI's `x`. Finishing something
   sitting in Inbox / Ref / Someday means promoting it to Todo first.
-- **Completing is not reversible from the CLI** — the item moves to `done.txt` and no command
-  brings it back. Only complete what the user said is done; when a checklist in the detail md
-  still has unchecked `- [ ]` lines, say so and let them confirm rather than assuming.
+- **Complete only what the user said is done.** When the detail md still has unchecked
+  `- [ ]` lines, say so and let them confirm rather than assuming the task is finished.
+- `reopen` takes the item back out of `done.txt` and into the mode you name — priority,
+  creation date, and tags all survive the round trip, so a mistaken completion costs nothing.
+  It reads ids from `done.txt`, so get them from `torudo done list --json`.
+- `done` is an archive, not a GTD mode: it only lists. Items leave it through `reopen`.
 
 ## Starting work on a task
 
@@ -251,5 +258,7 @@ todoに移しました: リリース作業 +torudo time:short energy:low (id: 8a
 | 短時間・低エネルギーにしてtodoに移して | `torudo inbox set <id> --time short --energy low` → `torudo inbox promote <id> --to todo` |
 | これはいつかやるやつ | `torudo inbox promote <id> --to someday` |
 | Astro7対応終わった | `torudo todo complete <id>` |
+| さっき完了にしたのやっぱ戻して | `torudo done list --json` で id を得る → `torudo todo reopen <id>` |
+| 今週何が終わった? | `torudo done list` |
 | Astro7対応に着手して | `git wt --nocd` でworktree作成 → `herdr tab create` → `herdr agent start` → ListAgentsで名前解決 → SendMessageで依頼 |
 | worktree切ってclaude立てて | 同上。ブランチ名とベースブランチを確認してから |

@@ -298,6 +298,61 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
     Ok(())
 }
 
+/// Undo what `mark_complete` wrote: drop the leading `x` and the completion date
+/// it inserted, leaving any priority and creation date in place.
+fn strip_completion_marker(line: &str) -> String {
+    let mut tokens: Vec<&str> = line.split_whitespace().collect();
+    if tokens.first() != Some(&"x") {
+        return line.to_string();
+    }
+    tokens.remove(0);
+    if let Some(pos) = tokens
+        .iter()
+        .position(|token| NaiveDate::parse_from_str(token, "%Y-%m-%d").is_ok())
+    {
+        tokens.remove(pos);
+    }
+    tokens.join(" ")
+}
+
+/// Move a completed item out of `done.txt` and back into `dest_file`, clearing its
+/// completion marker. Returns whether the id was found.
+pub fn reopen_item(
+    done_file: &str,
+    dest_file: &str,
+    todo_id: &str,
+) -> Result<bool, Box<dyn Error>> {
+    let content = fs::read_to_string(done_file)?;
+    let mut kept = Vec::new();
+    let mut reopened = None;
+
+    for (line_num, line) in content.lines().enumerate() {
+        if line.trim().is_empty() {
+            kept.push(line.to_string());
+            continue;
+        }
+        let item = Item::parse(line, line_num + 1);
+        if reopened.is_none() && item.id.as_deref() == Some(todo_id) {
+            reopened = Some(strip_completion_marker(line));
+            continue;
+        }
+        kept.push(line.to_string());
+    }
+
+    let Some(line) = reopened else {
+        return Ok(false);
+    };
+
+    append_todo(dest_file, &line)?;
+    let mut out = kept.join("\n");
+    if !out.is_empty() && content.ends_with('\n') {
+        out.push('\n');
+    }
+    fs::write(done_file, out)?;
+    debug!("Reopened {todo_id} from done.txt into {dest_file}");
+    Ok(true)
+}
+
 pub fn delete_todo(todo_file: &str, todo_id: &str) -> Result<bool, Box<dyn Error>> {
     let content = fs::read_to_string(todo_file)?;
     let lines: Vec<&str> = content.lines().collect();
@@ -1357,6 +1412,93 @@ Learn Rust +learning @coding id:task-003";
             done_content.starts_with(&format!("x (A) {today} 2024-01-10")),
             "Expected format: 'x (A) {today} 2024-01-10...', but got: {done_content}"
         );
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_strip_completion_marker_removes_x_and_completion_date() {
+        assert_eq!(
+            strip_completion_marker("x 2026-08-15 2024-01-10 Call Mom +family id:t1"),
+            "2024-01-10 Call Mom +family id:t1"
+        );
+    }
+
+    #[test]
+    fn test_strip_completion_marker_keeps_priority() {
+        assert_eq!(
+            strip_completion_marker("x (A) 2026-08-15 2024-01-10 Call Mom id:t1"),
+            "(A) 2024-01-10 Call Mom id:t1"
+        );
+    }
+
+    #[test]
+    fn test_strip_completion_marker_without_creation_date() {
+        assert_eq!(
+            strip_completion_marker("x 2026-08-15 Call Mom id:t1"),
+            "Call Mom id:t1"
+        );
+    }
+
+    #[test]
+    fn test_strip_completion_marker_leaves_incomplete_line_alone() {
+        assert_eq!(
+            strip_completion_marker("2024-01-10 Call Mom id:t1"),
+            "2024-01-10 Call Mom id:t1"
+        );
+    }
+
+    #[test]
+    fn test_reopen_item_moves_the_line_back() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_reopen");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let done_file = temp_dir.join("done.txt");
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(
+            &done_file,
+            "x 2026-08-15 2024-01-10 Call Mom id:t1\nx 2026-08-14 Other id:t2\n",
+        )
+        .unwrap();
+        fs::write(&todo_file, "Existing id:t9\n").unwrap();
+
+        let moved = reopen_item(
+            done_file.to_str().unwrap(),
+            todo_file.to_str().unwrap(),
+            "t1",
+        )
+        .unwrap();
+
+        assert!(moved);
+        let todo = fs::read_to_string(&todo_file).unwrap();
+        assert!(todo.contains("2024-01-10 Call Mom id:t1"));
+        assert!(!todo.contains(" x "));
+        assert!(todo.contains("Existing id:t9"));
+        let done = fs::read_to_string(&done_file).unwrap();
+        assert!(!done.contains("id:t1"));
+        assert!(done.contains("id:t2"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_reopen_item_unknown_id_returns_false() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_reopen_unknown");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let done_file = temp_dir.join("done.txt");
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(&done_file, "x 2026-08-15 Call Mom id:t1\n").unwrap();
+
+        let moved = reopen_item(
+            done_file.to_str().unwrap(),
+            todo_file.to_str().unwrap(),
+            "nope",
+        )
+        .unwrap();
+
+        assert!(!moved);
+        assert!(!todo_file.exists(), "nothing should be written");
+        let done = fs::read_to_string(&done_file).unwrap();
+        assert!(done.contains("id:t1"), "done.txt is untouched");
 
         fs::remove_dir_all(&temp_dir).ok();
     }
