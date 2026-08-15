@@ -109,7 +109,11 @@ This repository ships an [Agent Skill](skills/torudo/SKILL.md) that lets Claude 
 above for you in plain language — "inboxに牛乳を買うを追加して", "短時間・低エネルギーにして
 todoに移して", or a bare URL, in which case Claude resolves a readable title (using a
 host-specific CLI when one exists, otherwise fetching the page) and confirms the line before
-adding it. It also writes the `- [ ]` checklist in `todos/{id}.md` for an item.
+adding it. It also writes the `- [ ]` checklist in `todos/{id}.md` for an item, and can start
+work on a task — creating the git worktree, opening a terminal tab there, and launching a
+Claude session for it. That last part additionally needs
+[git-wt](https://github.com/k1LoW/git-wt) and [herdr](https://herdr.dev); without them the
+capture and triage parts still work.
 
 ```bash
 # Install globally

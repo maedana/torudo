@@ -1,6 +1,6 @@
 ---
 name: torudo
-description: Drive torudo (a todo.txt TUI) from natural language — capture into the inbox, break an item down into a checklist, tag it with time/energy, and move it between GTD modes. Use when the user says things like "inboxに〜を追加して", "inboxに<URL>を追加して", "inboxを見せて", "これをtodoに移して", "エネルギー低めで短時間にして", "やることリストを書いて", or "add this to my inbox".
+description: Drive torudo (a todo.txt TUI) from natural language — capture into the inbox, break an item down into a checklist, tag it with time/energy, move it between GTD modes, and start work on a task in its own git worktree and Claude session. Use when the user says things like "inboxに〜を追加して", "inboxに<URL>を追加して", "inboxを見せて", "これをtodoに移して", "エネルギー低めで短時間にして", "やることリストを書いて", "これ着手して", "worktree切ってclaude立てて", or "add this to my inbox".
 ---
 
 # torudo
@@ -125,6 +125,73 @@ torudo inbox promote i1 --to todo               # move inbox.txt → todo.txt
 - Estimating time/energy is a judgment call about the user's own capacity — propose values
   with your reasoning and let the user correct them, unless they already said what they want.
 
+## Starting work on a task
+
+A development task gets its own git worktree, its own terminal tab, and its own Claude
+session. This session is the commander: it sets that up and hands the task over, it does not
+do the work itself.
+
+This flow leans on two tools besides torudo — [git-wt](https://github.com/k1LoW/git-wt) for
+the worktree and [herdr](https://herdr.dev) for the tab. Check for both before starting, so a
+missing one is reported as itself rather than as a confusing failure later:
+
+```bash
+command -v git-wt herdr
+```
+
+- **No `git-wt`** — fall back to plain git, choosing the path yourself:
+  `git -C <repo> worktree add -b <branch> <repo>/.worktrees/<branch> <base-ref>`. Tell the
+  user, because git-wt's `wt.copy` / `wt.hook` conveniences (copying `.env` and credentials,
+  running `bundle install`) do not happen — the worktree will need setting up by hand.
+- **No `herdr`** — this flow does not apply. Print the commands for the user to run in their
+  own terminal rather than substituting another multiplexer.
+
+```bash
+# 1. Base ref — the repo's default branch unless the user says otherwise
+git -C <repo> symbolic-ref --short refs/remotes/origin/HEAD        # → origin/main
+
+# 2. Open a tab on the repository. The JSON reply carries the pane_id
+herdr tab create --cwd <repo> --label "<repo>/<branch>" --no-focus
+
+# 3. Create the worktree in that pane, marking the outcome so it can be matched on.
+#    The shell integration cd's the pane into the new worktree.
+herdr pane run <pane_id> "git wt <branch> <base-ref> && echo WT_OK || echo WT_FAIL"
+
+# 4. Wait for it — wt.hook repos run bundle/pnpm install here and take minutes
+herdr pane wait-output <pane_id> --regex "WT_(OK|FAIL)" --timeout 600000
+
+# 5. Confirm the pane actually landed in the worktree before going on
+herdr pane get <pane_id>        # foreground_cwd should be the worktree path
+
+# 6. Start Claude in that pane. Returns once it is ready for input
+herdr agent start <name> --kind claude --pane <pane_id>
+
+# 7. Resolve the peer name with ListAgents, then hand the task over with SendMessage
+```
+
+The worktree is created **in the pane**, not from here, so the user can watch `bundle
+install` scroll by instead of staring at a silent terminal. The `WT_OK` / `WT_FAIL` marker is
+what makes that safe — without it the only signal is screen text, which is easy to misread.
+
+- **Repository** — take it from the item's `cwd` frontmatter when it has one; ask otherwise.
+- **Branch name** — propose one from the task and let the user correct it. `git wt <branch>
+  <base-ref>` creates the branch, so a typo becomes a real branch.
+- **`WT_FAIL` means stop.** A repo configured with `wt.hook` (`bundle install`, `pnpm
+  install`) can fail after the worktree directory already exists. **Do not start Claude** in
+  that case — a worktree without its dependencies is worse than no worktree at all. Report
+  what failed and let the user decide.
+- **The peer name is not the name passed to `agent start`.** It is derived from the worktree
+  directory name plus a random suffix (`wt-probe` → `wt-probe-df`), so it cannot be predicted.
+  Call ListAgents after starting and match on the directory-name prefix.
+- **Handing over** — send the task with SendMessage. A spawned session answers on its own
+  screen, not back to you, unless you explicitly ask it to reply with SendMessage.
+- **Watching it** — `herdr agent wait <name> --until idle` blocks until it settles, and
+  `herdr agent read <name>` dumps its screen. Neither needs the peer to cooperate.
+- **Permission boundaries** — never hand a spawned session work that was blocked in this
+  session. Route that back to the user instead.
+
+Report the worktree path, the branch, and the peer name so the user can jump to the tab.
+
 ## After acting
 
 Report the resulting line and the `id`, e.g.
@@ -146,3 +213,5 @@ todoに移しました: リリース作業 +torudo time:short energy:low (id: 8a
 | これのやることリストを書いて | `torudo inbox list --json` で id を得る → `todos/{id}.md` に `- [ ]` を書く |
 | 短時間・低エネルギーにしてtodoに移して | `torudo inbox set <id> --time short --energy low` → `torudo inbox promote <id> --to todo` |
 | これはいつかやるやつ | `torudo inbox promote <id> --to someday` |
+| Astro7対応に着手して | `git wt --nocd` でworktree作成 → `herdr tab create` → `herdr agent start` → ListAgentsで名前解決 → SendMessageで依頼 |
+| worktree切ってclaude立てて | 同上。ブランチ名とベースブランチを確認してから |
