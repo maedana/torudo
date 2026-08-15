@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-08-15
+
 ### Added
 - **CLI for every mode**: `torudo <mode> list` shows what a mode holds (`--json` for scripting), `torudo <mode> set <id> --time/--energy` sets the GTD tags, `torudo <mode> promote <id> --to <mode>` moves an item between modes, and `torudo <mode> complete <id>` finishes one into `done.txt` (Todo / Waiting only, as in the TUI). A completion can be undone with `torudo <mode> reopen <id>`, and `torudo done list` shows the archive. `add` now works on any mode, not just the inbox. All of it runs without the TUI open
 - **Claude Code skill**: `skills/torudo/SKILL.md` lets Claude drive the above from plain language ("inboxに〜を追加して", "短時間にしてtodoに移して"). Given a URL it looks up a readable title and confirms the line before adding, and it can write the `- [ ]` checklist in an item's detail md. It can also start work on a task — creating the git worktree, opening a terminal tab there, and launching a Claude session for it
@@ -212,7 +214,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Contexts (@context_name)
   - Custom IDs (id:unique_identifier)
 
-[Unreleased]: https://github.com/maedana/torudo/compare/v0.15.2...HEAD
+[Unreleased]: https://github.com/maedana/torudo/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/maedana/torudo/compare/v0.15.2...v0.16.0
 [0.15.2]: https://github.com/maedana/torudo/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/maedana/torudo/compare/v0.15.0...v0.15.1
 [0.12.0]: https://github.com/maedana/torudo/compare/v0.11.1...v0.12.0
