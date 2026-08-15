@@ -82,6 +82,14 @@ pub enum HintOutcome {
     Cancelled,
 }
 
+/// Where `AppState::focus_todo` ended up placing the cursor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FocusResult {
+    pub mode: ViewMode,
+    pub column: String,
+    pub filter_cleared: bool,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NowFilter {
     pub energy: Option<String>,
@@ -160,6 +168,12 @@ impl ViewMode {
         }
     }
 
+    /// Path of the mode's file inside `todotxt_dir`. The single place that
+    /// knows how a mode maps onto a path on disk.
+    pub fn file_path(self, todotxt_dir: &str) -> String {
+        format!("{todotxt_dir}/{}", self.filename())
+    }
+
     pub const fn label(self) -> &'static str {
         match self {
             Self::Todo => "Todo",
@@ -167,6 +181,18 @@ impl ViewMode {
             Self::Inbox => "Inbox",
             Self::Someday => "Someday",
             Self::Waiting => "Waiting",
+        }
+    }
+
+    /// The lowercase spelling the CLI accepts for `--mode` and prints back in
+    /// search and focus output. `label()` is capitalised for the TUI instead.
+    pub const fn cli_name(self) -> &'static str {
+        match self {
+            Self::Todo => "todo",
+            Self::Ref => "ref",
+            Self::Inbox => "inbox",
+            Self::Someday => "someday",
+            Self::Waiting => "waiting",
         }
     }
 
@@ -208,6 +234,13 @@ pub fn generate_hint_labels(n: usize) -> Vec<String> {
 
 pub fn count_items_in_file(path: &str) -> usize {
     fs::read_to_string(path).map_or(0, |c| c.lines().filter(|l| !l.trim().is_empty()).count())
+}
+
+/// Whether `file` holds an item whose own id is `id`. Unlike `has_todo_with_id`
+/// this goes through `Item::parse`, so a line that merely mentions another
+/// item - `Blocked by id:aaa fix it id:bbb` - is not reported as holding `aaa`.
+fn file_holds_item_id(file: &str, id: &str) -> bool {
+    load_todos(file).is_ok_and(|items| items.iter().any(|i| i.id.as_deref() == Some(id)))
 }
 
 pub struct AppState {
@@ -311,8 +344,7 @@ impl AppState {
 
     pub fn refresh_mode_counts(&mut self) {
         for (i, mode) in ViewMode::ALL.iter().enumerate() {
-            let path = format!("{}/{}", self.todotxt_dir, mode.filename());
-            self.mode_counts[i] = count_items_in_file(&path);
+            self.mode_counts[i] = count_items_in_file(&mode.file_path(&self.todotxt_dir));
         }
     }
 
@@ -406,6 +438,90 @@ impl AppState {
 
     pub fn get_current_todo_id(&self) -> Option<&str> {
         self.get_current_todo()?.id.as_deref()
+    }
+
+    /// Put the cursor on a cell and tell nvim about it. Scrolling is reset
+    /// because `draw_ui` re-derives the offset from the selected row, and the
+    /// hint overlay goes with it: its labels were computed for a grouping the
+    /// cursor has now left, so keeping them on screen would jump the next hint
+    /// key to the wrong cell.
+    fn select_cell(&mut self, col: usize, row: usize) {
+        self.hint = None;
+        self.status_message = None;
+        self.current_column = col;
+        self.selected_in_column = row;
+        self.scroll_offset = 0;
+        if let Some(id) = self.get_current_todo_id().map(str::to_string) {
+            self.send_vim_command(&id);
+        }
+    }
+
+    /// Which mode holds the item with `id`, without changing any state.
+    fn find_mode_for_id(&self, id: &str) -> Option<ViewMode> {
+        // The mode already on screen wins, so an id present in two files does
+        // not trigger a pointless mode switch.
+        if self.todos.iter().any(|t| t.id.as_deref() == Some(id)) {
+            return Some(self.view_mode);
+        }
+        // A miss in memory settles nothing: `self.todos` trails whatever the
+        // debounced file watcher has not delivered yet, and an item appended by
+        // `torudo <mode> add` reaches disk long before it reaches memory. So
+        // every file is re-read, the current mode's included.
+        std::iter::once(self.view_mode)
+            .chain(ViewMode::ALL.iter().copied())
+            .find(|mode| file_holds_item_id(&mode.file_path(&self.todotxt_dir), id))
+    }
+
+    /// Column index, row index and column name of `id` in the current grouping.
+    /// Columns are scanned in `project_names` order, so an item that appears in
+    /// several columns resolves to the leftmost one on screen.
+    fn locate_todo(&self, id: &str) -> Option<(usize, usize, String)> {
+        self.project_names
+            .iter()
+            .enumerate()
+            .find_map(|(col, name)| {
+                let row = self
+                    .grouped_todos
+                    .get(name)?
+                    .iter()
+                    .position(|t| t.id.as_deref() == Some(id))?;
+                Some((col, row, name.clone()))
+            })
+    }
+
+    /// Move the cursor onto the item with `id`, switching modes when needed.
+    /// Returns `None` without touching any state when no mode file holds it.
+    ///
+    /// Once a mode is picked the item is always locatable, because every layout
+    /// puts every item in some column. The Now filter is therefore cleared only
+    /// when it really is what hides the target, and never has to be restored.
+    pub fn focus_todo(&mut self, id: &str) -> Option<FocusResult> {
+        let mode = self.find_mode_for_id(id)?;
+        if mode == self.view_mode {
+            // `set_view_mode` is a no-op for the mode already on screen, so an
+            // item the watcher has not delivered yet needs its own reload.
+            if !self.todos.iter().any(|t| t.id.as_deref() == Some(id)) {
+                let file = self.active_file();
+                self.reload_todos(&file);
+            }
+        } else {
+            self.set_view_mode(mode);
+        }
+        // Only drop the Now filter when it is what hides the target.
+        let mut filter_cleared = false;
+        let mut located = self.locate_todo(id);
+        if located.is_none() && self.current_filter.is_some() {
+            self.handle_clear_filter();
+            filter_cleared = true;
+            located = self.locate_todo(id);
+        }
+        let (col, row, column) = located?;
+        self.select_cell(col, row);
+        Some(FocusResult {
+            mode,
+            column,
+            filter_cleared,
+        })
     }
 
     pub fn handle_navigation_key(&mut self, key_char: char) {
@@ -631,15 +747,8 @@ impl AppState {
         };
 
         if let Some((col, row)) = matched {
-            self.hint = None;
-            self.status_message = None;
-            self.current_column = col;
-            self.selected_in_column = row;
-            self.scroll_offset = 0;
-            let id = self.get_current_todo_id().map(str::to_string);
-            if let Some(id) = id {
-                self.send_vim_command(&id);
-            }
+            // `select_cell` drops the hint state and the "Hint: " message.
+            self.select_cell(col, row);
             return HintOutcome::Jumped;
         }
 
@@ -653,7 +762,7 @@ impl AppState {
     }
 
     pub fn active_file(&self) -> String {
-        format!("{}/{}", self.todotxt_dir, self.view_mode.filename())
+        self.view_mode.file_path(&self.todotxt_dir)
     }
 
     pub fn current_mode_index(&self) -> usize {
@@ -696,7 +805,7 @@ impl AppState {
         let source_file = self.active_file();
         if let Some(todo_id) = self.get_current_todo_id() {
             let target_name = target_mode.filename();
-            let target_file = format!("{}/{target_name}", self.todotxt_dir);
+            let target_file = target_mode.file_path(&self.todotxt_dir);
             debug!("Attempting to move item to {target_name}: {todo_id}");
             match move_to_file(&source_file, &target_file, todo_id) {
                 Ok(()) => {
@@ -917,6 +1026,15 @@ mod tests {
     use super::*;
     use crate::todo::Item;
     use std::fs;
+
+    #[test]
+    fn cli_name_is_the_lowercase_mode_spelling() {
+        assert_eq!(ViewMode::Inbox.cli_name(), "inbox");
+        assert_eq!(ViewMode::Todo.cli_name(), "todo");
+        assert_eq!(ViewMode::Waiting.cli_name(), "waiting");
+        assert_eq!(ViewMode::Ref.cli_name(), "ref");
+        assert_eq!(ViewMode::Someday.cli_name(), "someday");
+    }
 
     fn create_test_state(todos: Vec<Item>) -> AppState {
         let mut state = AppState::new(
@@ -2890,6 +3008,271 @@ mod tests {
         );
 
         fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    /// Create a fresh todotxt dir holding the given mode files.
+    fn focus_test_dir(name: &str, files: &[(ViewMode, &str)]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(name);
+        fs::remove_dir_all(&dir).ok();
+        fs::create_dir_all(&dir).unwrap();
+        for (mode, content) in files {
+            fs::write(dir.join(mode.filename()), content).unwrap();
+        }
+        dir
+    }
+
+    /// An `AppState` in Todo mode reading from `dir`.
+    fn focus_test_state(dir: &std::path::Path) -> AppState {
+        let todos = load_todos(dir.join("todo.txt").to_str().unwrap()).unwrap();
+        AppState::new(todos, String::new(), dir.to_str().unwrap().to_string())
+    }
+
+    #[test]
+    fn focus_todo_sends_the_target_id_to_nvim() {
+        let mut state = create_test_state(create_test_todos());
+        state.vim_send_log.borrow_mut().clear();
+
+        state.focus_todo("task-2").expect("task-2 is in todo mode");
+
+        assert_eq!(
+            state.vim_send_log.borrow().last().map(String::as_str),
+            Some("task-2")
+        );
+    }
+
+    #[test]
+    fn focus_todo_picks_the_leftmost_column_for_a_multi_project_item() {
+        let mut state = create_test_state(create_test_todos());
+
+        // task-4 is tagged +work and +urgent; "urgent" sorts first.
+        let result = state.focus_todo("task-4").expect("task-4 is in todo mode");
+
+        assert_eq!(result.column, "urgent");
+        assert_eq!(state.current_column, 2);
+        assert_eq!(state.get_current_todo_id(), Some("task-4"));
+    }
+
+    #[test]
+    fn focus_todo_resolves_a_priority_a_item_to_the_a_column_in_pick_layout() {
+        let mut state = create_test_state(create_test_todos());
+        state.handle_toggle_layout();
+
+        // task-1 has priority A and no energy, so it sits in both (A) and No Energy.
+        let result = state.focus_todo("task-1").expect("task-1 is in todo mode");
+
+        assert_eq!(result.column, "(A)");
+        assert_eq!(state.current_column, 0);
+        assert_eq!(state.get_current_todo_id(), Some("task-1"));
+    }
+
+    #[test]
+    fn focus_todo_returns_none_and_leaves_the_cursor_untouched_for_an_unknown_id() {
+        let dir = focus_test_dir(
+            "torudo_test_focus_unknown_id",
+            &[
+                (ViewMode::Todo, "T1 +p1 id:t1\nT2 +p2 id:t2\n"),
+                (ViewMode::Waiting, "W1 +work id:w1\n"),
+            ],
+        );
+        let mut state = focus_test_state(&dir);
+        state.focus_todo("t2").expect("t2 is in todo mode");
+        let before = (state.current_column, state.selected_in_column);
+        state.vim_send_log.borrow_mut().clear();
+
+        assert!(state.focus_todo("no-such-id").is_none());
+
+        assert_eq!((state.current_column, state.selected_in_column), before);
+        assert!(
+            state.vim_send_log.borrow().is_empty(),
+            "a failed focus must not move nvim (got {:?})",
+            state.vim_send_log.borrow()
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn focus_todo_leaves_the_view_mode_and_filter_untouched_for_an_unknown_id() {
+        let dir = focus_test_dir(
+            "torudo_test_focus_unknown_id_no_switch",
+            &[
+                (ViewMode::Todo, "T1 +p1 id:t1 energy:low\n"),
+                (ViewMode::Waiting, "W1 +work id:w1\n"),
+            ],
+        );
+        let mut state = focus_test_state(&dir);
+        state.handle_set_filter(Some("low"), None);
+
+        assert!(state.focus_todo("no-such-id").is_none());
+
+        assert_eq!(state.view_mode, ViewMode::Todo);
+        assert!(state.current_filter.is_some());
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn focus_todo_prefers_the_current_mode_when_the_id_exists_in_two_modes() {
+        let dir = focus_test_dir(
+            "torudo_test_focus_duplicate_id",
+            &[
+                (ViewMode::Todo, "T +p1 id:dup\n"),
+                (ViewMode::Inbox, "I +p2 id:dup\n"),
+            ],
+        );
+        let mut state = focus_test_state(&dir);
+
+        let result = state.focus_todo("dup").expect("dup is in todo mode too");
+
+        assert_eq!(result.mode, ViewMode::Todo);
+        assert_eq!(result.column, "p1");
+        assert_eq!(state.view_mode, ViewMode::Todo);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn focus_todo_switches_to_the_mode_that_holds_the_id() {
+        let dir = focus_test_dir(
+            "torudo_test_focus_other_mode",
+            &[
+                (ViewMode::Todo, "T1 +p1 id:t1\n"),
+                (ViewMode::Waiting, "W1 +work id:w1\n"),
+            ],
+        );
+        let mut state = focus_test_state(&dir);
+        assert_eq!(state.view_mode, ViewMode::Todo);
+
+        let result = state.focus_todo("w1").expect("w1 lives in waiting mode");
+
+        assert_eq!(result.mode, ViewMode::Waiting);
+        assert_eq!(result.column, "work");
+        assert_eq!(state.view_mode, ViewMode::Waiting);
+        assert_eq!(state.get_current_todo_id(), Some("w1"));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn focus_todo_clears_the_now_filter_when_the_target_is_hidden() {
+        let dir = focus_test_dir(
+            "torudo_test_focus_filter_hidden",
+            &[(
+                ViewMode::Todo,
+                "T1 +p1 id:t1 energy:low\nT2 +p1 id:t2 energy:high\n",
+            )],
+        );
+        let mut state = focus_test_state(&dir);
+        state.handle_set_filter(Some("low"), None);
+        assert_eq!(total_grouped_todos(&state), 1);
+
+        let result = state.focus_todo("t2").expect("t2 exists behind the filter");
+
+        assert!(result.filter_cleared);
+        assert!(state.current_filter.is_none());
+        assert_eq!(state.get_current_todo_id(), Some("t2"));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn focus_todo_keeps_the_now_filter_when_the_target_is_visible() {
+        let dir = focus_test_dir(
+            "torudo_test_focus_filter_visible",
+            &[(
+                ViewMode::Todo,
+                "T1 +p1 id:t1 energy:low\nT2 +p1 id:t2 energy:high\n",
+            )],
+        );
+        let mut state = focus_test_state(&dir);
+        state.handle_set_filter(Some("low"), None);
+
+        let result = state.focus_todo("t1").expect("t1 passes the filter");
+
+        assert!(!result.filter_cleared);
+        assert_eq!(
+            state.current_filter,
+            Some(NowFilter {
+                energy: Some("low".to_string()),
+                time: None,
+            })
+        );
+        assert_eq!(state.get_current_todo_id(), Some("t1"));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn focus_todo_finds_an_id_added_to_the_current_mode_behind_the_watcher() {
+        let dir = focus_test_dir(
+            "torudo_test_focus_stale_current_mode",
+            &[(ViewMode::Todo, "T1 +p1 id:t1\n")],
+        );
+        let mut state = focus_test_state(&dir);
+        // The file watcher debounces, so an item appended by `torudo todo add`
+        // can still be missing from `self.todos` when the focus request lands.
+        fs::write(dir.join("todo.txt"), "T1 +p1 id:t1\nT2 +p2 id:t2\n").unwrap();
+
+        let result = state.focus_todo("t2").expect("t2 is already in todo.txt");
+
+        assert_eq!(result.mode, ViewMode::Todo);
+        assert_eq!(result.column, "p2");
+        assert_eq!(state.get_current_todo_id(), Some("t2"));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn focus_todo_ignores_an_id_token_that_is_not_the_items_own_id() {
+        let dir = focus_test_dir(
+            "torudo_test_focus_mid_line_id_token",
+            &[
+                (ViewMode::Todo, "T1 +p1 id:t1\n"),
+                // Only the last `id:` token is the item's id; the first one is
+                // ordinary text referring to another item.
+                (ViewMode::Inbox, "Blocked by id:aaa fix it +p2 id:bbb\n"),
+            ],
+        );
+        let mut state = focus_test_state(&dir);
+
+        assert!(state.focus_todo("aaa").is_none());
+
+        assert_eq!(
+            state.view_mode,
+            ViewMode::Todo,
+            "a failed focus must not switch the view mode"
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn focus_todo_drops_a_pending_hint_overlay() {
+        let mut state = create_test_state(create_test_todos());
+        state.enter_hint_mode(&[(0, 0), (3, 0)]);
+        assert!(state.hint.is_some());
+
+        state.focus_todo("task-1").expect("task-1 is in todo mode");
+
+        assert!(
+            state.hint.is_none(),
+            "hint labels are stale once the cursor moves on its own"
+        );
+        assert_eq!(state.status_message, None);
+    }
+
+    #[test]
+    fn focus_todo_moves_the_selection_within_the_current_mode() {
+        let mut state = create_test_state(create_test_todos());
+
+        let result = state.focus_todo("task-1").expect("task-1 is in todo mode");
+
+        assert_eq!(result.mode, ViewMode::Todo);
+        assert_eq!(result.column, "work");
+        assert!(!result.filter_cleared);
+        assert_eq!(state.current_column, 3);
+        assert_eq!(state.selected_in_column, 0);
+        assert_eq!(state.get_current_todo_id(), Some("task-1"));
     }
 
     #[test]

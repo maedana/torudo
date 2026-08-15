@@ -1,6 +1,8 @@
 use crate::app_state::ViewMode;
+use crate::md_preview;
 use crate::todo::{self, Item};
 use clap::{Subcommand, ValueEnum};
+use serde::Serialize;
 use std::error::Error;
 use std::path::Path;
 
@@ -104,7 +106,7 @@ impl EnergyValue {
 }
 
 pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(), Box<dyn Error>> {
-    let file = mode_file(mode, todotxt_dir);
+    let file = mode.file_path(todotxt_dir);
     match action {
         ModeAction::Add { text } => {
             let item = todo::add_item(&file, &text.join(" "))?;
@@ -150,7 +152,7 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
                 return Err(format!("item is already in {}", mode.label()).into());
             }
             require_item(&file, mode, id)?;
-            let target_file = mode_file(target, todotxt_dir);
+            let target_file = target.file_path(todotxt_dir);
             todo::move_to_file(&file, &target_file, id)?;
             print_item(&target_file, id, todotxt_dir)?;
         }
@@ -174,6 +176,142 @@ pub fn run_done(action: &DoneAction, todotxt_dir: &str) -> Result<(), Box<dyn Er
     match action {
         DoneAction::List { json } => print_items(&load_mode_items(&done_file(todotxt_dir))?, *json),
     }
+}
+
+/// `--mode` narrows the sweep; without it every GTD mode is searched.
+/// `done.txt` is never a target because its items cannot be focused.
+fn search_targets(mode: Option<ModeName>) -> Vec<ViewMode> {
+    mode.map_or_else(|| ViewMode::ALL.to_vec(), |mode| vec![mode.view_mode()])
+}
+
+/// Which part of an item the query was found in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum MatchField {
+    /// The title line: the description together with its `+project` and
+    /// `@context` tags. See `searchable_title`.
+    Title,
+    Md,
+    Both,
+}
+
+impl MatchField {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Title => "title",
+            Self::Md => "md",
+            Self::Both => "both",
+        }
+    }
+}
+
+/// A single search result. `Item` carries no mode, so hits need this wrapper.
+#[derive(Serialize)]
+struct SearchHit {
+    /// Items without an `id:` tag are reported as null rather than dropped.
+    id: Option<String>,
+    /// Lowercase mode name, spelled the way `--mode` accepts it.
+    mode: &'static str,
+    /// The bare description: tags are searched, but not echoed back here.
+    title: String,
+    matched: MatchField,
+}
+
+/// One line per hit, id first so `awk '{print $1}'` feeds `torudo focus`.
+fn format_hit(hit: &SearchHit) -> String {
+    let id = hit.id.as_deref().unwrap_or("-");
+    format!(
+        "{id} [{}] {} ({})",
+        hit.mode,
+        hit.title,
+        hit.matched.as_str()
+    )
+}
+
+/// The text a `MatchField::Title` hit covers. `Item::parse` lifts the
+/// `+project` and `@context` tags out of the description, but torudo organises
+/// items by project, so they are exactly what a user searching for "keihi"
+/// means. The `key:value` tags stay out: `id:` and `time:short` are metadata
+/// and would only produce noise hits.
+fn searchable_title(item: &Item) -> String {
+    let mut text = item.description.clone();
+    for project in &item.projects {
+        text.push_str(" +");
+        text.push_str(project);
+    }
+    for context in &item.contexts {
+        text.push_str(" @");
+        text.push_str(context);
+    }
+    text
+}
+
+/// Case-insensitive substring match. The query is never treated as a regex.
+/// `title` is a `searchable_title`, not the bare description.
+fn matched_field(title: &str, md: Option<&str>, query: &str) -> Option<MatchField> {
+    let needle = query.to_lowercase();
+    let in_title = title.to_lowercase().contains(&needle);
+    let in_md = md.is_some_and(|md| md.to_lowercase().contains(&needle));
+    match (in_title, in_md) {
+        (true, true) => Some(MatchField::Both),
+        (true, false) => Some(MatchField::Title),
+        (false, true) => Some(MatchField::Md),
+        (false, false) => None,
+    }
+}
+
+pub fn run_search(
+    query: &str,
+    json: bool,
+    mode: Option<ModeName>,
+    todotxt_dir: &str,
+) -> Result<(), Box<dyn Error>> {
+    if query.is_empty() {
+        return Err("query must not be empty".into());
+    }
+    let mut hits = Vec::new();
+    for mode in search_targets(mode) {
+        hits.extend(collect_hits(mode, todotxt_dir, query)?);
+    }
+    print_hits(&hits, json)
+}
+
+/// A missing mode file simply contributes no hits.
+fn collect_hits(
+    mode: ViewMode,
+    todotxt_dir: &str,
+    query: &str,
+) -> Result<Vec<SearchHit>, Box<dyn Error>> {
+    let mut hits = Vec::new();
+    for item in load_mode_items(&mode.file_path(todotxt_dir))? {
+        let md = item.id.as_deref().and_then(|id| read_md(todotxt_dir, id));
+        if let Some(matched) = matched_field(&searchable_title(&item), md.as_deref(), query) {
+            hits.push(SearchHit {
+                id: item.id,
+                mode: mode.cli_name(),
+                title: item.description,
+                matched,
+            });
+        }
+    }
+    Ok(hits)
+}
+
+/// The detail file is optional, so an unreadable one is the same as an absent one.
+fn read_md(todotxt_dir: &str, id: &str) -> Option<String> {
+    std::fs::read_to_string(md_preview::md_path(todotxt_dir, id)).ok()
+}
+
+/// The counterpart of `print_items`, which only accepts `&[Item]`.
+fn print_hits(hits: &[SearchHit], json: bool) -> Result<(), Box<dyn Error>> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(hits)?);
+    } else {
+        for hit in hits {
+            println!("{}", format_hit(hit));
+        }
+    }
+    Ok(())
 }
 
 fn print_items(items: &[Item], json: bool) -> Result<(), Box<dyn Error>> {
@@ -207,10 +345,6 @@ fn print_item(file: &str, id: &str, todotxt_dir: &str) -> Result<(), Box<dyn Err
         .ok_or_else(|| format!("item id:{id} is gone from {file}"))?;
     println!("{}", todo::item_to_json(item, todotxt_dir)?);
     Ok(())
-}
-
-fn mode_file(mode: ViewMode, todotxt_dir: &str) -> String {
-    format!("{todotxt_dir}/{}", mode.filename())
 }
 
 /// A mode file is created lazily, so a missing one simply holds no items.
@@ -262,9 +396,141 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mode_file_joins_dir_and_mode_filename() {
+    fn matched_field_is_none_when_nothing_contains_the_query() {
+        assert_eq!(matched_field("Buy milk", None, "boat"), None);
+    }
+
+    #[test]
+    fn matched_field_is_title_when_the_title_contains_the_query() {
         assert_eq!(
-            mode_file(ViewMode::Waiting, "/tmp/todotxt"),
+            matched_field("Buy milk", None, "milk"),
+            Some(MatchField::Title)
+        );
+    }
+
+    #[test]
+    fn matched_field_ignores_case_on_both_sides() {
+        assert_eq!(
+            matched_field("Buy MILK", None, "milk"),
+            Some(MatchField::Title)
+        );
+        assert_eq!(
+            matched_field("Buy milk", None, "MILK"),
+            Some(MatchField::Title)
+        );
+    }
+
+    #[test]
+    fn matched_field_is_md_when_only_the_md_body_contains_the_query() {
+        assert_eq!(
+            matched_field("Buy milk", Some("remember the Boat"), "boat"),
+            Some(MatchField::Md)
+        );
+    }
+
+    #[test]
+    fn matched_field_is_both_when_title_and_md_contain_the_query() {
+        assert_eq!(
+            matched_field("Buy milk", Some("2 litres of milk"), "milk"),
+            Some(MatchField::Both)
+        );
+    }
+
+    #[test]
+    fn matched_field_searches_the_title_alone_when_there_is_no_md_file() {
+        assert_eq!(matched_field("Buy milk", None, "litres"), None);
+        assert_eq!(
+            matched_field("Buy milk", Some("2 litres"), "litres"),
+            Some(MatchField::Md)
+        );
+    }
+
+    #[test]
+    fn matched_field_does_not_treat_the_query_as_a_regex() {
+        assert_eq!(matched_field("Buy milk", None, ".*"), None);
+        assert_eq!(matched_field("Buy milk", None, "^Buy"), None);
+    }
+
+    #[test]
+    fn searchable_title_appends_the_project_and_context_tags() {
+        let item = Item::parse("Fix the flaky spec +keihi @office time:short id:aaa", 1);
+        assert_eq!(searchable_title(&item), "Fix the flaky spec +keihi @office");
+    }
+
+    #[test]
+    fn searchable_title_leaves_out_the_key_value_tags() {
+        let item = Item::parse("Fix it time:short energy:low id:aaa", 1);
+        assert_eq!(searchable_title(&item), "Fix it");
+    }
+
+    #[test]
+    fn searchable_title_of_an_untagged_item_is_its_description() {
+        let item = Item::parse("(A) 2026-08-15 Buy milk", 1);
+        assert_eq!(searchable_title(&item), "Buy milk");
+    }
+
+    #[test]
+    fn matched_field_finds_a_tag_in_the_searchable_title() {
+        let item = Item::parse("Fix the flaky spec +keihi @office id:aaa", 1);
+        let title = searchable_title(&item);
+        assert_eq!(
+            matched_field(&title, None, "keihi"),
+            Some(MatchField::Title)
+        );
+        assert_eq!(
+            matched_field(&title, None, "office"),
+            Some(MatchField::Title)
+        );
+        assert_eq!(matched_field(&title, None, "aaa"), None);
+    }
+
+    #[test]
+    fn search_targets_without_a_mode_covers_every_mode() {
+        assert_eq!(search_targets(None), ViewMode::ALL.to_vec());
+    }
+
+    #[test]
+    fn search_targets_with_a_mode_covers_only_that_mode() {
+        assert_eq!(search_targets(Some(ModeName::Ref)), vec![ViewMode::Ref]);
+    }
+
+    #[test]
+    fn format_hit_starts_the_line_with_the_id() {
+        let hit = SearchHit {
+            id: Some("aaa-111".to_string()),
+            mode: "inbox",
+            title: "Buy milk".to_string(),
+            matched: MatchField::Title,
+        };
+        assert_eq!(format_hit(&hit), "aaa-111 [inbox] Buy milk (title)");
+    }
+
+    #[test]
+    fn format_hit_marks_a_missing_id_with_a_dash() {
+        let hit = SearchHit {
+            id: None,
+            mode: "ref",
+            title: "Untagged line".to_string(),
+            matched: MatchField::Both,
+        };
+        assert_eq!(format_hit(&hit), "- [ref] Untagged line (both)");
+    }
+
+    #[test]
+    fn every_cli_name_round_trips_through_the_mode_argument() {
+        // `search` prints `cli_name()` and the docs promise it can be fed
+        // straight back to `--mode`, so clap has to accept every one of them.
+        for mode in ViewMode::ALL {
+            let parsed = ModeName::from_str(mode.cli_name(), false)
+                .unwrap_or_else(|_| panic!("--mode rejects {}", mode.cli_name()));
+            assert_eq!(parsed.view_mode(), *mode);
+        }
+    }
+
+    #[test]
+    fn file_path_joins_dir_and_mode_filename() {
+        assert_eq!(
+            ViewMode::Waiting.file_path("/tmp/todotxt"),
             "/tmp/todotxt/waiting.txt"
         );
     }

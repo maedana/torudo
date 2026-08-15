@@ -4,14 +4,16 @@ use std::process;
 
 use crate::rpc_server;
 
-pub fn run_current() -> Result<(), Box<dyn std::error::Error>> {
+/// Send one request to the running TUI and print its result, exiting non-zero
+/// when torudo is not running or the server answers with an error.
+fn call(method: &str, params: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
     let path = rpc_server::socket_path();
     let Ok(mut stream) = UnixStream::connect(&path) else {
         eprintln!("torudo is not running");
         process::exit(1);
     };
 
-    let payload = rpc_server::encode_request(1, rpc_server::METHOD_GET_CURRENT);
+    let payload = rpc_server::encode_request_with_params(1, method, params);
     stream.write_all(&payload)?;
     stream.shutdown(std::net::Shutdown::Write)?;
 
@@ -30,4 +32,12 @@ pub fn run_current() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+pub fn run_current() -> Result<(), Box<dyn std::error::Error>> {
+    call(rpc_server::METHOD_GET_CURRENT, &[])
+}
+
+pub fn run_focus(id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    call(rpc_server::METHOD_FOCUS, &[id])
 }

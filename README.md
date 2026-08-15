@@ -106,9 +106,24 @@ torudo todo complete <id>
 # Look at the archive, and undo a completion
 torudo done list --json
 torudo todo reopen <id>
+
+# Search titles, +project / @context tags, and detail-md content across every mode
+# (done.txt is never included)
+torudo search "release" --json
+torudo search "release" --mode todo
+
+# Move the running TUI's cursor onto an item — the TUI must already be running
+torudo focus <id>
+
+# Chain them: jump straight to the first search hit
+torudo search "release" --json | jq -r '.[0].id' | xargs torudo focus
 ```
 
 `add`, `set`, and `promote` print the resulting item as JSON in the same format as `torudo current`; `set` and `promote` exit non-zero on an unknown id. When a TUI session is running, the file watcher picks up the change and the affected tab updates automatically.
+
+`search` matches case-insensitively against the item's title, its `+project` and `@context` tags, and the body of its detail md; `key:value` tags such as `id:` and `time:` are not searched. The `matched` field reports where the query landed — `title` (title or tags), `md`, or `both`.
+
+`search` is a stateless CLI command; `focus` is not — it talks to a running TUI over its RPC socket and moves the cursor there, switching modes and clearing the Now filter automatically if the item is hidden. With no TUI running it prints `torudo is not running` and exits non-zero. Because the target is whichever session holds the socket, `focus` ignores `--todotxt-dir` and acts on the directory that TUI was started with.
 
 ### Driving torudo from Claude Code
 

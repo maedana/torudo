@@ -3,9 +3,11 @@ use std::io::{Read, Write};
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 
+use crate::app_state::AppState;
 use crate::todo;
 
 pub const METHOD_GET_CURRENT: &str = "get_current";
+pub const METHOD_FOCUS: &str = "focus";
 
 const MAX_REQUEST_SIZE: usize = 4096;
 
@@ -15,13 +17,17 @@ pub fn socket_path() -> PathBuf {
     PathBuf::from(format!("/tmp/torudo-{uid}.sock"))
 }
 
-/// Encode a msgpack-rpc request: `[0, msgid, method, params]`
-pub fn encode_request(msgid: u32, method: &str) -> Vec<u8> {
+/// Encode a msgpack-rpc request with string params: `[0, msgid, method, params]`
+pub fn encode_request_with_params(msgid: u32, method: &str, params: &[&str]) -> Vec<u8> {
+    let args = params
+        .iter()
+        .map(|p| rmpv::Value::String((*p).into()))
+        .collect();
     let request = rmpv::Value::Array(vec![
         rmpv::Value::Integer(0.into()),
         rmpv::Value::Integer(msgid.into()),
         rmpv::Value::String(method.into()),
-        rmpv::Value::Array(vec![]),
+        rmpv::Value::Array(args),
     ]);
     let mut buf = Vec::new();
     rmpv::encode::write_value(&mut buf, &request).expect("encode should not fail");
@@ -86,25 +92,21 @@ pub fn decode_response(data: &[u8]) -> Result<(Option<String>, Option<String>), 
 pub struct RpcServer {
     listener: UnixListener,
     path: PathBuf,
-    todotxt_dir: String,
 }
 
 impl RpcServer {
-    pub fn new(todotxt_dir: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let path = socket_path();
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path)?;
         listener.set_nonblocking(true)?;
         debug!("RPC server listening on {}", path.display());
-        Ok(Self {
-            listener,
-            path,
-            todotxt_dir: todotxt_dir.to_string(),
-        })
+        Ok(Self { listener, path })
     }
 
-    /// Poll for incoming RPC requests (non-blocking).
-    pub fn poll(&self, current_todo: Option<&todo::Item>) {
+    /// Poll for incoming RPC requests (non-blocking). Takes the whole state
+    /// because `focus` moves the cursor rather than only reading it.
+    pub fn poll(&self, state: &mut AppState) {
         let stream = match self.listener.accept() {
             Ok((stream, _)) => stream,
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => return,
@@ -113,14 +115,10 @@ impl RpcServer {
                 return;
             }
         };
-        Self::handle_connection(stream, current_todo, &self.todotxt_dir);
+        Self::handle_connection(stream, state);
     }
 
-    fn handle_connection(
-        mut stream: std::os::unix::net::UnixStream,
-        current_todo: Option<&todo::Item>,
-        todotxt_dir: &str,
-    ) {
+    fn handle_connection(mut stream: std::os::unix::net::UnixStream, state: &mut AppState) {
         let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(500)));
 
         let mut buf = [0u8; MAX_REQUEST_SIZE];
@@ -128,7 +126,7 @@ impl RpcServer {
             return;
         };
 
-        let (msgid, method, _params) = match decode_request(&buf[..n]) {
+        let (msgid, method, params) = match decode_request(&buf[..n]) {
             Ok(v) => v,
             Err(e) => {
                 debug!("RPC decode error: {e}");
@@ -138,12 +136,15 @@ impl RpcServer {
 
         debug!("RPC request: method={method}, msgid={msgid}");
 
-        let response = match method.as_str() {
-            METHOD_GET_CURRENT => match handle_get_current(current_todo, todotxt_dir) {
-                Ok(json) => encode_response(msgid, None, Some(&json)),
-                Err(e) => encode_response(msgid, Some(&e), None),
-            },
-            _ => encode_response(msgid, Some(&format!("unknown method: {method}")), None),
+        // Every handler takes the same pair, so this stays a plain name-to-handler table.
+        let result = match method.as_str() {
+            METHOD_GET_CURRENT => handle_get_current(state, &params),
+            METHOD_FOCUS => handle_focus(state, &params),
+            _ => Err(format!("unknown method: {method}")),
+        };
+        let response = match result {
+            Ok(json) => encode_response(msgid, None, Some(&json)),
+            Err(e) => encode_response(msgid, Some(&e), None),
         };
 
         let _ = stream.write_all(&response);
@@ -157,12 +158,32 @@ impl Drop for RpcServer {
     }
 }
 
-fn handle_get_current(
-    current_todo: Option<&todo::Item>,
-    todotxt_dir: &str,
-) -> Result<String, String> {
-    let item = current_todo.ok_or("no todo selected")?;
-    todo::item_to_json(item, todotxt_dir).map_err(|e| e.to_string())
+/// The first param of an RPC request. Callers name the argument in their own error.
+fn first_string_param(params: &rmpv::Value) -> Option<&str> {
+    params
+        .as_array()
+        .and_then(|args| args.first())
+        .and_then(rmpv::Value::as_str)
+}
+
+fn handle_focus(state: &mut AppState, params: &rmpv::Value) -> Result<String, String> {
+    let id = first_string_param(params)
+        .ok_or_else(|| format!("{METHOD_FOCUS} requires an id argument"))?;
+    let focused = state
+        .focus_todo(id)
+        .ok_or_else(|| format!("no item with id:{id}"))?;
+    let response = serde_json::json!({
+        "id": id,
+        "mode": focused.mode.cli_name(),
+        "column": focused.column,
+        "filter_cleared": focused.filter_cleared,
+    });
+    serde_json::to_string_pretty(&response).map_err(|e| e.to_string())
+}
+
+fn handle_get_current(state: &AppState, _params: &rmpv::Value) -> Result<String, String> {
+    let item = state.get_current_todo().ok_or("no todo selected")?;
+    todo::item_to_json(item, &state.todotxt_dir).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -194,11 +215,22 @@ mod tests {
 
     #[test]
     fn test_encode_decode_request_roundtrip() {
-        let encoded = encode_request(1, METHOD_GET_CURRENT);
+        let encoded = encode_request_with_params(1, METHOD_GET_CURRENT, &[]);
         let (msgid, method, params) = decode_request(&encoded).unwrap();
         assert_eq!(msgid, 1);
         assert_eq!(method, METHOD_GET_CURRENT);
         assert!(params.as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_encode_request_with_params_roundtrip() {
+        let encoded = encode_request_with_params(7, METHOD_FOCUS, &["abc-123"]);
+        let (msgid, method, params) = decode_request(&encoded).unwrap();
+        assert_eq!(msgid, 7);
+        assert_eq!(method, METHOD_FOCUS);
+        let args = params.as_array().unwrap();
+        assert_eq!(args.len(), 1);
+        assert_eq!(args[0].as_str().unwrap(), "abc-123");
     }
 
     #[test]
@@ -230,8 +262,8 @@ mod tests {
         std::fs::create_dir(&todos_dir).unwrap();
         std::fs::write(todos_dir.join("abc-123.md"), "# Details").unwrap();
 
-        let item = todo::Item::parse("(A) My task +project @home id:abc-123", 0);
-        let result = handle_get_current(Some(&item), dir.path().to_str().unwrap()).unwrap();
+        let state = test_state(dir.path(), "(A) My task +project @home id:abc-123\n");
+        let result = handle_get_current(&state, &no_params()).unwrap();
         let json: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         assert_eq!(json["title"], "My task");
@@ -249,8 +281,8 @@ mod tests {
         let todos_dir = dir.path().join("todos");
         std::fs::create_dir(&todos_dir).unwrap();
 
-        let item = todo::Item::parse("Simple task id:xyz-789", 0);
-        let result = handle_get_current(Some(&item), dir.path().to_str().unwrap()).unwrap();
+        let state = test_state(dir.path(), "Simple task id:xyz-789\n");
+        let result = handle_get_current(&state, &no_params()).unwrap();
         let json: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         assert_eq!(json["title"], "Simple task");
@@ -260,9 +292,66 @@ mod tests {
 
     #[test]
     fn test_handle_get_current_no_selection() {
-        let result = handle_get_current(None, "/tmp");
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state(dir.path(), "");
+        let result = handle_get_current(&state, &no_params());
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("no todo selected"));
+    }
+
+    /// The empty param list every no-argument RPC method is called with.
+    fn no_params() -> rmpv::Value {
+        rmpv::Value::Array(vec![])
+    }
+
+    /// An `AppState` in Todo mode reading `content` from a throwaway todotxt dir.
+    fn test_state(dir: &std::path::Path, content: &str) -> AppState {
+        let todo_file = dir.join("todo.txt");
+        std::fs::write(&todo_file, content).unwrap();
+        let todos = todo::load_todos(todo_file.to_str().unwrap()).unwrap();
+        AppState::new(todos, String::new(), dir.to_str().unwrap().to_string())
+    }
+
+    fn string_params(args: &[&str]) -> rmpv::Value {
+        rmpv::Value::Array(
+            args.iter()
+                .map(|a| rmpv::Value::String((*a).into()))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn test_handle_focus_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = test_state(dir.path(), "T1 +work id:t1\n");
+
+        let result = handle_focus(&mut state, &string_params(&["t1"])).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["id"], "t1");
+        assert_eq!(json["mode"], "todo");
+        assert_eq!(json["column"], "work");
+        assert_eq!(json["filter_cleared"], false);
+    }
+
+    #[test]
+    fn test_handle_focus_unknown_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = test_state(dir.path(), "T1 +work id:t1\n");
+
+        let err = handle_focus(&mut state, &string_params(&["nope"])).unwrap_err();
+
+        assert_eq!(err, "no item with id:nope");
+    }
+
+    #[test]
+    fn test_handle_focus_missing_id_param() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = test_state(dir.path(), "T1 +work id:t1\n");
+
+        let err = handle_focus(&mut state, &string_params(&[])).unwrap_err();
+
+        assert_eq!(err, "focus requires an id argument");
     }
 
     #[test]
@@ -281,17 +370,16 @@ mod tests {
         let server = RpcServer {
             listener,
             path: sock_path.clone(),
-            todotxt_dir: dir.path().to_str().unwrap().to_string(),
         };
 
-        let item = todo::Item::parse("Test todo id:test-id", 0);
+        let mut state = test_state(dir.path(), "Test todo id:test-id\n");
 
         let mut client = UnixStream::connect(&sock_path).unwrap();
-        let req_buf = encode_request(42, METHOD_GET_CURRENT);
+        let req_buf = encode_request_with_params(42, METHOD_GET_CURRENT, &[]);
         client.write_all(&req_buf).unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
 
-        server.poll(Some(&item));
+        server.poll(&mut state);
 
         let mut resp_buf = Vec::new();
         client.read_to_end(&mut resp_buf).unwrap();
@@ -314,21 +402,58 @@ mod tests {
         let server = RpcServer {
             listener,
             path: sock_path.clone(),
-            todotxt_dir: dir.path().to_str().unwrap().to_string(),
         };
 
-        let item = todo::Item::parse("x id:x", 0);
+        let mut state = test_state(dir.path(), "x id:x\n");
 
         let mut client = UnixStream::connect(&sock_path).unwrap();
-        let req_buf = encode_request(1, "nonexistent");
+        let req_buf = encode_request_with_params(1, "nonexistent", &[]);
         client.write_all(&req_buf).unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
 
-        server.poll(Some(&item));
+        server.poll(&mut state);
 
         let mut resp_buf = Vec::new();
         client.read_to_end(&mut resp_buf).unwrap();
         let (error, _result) = decode_response(&resp_buf).unwrap();
         assert!(error.unwrap().contains("unknown method"));
+    }
+
+    #[test]
+    fn test_rpc_focus_roundtrip() {
+        use std::io::{Read, Write};
+        use std::os::unix::net::UnixStream;
+
+        let dir = tempfile::tempdir().unwrap();
+        let sock_path = dir.path().join("test3.sock");
+        let listener = UnixListener::bind(&sock_path).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let server = RpcServer {
+            listener,
+            path: sock_path.clone(),
+        };
+
+        let mut state = test_state(
+            dir.path(),
+            "First +alpha id:first\nSecond +beta id:second\n",
+        );
+        assert_eq!(state.get_current_todo_id(), Some("first"));
+
+        let mut client = UnixStream::connect(&sock_path).unwrap();
+        let req_buf = encode_request_with_params(3, METHOD_FOCUS, &["second"]);
+        client.write_all(&req_buf).unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+
+        server.poll(&mut state);
+
+        let mut resp_buf = Vec::new();
+        client.read_to_end(&mut resp_buf).unwrap();
+        let (error, result) = decode_response(&resp_buf).unwrap();
+        assert!(error.is_none());
+        let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(json["id"], "second");
+        assert_eq!(json["mode"], "todo");
+        assert_eq!(json["column"], "beta");
+        assert_eq!(state.get_current_todo_id(), Some("second"));
     }
 }

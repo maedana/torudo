@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`torudo search <query>`**: find an item across every mode by its title, its `+project` / `@context` tags, or its detail-md text, without opening the TUI. Case-insensitive substring match; `--mode` narrows it to one mode, `--json` gives structured output for scripting. `done.txt` is never searched
+- **`torudo focus <id>`**: move the running TUI's cursor onto a specific item, switching modes and clearing the Now filter automatically if it's hidden. Requires the TUI to already be running
+
 ## [0.16.0] - 2026-08-15
 
 ### Added

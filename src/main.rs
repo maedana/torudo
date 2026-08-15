@@ -57,6 +57,11 @@ struct Args {
 enum Commands {
     /// Print the currently selected todo as JSON to stdout
     Current,
+    /// Move the running TUI's cursor onto the item with this id
+    Focus {
+        /// Id of the item to select (as printed by `torudo search`)
+        id: String,
+    },
     /// Update torudo to the latest version
     Update {
         /// Skip version check and force re-download
@@ -65,6 +70,17 @@ enum Commands {
         /// Check for updates without installing
         #[arg(long)]
         check: bool,
+    },
+    /// Search every mode for items whose title or detail file contains the query
+    Search {
+        /// Text to look for (case-insensitive substring, not a regex)
+        query: String,
+        /// Print the hits as a JSON array instead of one line each
+        #[arg(long)]
+        json: bool,
+        /// Search only this mode instead of all of them
+        #[arg(long, value_enum)]
+        mode: Option<cli::ModeName>,
     },
     /// Inbox operations
     Inbox {
@@ -127,9 +143,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     if matches!(args.command, Some(Commands::Current)) {
         return rpc_client::run_current();
     }
+    if let Some(Commands::Focus { id }) = &args.command {
+        return rpc_client::run_focus(id);
+    }
     if let Some(Commands::Update { force, check }) = args.command {
         handle_update(force, check);
         return Ok(());
+    }
+    if let Some(Commands::Search { query, json, mode }) = &args.command {
+        let todotxt_dir = resolve_todotxt_dir(args.todotxt_dir.clone());
+        return cli::run_search(query, *json, *mode, &todotxt_dir);
     }
     if let Some(command) = &args.command
         && let Some((mode, action)) = mode_command(command)
@@ -217,7 +240,7 @@ fn run_app(
     let mut state = AppState::new(todos, nvim_socket, todotxt_dir.to_string());
     let mut event_handler = EventHandler::new();
 
-    let rpc_server = match rpc_server::RpcServer::new(todotxt_dir) {
+    let rpc_server = match rpc_server::RpcServer::new() {
         Ok(server) => Some(server),
         Err(e) => {
             debug!("Failed to start RPC server: {e}");
@@ -251,7 +274,7 @@ fn run_app(
         event_handler.handle_file_watcher_events(file_watcher_rx, &mut state, debug_mode);
 
         if let Some(ref server) = rpc_server {
-            server.poll(state.get_current_todo());
+            server.poll(&mut state);
         }
 
         // Check for background update result

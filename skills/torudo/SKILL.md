@@ -1,6 +1,6 @@
 ---
 name: torudo
-description: Drive torudo (a todo.txt TUI) from natural language — capture into the inbox, break an item down into a checklist, tag it with time/energy, move it between GTD modes, complete it, and start work on a task in its own git worktree and Claude session. Use when the user says things like "inboxに〜を追加して", "inboxに<URL>を追加して", "inboxを見せて", "これをtodoに移して", "エネルギー低めで短時間にして", "やることリストを書いて", "これ着手して", "worktree切ってclaude立てて", "終わったから完了にして", or "add this to my inbox".
+description: Drive torudo (a todo.txt TUI) from natural language — capture into the inbox, break an item down into a checklist, tag it with time/energy, move it between GTD modes, complete it, find it by keyword and jump the running TUI's cursor to it, and start work on a task in its own git worktree and Claude session. Use when the user says things like "inboxに〜を追加して", "inboxに<URL>を追加して", "inboxを見せて", "これをtodoに移して", "エネルギー低めで短時間にして", "やることリストを書いて", "これ着手して", "worktree切ってclaude立てて", "終わったから完了にして", "〜のタスクどこだっけ", "あれ画面に出して", or "add this to my inbox".
 ---
 
 # torudo
@@ -17,6 +17,8 @@ torudo <mode> promote <id> --to <mode>               # move to another mode
 torudo <mode> complete <id>                          # finish it: move to done.txt
 torudo <mode> reopen <id>                            # pull it back out of done.txt
 torudo done list [--json]                            # what has been completed
+torudo search <query> [--json] [--mode <mode>]       # find an item by title, tag or detail text, across every mode
+torudo focus <id>                                    # move the running TUI's cursor onto an item
 ```
 
 `<mode>` is one of `inbox` / `todo` / `waiting` / `ref` / `someday`. Everything works
@@ -149,6 +151,24 @@ torudo todo reopen <id>        # done.txt → todo.txt, completion marker cleare
   It reads ids from `done.txt`, so get them from `torudo done list --json`.
 - `done` is an archive, not a GTD mode: it only lists. Items leave it through `reopen`.
 
+## Finding and focusing
+
+```bash
+torudo search "release" --json          # search every mode's title, tags and detail md, case-insensitive substring
+torudo search "release" --mode todo     # narrow to one mode
+torudo focus <id>                       # move the running TUI's cursor onto that item
+```
+
+- Use `search` when the user is not sure which mode holds something ("release作業のタスクどこだっけ").
+  It never searches `done.txt`, so a completed item will not turn up — check `torudo done list` instead.
+- A `title` hit means the query was in the item's title **or** in one of its `+project` / `@context` tags,
+  so searching for a project name finds every item filed under it. `key:value` tags (`id:`, `time:`,
+  `energy:`) are not searched — narrow by those with `--mode` plus `list --json` instead.
+- `focus` needs a running TUI; without one it fails loudly instead of doing nothing silently. Reach for it when
+  the user wants the item on screen ("あれ画面に出して"), typically right after a `search` that resolved the id.
+- Multiple hits are normal — prefer a `title` match over a `md` match, and ask the user when it is still
+  ambiguous rather than guessing which one they meant.
+
 ## Starting work on a task
 
 A development task gets its own git worktree, its own terminal tab, and its own Claude
@@ -262,3 +282,5 @@ todoに移しました: リリース作業 +torudo time:short energy:low (id: 8a
 | 今週何が終わった? | `torudo done list` |
 | Astro7対応に着手して | `git wt --nocd` でworktree作成 → `herdr tab create` → `herdr agent start` → ListAgentsで名前解決 → SendMessageで依頼 |
 | worktree切ってclaude立てて | 同上。ブランチ名とベースブランチを確認してから |
+| 経費精算のタスクどこだっけ | `torudo search "経費精算"` |
+| あれ画面に出して | `torudo focus <id>`（直前の `search` で得た id） |
