@@ -17,6 +17,7 @@ mod event_handler;
 mod file_watcher;
 mod help;
 mod md_preview;
+mod recurrence;
 mod rpc_client;
 mod rpc_server;
 mod setup;

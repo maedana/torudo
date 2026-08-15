@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **`torudo search <query>`**: find an item across every mode by its title, its `+project` / `@context` tags, or its detail-md text, without opening the TUI. Case-insensitive substring match; `--mode` narrows it to one mode, `--json` gives structured output for scripting. `done.txt` is never searched
 - **`torudo focus <id>`**: move the running TUI's cursor onto a specific item, switching modes and clearing the Now filter automatically if it's hidden. Requires the TUI to already be running
+- **Recurring items (`rec:` tag)**: completing an item tagged `rec:1w` (or `rec:2m`, `rec:1y`, ...) automatically creates its next occurrence, due one period after completion. Prefix with `+` (`rec:+1m`) to count from the item's original due date instead, so a fixed schedule survives a late completion — and if it has fallen months behind, the next occurrence still lands in the future rather than in the past, so one completion is enough to catch up. The new occurrence keeps the detail md, with its checklist unchecked again. A `↻` chip on the card shows the pattern; `torudo <mode> set <id> --rec <pattern>` adds or changes it on an existing item, and `--rec none` stops it repeating
 
 ## [0.16.0] - 2026-08-15
 

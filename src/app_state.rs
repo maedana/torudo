@@ -1,7 +1,7 @@
 use crate::crmux::Plan;
 use crate::md_preview::{compute_meta, md_path};
 use crate::todo::{
-    Item, add_missing_ids, append_todo, delete_todo, group_todos_by_project_owned,
+    Item, Recurred, add_missing_ids, append_todo, delete_todo, group_todos_by_project_owned,
     group_todos_for_pick, has_todo_with_id, load_todos, mark_complete, move_to_file, set_key_value,
     set_priority,
 };
@@ -42,6 +42,22 @@ fn strip_frontmatter(content: &str) -> &str {
         let rest = &after_first[end + 4..];
         rest.trim_start_matches('\n')
     })
+}
+
+/// What to put on the status line after completing an item. `None` means the
+/// item did not recur, so the status line has nothing left to say.
+fn recurrence_status(recurred: &Recurred) -> Option<String> {
+    match recurred {
+        Recurred::None => None,
+        Recurred::Created { t, due, .. } => Some(match (due, t) {
+            (Some(due), _) => format!("Completed. Next occurrence due {due}"),
+            (None, Some(t)) => format!("Completed. Next occurrence starts {t}"),
+            (None, None) => "Completed. Next occurrence created".to_string(),
+        }),
+        Recurred::Failed { value, error } => {
+            Some(format!("Completed, but rec:{value} is invalid ({error})"))
+        }
+    }
 }
 
 fn sort_plans_by_mtime(plans: &mut [Plan]) {
@@ -589,8 +605,14 @@ impl AppState {
         if let Some(todo_id) = self.get_current_todo_id() {
             debug!("Attempting to mark todo as complete: {todo_id}");
             match mark_complete(todo_file, todo_id) {
-                Ok(()) => {
+                Ok(recurred) => {
                     debug!("Successfully marked todo as complete: {todo_id}");
+                    if let Recurred::Failed { value, error } = &recurred {
+                        error!("rec:{value} could not be used: {error}");
+                    }
+                    // Always replace: a plain completion has to clear an earlier
+                    // item's recurrence message rather than let it stand.
+                    self.status_message = recurrence_status(&recurred);
                     self.reload_todos(todo_file);
                 }
                 Err(e) => error!("Failed to mark todo as complete: {e}"),
@@ -1412,6 +1434,77 @@ mod tests {
         }
 
         fs::remove_file(&test_file).ok();
+    }
+
+    /// Complete the only item of a throwaway todo.txt and hand back the state.
+    /// The status line starts out with a leftover message so tests can tell a
+    /// completion that says nothing from one that leaves stale text behind.
+    fn complete_only_todo(name: &str, line: &str) -> AppState {
+        let temp_dir = std::env::temp_dir().join(name);
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(&todo_file, line).unwrap();
+
+        let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+        state.status_message = Some("Completed. Next occurrence due 2026-08-22".to_string());
+        state.handle_complete_todo(todo_file.to_str().unwrap());
+
+        fs::remove_dir_all(&temp_dir).ok();
+        state
+    }
+
+    #[test]
+    fn handle_complete_todo_reports_the_next_due_date() {
+        let state = complete_only_todo(
+            "torudo_test_complete_rec_due",
+            "Take out the trash +home due:2026-08-10 rec:+1w id:rec-due\n",
+        );
+
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("Completed. Next occurrence due 2026-08-17")
+        );
+    }
+
+    #[test]
+    fn handle_complete_todo_reports_the_next_start_date() {
+        let state = complete_only_todo(
+            "torudo_test_complete_rec_t",
+            "Water the plants +home t:2026-08-10 rec:+1w id:rec-t\n",
+        );
+
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("Completed. Next occurrence starts 2026-08-17")
+        );
+    }
+
+    #[test]
+    fn handle_complete_todo_warns_about_an_invalid_rec() {
+        let state = complete_only_todo(
+            "torudo_test_complete_rec_bad",
+            "Pay rent +home rec:banana id:rec-bad\n",
+        );
+
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("Completed, but rec:banana is invalid (malformed recurrence pattern)")
+        );
+    }
+
+    #[test]
+    fn handle_complete_todo_without_a_rec_tag_clears_the_status_message() {
+        let state = complete_only_todo(
+            "torudo_test_complete_no_rec",
+            "Ordinary task +home id:no-rec\n",
+        );
+
+        assert_eq!(
+            state.status_message, None,
+            "a plain completion must not leave another item's recurrence message up"
+        );
     }
 
     #[test]

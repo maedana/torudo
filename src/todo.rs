@@ -1,6 +1,7 @@
 use crate::md_preview::MdMeta;
+use crate::recurrence::{NextDates, RecurrenceError, next_dates, parse_pattern, reset_md};
 use chrono::NaiveDate;
-use log::debug;
+use log::{debug, error};
 use serde::Serialize;
 use std::{collections::HashMap, error::Error, fs};
 use uuid::Uuid;
@@ -125,6 +126,15 @@ impl Item {
         }
     }
 
+    /// The `rec:` value, but only when it parses. Matches `time_estimate` and
+    /// `energy_estimate`: a value that survives this is safe to display as is.
+    /// Code that needs the raw text (to report why it is bad) reads `key_values`.
+    pub fn recurrence(&self) -> Option<&str> {
+        let value = self.key_values.get("rec")?;
+        crate::recurrence::parse_pattern(value).ok()?;
+        Some(value)
+    }
+
     fn parse_key_date(&self, key: &str) -> Option<NaiveDate> {
         self.key_values
             .get(key)
@@ -241,11 +251,85 @@ fn split_priority_prefix(line: &str) -> (Option<&str>, &str) {
     }
 }
 
-pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error>> {
+/// What `mark_complete` did about the item's `rec:` tag, if anything.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Recurred {
+    /// No `rec:` tag, or the line was already completed.
+    None,
+    Created {
+        id: String,
+        t: Option<NaiveDate>,
+        due: Option<NaiveDate>,
+    },
+    /// The `rec:` value could not be used. Completion still succeeded.
+    Failed {
+        value: String,
+        error: RecurrenceError,
+    },
+}
+
+/// Build the line for the next occurrence of a recurring item, or report why
+/// there is none. Pure: the caller writes the line out and carries the detail
+/// file over. A bad `rec:` value is reported, never fatal.
+fn next_occurrence(
+    original_line: &str,
+    item: &Item,
+    today: NaiveDate,
+) -> (Option<String>, Recurred) {
+    let Some(value) = item.key_values.get("rec") else {
+        return (None, Recurred::None);
+    };
+    let failed = |error| {
+        (
+            None,
+            Recurred::Failed {
+                value: value.clone(),
+                error,
+            },
+        )
+    };
+    let pattern = match parse_pattern(value) {
+        Ok(pattern) => pattern,
+        Err(error) => return failed(error),
+    };
+    let next = match next_dates(pattern, item.threshold_date(), item.due_date(), today) {
+        Ok(next) => next,
+        Err(error) => return failed(error),
+    };
+
+    let new_id = Uuid::new_v4().to_string();
+    let line = next_occurrence_line(original_line, next, &new_id, today);
+    debug!("Next occurrence {new_id} of {:?}", item.id);
+    (
+        Some(line),
+        Recurred::Created {
+            id: new_id,
+            t: next.t,
+            due: next.due,
+        },
+    )
+}
+
+/// Copy `{old_id}.md` to `{new_id}.md` with its checkboxes cleared. An item
+/// without a detail file simply has nothing to carry over.
+fn carry_over_md(todotxt_dir: &str, old_id: &str, new_id: &str) -> std::io::Result<()> {
+    let Ok(content) = fs::read_to_string(crate::md_preview::md_path(todotxt_dir, old_id)) else {
+        return Ok(());
+    };
+    fs::write(
+        crate::md_preview::md_path(todotxt_dir, new_id),
+        reset_md(&content),
+    )
+}
+
+pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<Recurred, Box<dyn Error>> {
     let content = fs::read_to_string(todo_file)?;
     let lines: Vec<&str> = content.lines().collect();
     let mut new_lines = Vec::new();
     let mut completed_line = None;
+    let mut recurring = None;
+    let today = chrono::Local::now().date_naive();
+    let today_str = today.format(DATE_FORMAT).to_string();
 
     for (line_num, line) in lines.iter().enumerate() {
         if line.trim().is_empty() {
@@ -254,14 +338,14 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
         }
 
         let todo = Item::parse(line, line_num + 1);
-        if let Some(id) = &todo.id
-            && id == todo_id
-        {
-            let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        if todo.id.as_deref() == Some(todo_id) {
+            // An already completed line just moves across; recurring it again would
+            // spawn a duplicate.
             let completed_todo_line = if todo.completed {
                 line.to_string()
             } else {
-                format!("x {}", insert_date_after_priority(line, &today))
+                recurring = Some(((*line).to_string(), todo));
+                format!("x {}", insert_date_after_priority(line, &today_str))
             };
             completed_line = Some(completed_todo_line);
             continue;
@@ -269,33 +353,62 @@ pub fn mark_complete(todo_file: &str, todo_id: &str) -> Result<(), Box<dyn Error
         new_lines.push(line.to_string());
     }
 
-    if let Some(completed_todo) = completed_line {
-        let todo_dir = std::path::Path::new(todo_file).parent().unwrap();
-        let done_file = todo_dir.join("done.txt");
+    let Some(completed_todo) = completed_line else {
+        return Ok(Recurred::None);
+    };
 
-        debug!("Moving completed todo to done.txt: {completed_todo}");
+    let todo_dir = std::path::Path::new(todo_file).parent().unwrap();
+    let done_file = todo_dir.join("done.txt");
 
-        let mut done_content = if done_file.exists() {
-            fs::read_to_string(&done_file)?
-        } else {
-            String::new()
-        };
+    debug!("Moving completed todo to done.txt: {completed_todo}");
 
-        if !done_content.is_empty() && !done_content.ends_with('\n') {
-            done_content.push('\n');
-        }
-        done_content.push_str(&completed_todo);
+    let mut done_content = if done_file.exists() {
+        fs::read_to_string(&done_file)?
+    } else {
+        String::new()
+    };
+
+    if !done_content.is_empty() && !done_content.ends_with('\n') {
         done_content.push('\n');
+    }
+    done_content.push_str(&completed_todo);
+    done_content.push('\n');
 
-        fs::write(&done_file, done_content)?;
+    fs::write(&done_file, done_content)?;
 
-        let new_todo_content = new_lines.join("\n");
-        fs::write(todo_file, new_todo_content)?;
+    // The next occurrence goes out with the same write, so completing and
+    // recurring never leave the file half updated.
+    let (next_line, recurred) = recurring
+        .as_ref()
+        .map_or((None, Recurred::None), |(line, item)| {
+            next_occurrence(line, item, today)
+        });
+    if let Some(line) = next_line {
+        new_lines.push(line);
+    }
+    // Trailing newline: `append_todo` used to add it on the way past, and a file
+    // that ends mid-line trips up anything reading it outside torudo.
+    let mut new_todo_content = new_lines.join("\n");
+    if !new_todo_content.is_empty() {
+        new_todo_content.push('\n');
+    }
+    fs::write(todo_file, new_todo_content)?;
 
-        debug!("Successfully moved todo to done.txt and updated todo.txt");
+    debug!("Successfully moved todo to done.txt and updated todo.txt");
+
+    if let Recurred::Created { id: new_id, .. } = &recurred
+        && let Some((_, item)) = &recurring
+        && let Some(old_id) = &item.id
+        && let Some(todotxt_dir) = todo_dir.to_str()
+    {
+        // Best effort: the completion and the next occurrence are already on
+        // disk, so a detail file we cannot copy is reported, never fatal.
+        if let Err(e) = carry_over_md(todotxt_dir, old_id, new_id) {
+            error!("Could not carry {old_id}.md over to {new_id}.md: {e}");
+        }
     }
 
-    Ok(())
+    Ok(recurred)
 }
 
 /// Undo what `mark_complete` wrote: drop the leading `x` and the completion date
@@ -424,6 +537,56 @@ pub fn set_priority(
     Ok(())
 }
 
+const DATE_FORMAT: &str = "%Y-%m-%d";
+
+/// Build the line for the next occurrence by copying the original and swapping the
+/// tokens that must not carry over. Everything else — priority, description,
+/// projects, contexts, `rec:`, `time:`, `energy:` — is kept as written.
+fn next_occurrence_line(original: &str, next: NextDates, new_id: &str, today: NaiveDate) -> String {
+    let mut line = replace_creation_date(original, &today.format(DATE_FORMAT).to_string());
+    for (key, date) in [("t", next.t), ("due", next.due)] {
+        line = date.map_or_else(
+            || remove_key_value(&line, key),
+            |d| replace_key_value(&line, key, &d.format(DATE_FORMAT).to_string()),
+        );
+    }
+    replace_key_value(&line, "id", new_id)
+}
+
+/// Replace the creation date of an open line, inserting one when it has none.
+fn replace_creation_date(line: &str, date: &str) -> String {
+    let (priority, rest) = split_priority_prefix(line);
+    let mut tokens: Vec<&str> = rest.split_whitespace().collect();
+    if tokens
+        .first()
+        .is_some_and(|tok| NaiveDate::parse_from_str(tok, DATE_FORMAT).is_ok())
+    {
+        tokens.remove(0);
+    }
+    // Put the priority back so the shape of the line's head stays owned by
+    // `insert_date_after_priority`.
+    let without_date = priority.map_or_else(
+        || tokens.join(" "),
+        |pri| format!("{pri} {}", tokens.join(" ")),
+    );
+    insert_date_after_priority(&without_date, date)
+}
+
+/// Drop every `key:value` token for `key` from `line`.
+fn remove_key_value(line: &str, key: &str) -> String {
+    let key_prefix = format!("{key}:");
+    let kept: Vec<&str> = line
+        .split_whitespace()
+        .filter(|tok| !tok.starts_with(&key_prefix))
+        .collect();
+    kept.join(" ")
+}
+
+/// Drop any `key:value` token from `line` and append the new one at the end.
+fn replace_key_value(line: &str, key: &str, value: &str) -> String {
+    format!("{} {key}:{value}", remove_key_value(line, key))
+}
+
 pub fn set_key_value(
     todo_file: &str,
     todo_id: &str,
@@ -435,7 +598,6 @@ pub fn set_key_value(
     let mut new_lines = Vec::with_capacity(lines.len());
     let mut changed = false;
 
-    let key_prefix = format!("{key}:");
     for (line_num, line) in lines.iter().enumerate() {
         if line.trim().is_empty() || line.starts_with("x ") {
             new_lines.push((*line).to_string());
@@ -446,12 +608,7 @@ pub fn set_key_value(
             new_lines.push((*line).to_string());
             continue;
         }
-        let kept: Vec<&str> = line
-            .split_whitespace()
-            .filter(|tok| !tok.starts_with(&key_prefix))
-            .collect();
-        let new_line = format!("{} {key}:{value}", kept.join(" "));
-        new_lines.push(new_line);
+        new_lines.push(replace_key_value(line, key, value));
         changed = true;
     }
 
@@ -462,6 +619,40 @@ pub fn set_key_value(
         }
         fs::write(todo_file, out)?;
         debug!("Set {key}:{value} on {todo_id} in {todo_file}");
+    }
+    Ok(())
+}
+
+/// Drop every `key:value` token for `key` from the item with `todo_id`. Absent is
+/// not an error: nothing matches, nothing is written.
+pub fn clear_key_value(todo_file: &str, todo_id: &str, key: &str) -> Result<(), Box<dyn Error>> {
+    let content = fs::read_to_string(todo_file)?;
+    let lines: Vec<&str> = content.lines().collect();
+    let mut new_lines = Vec::with_capacity(lines.len());
+    let mut changed = false;
+
+    for (line_num, line) in lines.iter().enumerate() {
+        if line.trim().is_empty() || line.starts_with("x ") {
+            new_lines.push((*line).to_string());
+            continue;
+        }
+        let todo = Item::parse(line, line_num + 1);
+        if todo.id.as_deref() != Some(todo_id) {
+            new_lines.push((*line).to_string());
+            continue;
+        }
+        let new_line = remove_key_value(line, key);
+        changed |= new_line != *line;
+        new_lines.push(new_line);
+    }
+
+    if changed {
+        let mut out = new_lines.join("\n");
+        if content.ends_with('\n') {
+            out.push('\n');
+        }
+        fs::write(todo_file, out)?;
+        debug!("Cleared {key}: on {todo_id} in {todo_file}");
     }
     Ok(())
 }
@@ -514,9 +705,10 @@ pub fn has_todo_with_id(file_path: &str, id: &str) -> bool {
         .any(|line| line.split_whitespace().any(|word| word == id_tag))
 }
 
-/// Render an `Item` as pretty JSON, merging in the contents of
-/// `{todotxt_dir}/todos/{id}.md` as the `md` field when present.
-pub fn item_to_json(item: &Item, todotxt_dir: &str) -> Result<String, Box<dyn Error>> {
+/// Render an `Item` as a JSON object, merging in the contents of
+/// `{todotxt_dir}/todos/{id}.md` as the `md` field when present. Callers that
+/// need to add fields of their own work on this before printing.
+pub fn item_to_value(item: &Item, todotxt_dir: &str) -> Result<serde_json::Value, Box<dyn Error>> {
     let mut json = serde_json::to_value(item)?;
     if let Some(todo_id) = &item.id {
         let path = crate::md_preview::md_path(todotxt_dir, todo_id);
@@ -524,7 +716,15 @@ pub fn item_to_json(item: &Item, todotxt_dir: &str) -> Result<String, Box<dyn Er
             json["md"] = serde_json::Value::String(content);
         }
     }
-    Ok(serde_json::to_string_pretty(&json)?)
+    Ok(json)
+}
+
+/// `item_to_value` rendered as pretty JSON.
+pub fn item_to_json(item: &Item, todotxt_dir: &str) -> Result<String, Box<dyn Error>> {
+    Ok(serde_json::to_string_pretty(&item_to_value(
+        item,
+        todotxt_dir,
+    )?)?)
 }
 
 pub fn add_item(file_path: &str, text: &str) -> Result<Item, Box<dyn Error>> {
@@ -1684,6 +1884,60 @@ Learn Rust +learning @coding id:task-003";
     }
 
     #[test]
+    fn test_clear_key_value_drops_the_tag_and_keeps_the_others() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_clear_kv_drops");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(
+            &todo_file,
+            "2024-01-10 Pay rent +home due:2026-01-01 rec:+1m id:t1\n",
+        )
+        .unwrap();
+
+        clear_key_value(todo_file.to_str().unwrap(), "t1", "rec").unwrap();
+
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(content, "2024-01-10 Pay rent +home due:2026-01-01 id:t1\n");
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_clear_key_value_is_a_no_op_when_the_tag_is_absent() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_clear_kv_absent");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        let initial = "Pay rent +home id:t1\n";
+        fs::write(&todo_file, initial).unwrap();
+
+        clear_key_value(todo_file.to_str().unwrap(), "t1", "rec").unwrap();
+
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(content, initial);
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_clear_key_value_preserves_other_lines_and_completed_ones() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_clear_kv_other_lines");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let todo_file = temp_dir.join("todo.txt");
+        fs::write(
+            &todo_file,
+            "Task one rec:1d id:t1\nTask two rec:1w id:t2\nx 2024-01-20 Done rec:1d id:t3\n",
+        )
+        .unwrap();
+
+        clear_key_value(todo_file.to_str().unwrap(), "t2", "rec").unwrap();
+
+        let content = fs::read_to_string(&todo_file).unwrap();
+        assert_eq!(
+            content,
+            "Task one rec:1d id:t1\nTask two id:t2\nx 2024-01-20 Done rec:1d id:t3\n"
+        );
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
     fn test_item_to_json_without_md() {
         let temp_dir = std::env::temp_dir().join("torudo_test_item_to_json_no_md");
         fs::create_dir_all(temp_dir.join("todos")).unwrap();
@@ -2092,5 +2346,339 @@ Learn Rust +learning @coding id:task-003";
     fn test_energy_estimate_none_when_invalid() {
         let item = Item::parse("Task energy:medium", 1);
         assert_eq!(item.energy_estimate(), None);
+    }
+
+    #[test]
+    fn recurrence_returns_the_raw_rec_value() {
+        assert_eq!(Item::parse("Task rec:1w", 1).recurrence(), Some("1w"));
+        assert_eq!(Item::parse("Task rec:+1m", 1).recurrence(), Some("+1m"));
+    }
+
+    #[test]
+    fn recurrence_is_none_without_the_tag() {
+        assert_eq!(Item::parse("Task without rec", 1).recurrence(), None);
+    }
+
+    #[test]
+    fn recurrence_reads_a_valid_pattern() {
+        assert_eq!(Item::parse("Task rec:+1w", 1).recurrence(), Some("+1w"));
+    }
+
+    #[test]
+    fn recurrence_is_none_for_a_pattern_that_does_not_parse() {
+        // Same contract as `time_estimate`: a value that comes back is safe to
+        // display. Reporting a typo needs the raw text from `key_values`.
+        for line in ["Task rec:banana", "Task rec:0w", "Task rec:1b"] {
+            assert_eq!(Item::parse(line, 1).recurrence(), None, "{line}");
+        }
+    }
+
+    #[test]
+    fn replace_key_value_moves_the_key_to_the_end() {
+        assert_eq!(
+            replace_key_value("Pay rent due:2026-01-01 rec:1m", "due", "2026-02-01"),
+            "Pay rent rec:1m due:2026-02-01"
+        );
+    }
+
+    #[test]
+    fn replace_key_value_appends_a_key_that_is_missing() {
+        assert_eq!(
+            replace_key_value("Pay rent rec:1m", "due", "2026-02-01"),
+            "Pay rent rec:1m due:2026-02-01"
+        );
+    }
+
+    #[test]
+    fn replace_key_value_leaves_a_similarly_named_key_alone() {
+        assert_eq!(
+            replace_key_value("Task time:short t:2026-01-01", "t", "2026-02-01"),
+            "Task time:short t:2026-02-01"
+        );
+    }
+
+    #[test]
+    fn remove_key_value_drops_the_token() {
+        assert_eq!(
+            remove_key_value("Task t:2026-01-01 time:short id:t1", "t"),
+            "Task time:short id:t1"
+        );
+    }
+
+    #[test]
+    fn remove_key_value_is_a_no_op_when_the_key_is_absent() {
+        assert_eq!(remove_key_value("Task id:t1", "due"), "Task id:t1");
+    }
+
+    #[test]
+    fn replace_creation_date_swaps_an_existing_date() {
+        assert_eq!(
+            replace_creation_date("2024-01-10 Call Mom +family id:t1", "2026-08-15"),
+            "2026-08-15 Call Mom +family id:t1"
+        );
+    }
+
+    #[test]
+    fn replace_creation_date_keeps_the_priority_in_front() {
+        assert_eq!(
+            replace_creation_date("(A) 2024-01-10 Call Mom id:t1", "2026-08-15"),
+            "(A) 2026-08-15 Call Mom id:t1"
+        );
+    }
+
+    #[test]
+    fn replace_creation_date_inserts_a_date_that_was_missing() {
+        assert_eq!(
+            replace_creation_date("(B) Call Mom id:t1", "2026-08-15"),
+            "(B) 2026-08-15 Call Mom id:t1"
+        );
+        assert_eq!(
+            replace_creation_date("Call Mom id:t1", "2026-08-15"),
+            "2026-08-15 Call Mom id:t1"
+        );
+    }
+
+    #[test]
+    fn replace_creation_date_does_not_mistake_a_due_date_for_a_creation_date() {
+        assert_eq!(
+            replace_creation_date("Call Mom due:2024-01-10 id:t1", "2026-08-15"),
+            "2026-08-15 Call Mom due:2024-01-10 id:t1"
+        );
+    }
+
+    fn ymd(y: i32, m: u32, d: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, d).unwrap()
+    }
+
+    #[test]
+    fn next_occurrence_line_carries_everything_but_the_dates_and_the_id() {
+        let original = "(A) 2026-08-01 Take out the trash +home @errands t:2026-08-08 due:2026-08-10 \
+             rec:+1w time:short energy:low id:old-id";
+        let next = NextDates {
+            t: Some(ymd(2026, 8, 15)),
+            due: Some(ymd(2026, 8, 17)),
+        };
+        assert_eq!(
+            next_occurrence_line(original, next, "new-id", ymd(2026, 8, 15)),
+            "(A) 2026-08-15 Take out the trash +home @errands rec:+1w time:short energy:low \
+             t:2026-08-15 due:2026-08-17 id:new-id"
+        );
+    }
+
+    #[test]
+    fn next_occurrence_line_drops_dates_the_next_occurrence_does_not_have() {
+        let original = "Pay rent t:2026-08-08 due:2026-08-10 rec:1m id:old-id";
+        let next = NextDates {
+            t: None,
+            due: Some(ymd(2026, 9, 15)),
+        };
+        assert_eq!(
+            next_occurrence_line(original, next, "new-id", ymd(2026, 8, 15)),
+            "2026-08-15 Pay rent rec:1m due:2026-09-15 id:new-id"
+        );
+    }
+
+    #[test]
+    fn next_occurrence_line_keeps_a_threshold_only_item_without_a_due_date() {
+        let original = "2026-07-01 Water the plants t:2026-08-08 rec:1w id:old-id";
+        let next = NextDates {
+            t: Some(ymd(2026, 8, 22)),
+            due: None,
+        };
+        assert_eq!(
+            next_occurrence_line(original, next, "new-id", ymd(2026, 8, 15)),
+            "2026-08-15 Water the plants rec:1w t:2026-08-22 id:new-id"
+        );
+    }
+
+    #[test]
+    fn mark_complete_spawns_the_next_occurrence() {
+        let dir = tempfile::tempdir().unwrap();
+        let todo_file = dir.path().join("todo.txt");
+        fs::write(
+            &todo_file,
+            "2026-08-01 Take out the trash +home due:2026-08-10 rec:+1w id:r1\n",
+        )
+        .unwrap();
+
+        let result = mark_complete(todo_file.to_str().unwrap(), "r1").unwrap();
+        let Recurred::Created { id, t, due } = result else {
+            panic!("expected a next occurrence, got {result:?}");
+        };
+        assert_ne!(id, "r1");
+        assert_eq!(t, None);
+        assert_eq!(due, Some(ymd(2026, 8, 17)));
+
+        let remaining = fs::read_to_string(&todo_file).unwrap();
+        let lines: Vec<&str> = remaining.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(
+            lines.len(),
+            1,
+            "todo.txt should hold only the next occurrence"
+        );
+        let spawned = lines[0];
+        assert!(!spawned.starts_with("x "), "spawned line must be open");
+        assert!(spawned.contains("rec:+1w"), "rec: should carry over");
+        assert!(spawned.contains("+home"), "project should carry over");
+        assert!(spawned.contains("due:2026-08-17"));
+        assert!(spawned.contains(&format!("id:{id}")));
+
+        let done = fs::read_to_string(dir.path().join("done.txt")).unwrap();
+        assert!(done.starts_with("x "));
+        assert!(done.contains("id:r1"));
+    }
+
+    fn spawned_id(result: &Recurred) -> &str {
+        match result {
+            Recurred::Created { id, .. } => id,
+            other => panic!("expected a next occurrence, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mark_complete_carries_the_detail_file_over_with_empty_checkboxes() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("todos")).unwrap();
+        let todo_file = dir.path().join("todo.txt");
+        fs::write(&todo_file, "Take out the trash rec:1w id:r1\n").unwrap();
+        let old_md =
+            "---\ncwd: /home/me/src\nbranch: old-branch\n---\n\n- [x] step one\n- [ ] step two\n";
+        fs::write(dir.path().join("todos/r1.md"), old_md).unwrap();
+
+        let result = mark_complete(todo_file.to_str().unwrap(), "r1").unwrap();
+        let new_id = spawned_id(&result);
+
+        let carried = fs::read_to_string(dir.path().join(format!("todos/{new_id}.md"))).unwrap();
+        assert_eq!(
+            carried,
+            "---\ncwd: /home/me/src\n---\n\n- [ ] step one\n- [ ] step two\n"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("todos/r1.md")).unwrap(),
+            old_md,
+            "the completed item keeps its own detail file"
+        );
+    }
+
+    #[test]
+    fn mark_complete_succeeds_when_the_detail_file_cannot_be_carried_over() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let todos_dir = dir.path().join("todos");
+        fs::create_dir_all(&todos_dir).unwrap();
+        let todo_file = dir.path().join("todo.txt");
+        fs::write(&todo_file, "Take out the trash rec:1w id:r1\n").unwrap();
+        fs::write(todos_dir.join("r1.md"), "- [ ] step one\n").unwrap();
+        // Readable so the copy gets as far as writing, but not writable.
+        fs::set_permissions(&todos_dir, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let result = mark_complete(todo_file.to_str().unwrap(), "r1");
+
+        fs::set_permissions(&todos_dir, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let result = result.expect("an unwritable todos/ must not fail the completion");
+        let new_id = spawned_id(&result).to_string();
+        assert!(
+            fs::read_to_string(&todo_file).unwrap().contains(&new_id),
+            "the next occurrence is still written"
+        );
+        assert!(
+            fs::read_to_string(dir.path().join("done.txt"))
+                .unwrap()
+                .contains("id:r1")
+        );
+    }
+
+    #[test]
+    fn mark_complete_recurs_even_without_a_detail_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let todo_file = dir.path().join("todo.txt");
+        fs::write(&todo_file, "Take out the trash rec:1w id:r1\n").unwrap();
+
+        let result = mark_complete(todo_file.to_str().unwrap(), "r1").unwrap();
+        let new_id = spawned_id(&result).to_string();
+        assert!(!dir.path().join(format!("todos/{new_id}.md")).exists());
+        assert!(fs::read_to_string(&todo_file).unwrap().contains(&new_id));
+    }
+
+    #[test]
+    fn mark_complete_reports_an_invalid_rec_and_still_completes() {
+        let dir = tempfile::tempdir().unwrap();
+        let todo_file = dir.path().join("todo.txt");
+        fs::write(&todo_file, "Take out the trash rec:banana id:r1\n").unwrap();
+
+        let result = mark_complete(todo_file.to_str().unwrap(), "r1").unwrap();
+        assert_eq!(
+            result,
+            Recurred::Failed {
+                value: "banana".to_string(),
+                error: RecurrenceError::Malformed,
+            }
+        );
+        assert!(
+            fs::read_to_string(&todo_file).unwrap().trim().is_empty(),
+            "no next occurrence should be written"
+        );
+        assert!(
+            fs::read_to_string(dir.path().join("done.txt"))
+                .unwrap()
+                .contains("id:r1")
+        );
+    }
+
+    #[test]
+    fn mark_complete_does_not_recur_an_already_completed_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let todo_file = dir.path().join("todo.txt");
+        fs::write(
+            &todo_file,
+            "x 2026-08-14 2026-08-01 Take out the trash rec:1w id:r1\n",
+        )
+        .unwrap();
+
+        let result = mark_complete(todo_file.to_str().unwrap(), "r1").unwrap();
+        assert_eq!(result, Recurred::None);
+        assert!(fs::read_to_string(&todo_file).unwrap().trim().is_empty());
+    }
+
+    #[test]
+    fn mark_complete_without_a_rec_tag_reports_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let todo_file = dir.path().join("todo.txt");
+        fs::write(&todo_file, "Take out the trash id:r1\n").unwrap();
+
+        assert_eq!(
+            mark_complete(todo_file.to_str().unwrap(), "r1").unwrap(),
+            Recurred::None
+        );
+        assert_eq!(
+            mark_complete(todo_file.to_str().unwrap(), "ghost").unwrap(),
+            Recurred::None
+        );
+    }
+
+    #[test]
+    fn mark_complete_spawns_into_the_file_it_completed_from() {
+        let dir = tempfile::tempdir().unwrap();
+        let waiting_file = dir.path().join("waiting.txt");
+        fs::write(
+            &waiting_file,
+            "Chase the invoice t:2026-08-08 rec:+1m id:r1\n",
+        )
+        .unwrap();
+
+        let result = mark_complete(waiting_file.to_str().unwrap(), "r1").unwrap();
+        assert!(matches!(
+            result,
+            Recurred::Created {
+                t: Some(_),
+                due: None,
+                ..
+            }
+        ));
+        let spawned = fs::read_to_string(&waiting_file).unwrap();
+        assert!(spawned.contains("t:2026-09-08"), "got {spawned}");
+        assert!(!spawned.contains("due:"));
     }
 }

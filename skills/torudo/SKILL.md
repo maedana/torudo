@@ -12,7 +12,7 @@ torudo keeps one todo.txt-format file per GTD mode under `~/todotxt/` (`inbox.tx
 ```bash
 torudo <mode> add <text>                             # append an item, print it as JSON
 torudo <mode> list [--json]                          # list the mode's items
-torudo <mode> set <id> [--time ...] [--energy ...]   # set GTD tags
+torudo <mode> set <id> [--time ...] [--energy ...] [--rec ...]  # set GTD tags / recurrence
 torudo <mode> promote <id> --to <mode>               # move to another mode
 torudo <mode> complete <id>                          # finish it: move to done.txt
 torudo <mode> reopen <id>                            # pull it back out of done.txt
@@ -51,6 +51,14 @@ The text follows the todo.txt format, assembled in this order:
   `torudo todo list --json` show what is already in use.
 - **`t:` / `due:`** — only when the user gave a date. Convert relative dates ("明日", "来週
   月曜") to absolute `YYYY-MM-DD` using today's date.
+- **`rec:<count><unit>`** — only when the user says the task repeats ("毎週", "毎月",
+  "定期で"). Unit is `d` / `w` / `m` / `y`. No `+` (e.g. `rec:1w`) counts from the day it gets
+  completed — use it for chores like taking out the trash. A leading `+` (e.g. `rec:+1m`)
+  counts from the item's own `due:` date instead, keeping a fixed schedule even if completed
+  late — use it for things like rent. A `+` pattern that is months overdue is advanced
+  repeatedly until it clears the completion date, so the next occurrence is always in the
+  future. Completing a `rec:` item creates its next occurrence automatically, so never
+  manually recreate a recurring item after completing it.
 - **Never add** a creation date or `id:` — torudo fills both in automatically.
 
 The command prints the added item as JSON; keep the `id` from it for any follow-up.
@@ -122,11 +130,20 @@ branch: readme-dev-setup
 
 ```bash
 torudo inbox set i1 --time short --energy low   # time:short energy:low
+torudo todo set t1 --rec 1w                     # rec:1w — recur weekly from completion
+torudo todo set t1 --rec none                   # drop rec: — stop the item repeating
 torudo inbox promote i1 --to todo               # move inbox.txt → todo.txt
 ```
 
-- `--time` is `short` / `medium` / `long`, `--energy` is `low` / `high`. An existing value is
-  replaced. Either flag may be given alone.
+- `--time` is `short` / `medium` / `long`, `--energy` is `low` / `high`, `--rec` is a pattern
+  like `1w` or `+1m` (see "Capturing" above for what `rec:` means). An existing value is
+  replaced. Any subset of the three flags may be given at once; `--rec` with an unparseable
+  pattern (e.g. a typo like `1z`) fails loudly and writes nothing, so retype it rather than
+  guessing.
+- `--rec none` removes the `rec:` tag, which is the only way to stop an item repeating. It is
+  fine to run on an item that has no `rec:` — nothing changes and it still succeeds. `--time`
+  and `--energy` take no `none` yet, so a stale `time:` or `energy:` can only be overwritten,
+  not cleared.
 - Set the tags **before** promoting, so the item lands in Todo ready to be picked. That is
   the usual flow: capture → write the checklist → set time/energy → promote to todo.
 - Both commands need the item's `id` and fail loudly on an unknown one. Take the `id` from
@@ -144,6 +161,9 @@ torudo todo reopen <id>        # done.txt → todo.txt, completion marker cleare
 
 - Only **Todo** and **Waiting** can complete, matching the TUI's `x`. Finishing something
   sitting in Inbox / Ref / Someday means promoting it to Todo first.
+- If the item carries `rec:`, completing it also appends a fresh next occurrence to the same
+  file — nothing more to do. The JSON output's `recurrence` field carries the new item's `id`
+  and dates; report that instead of `torudo <mode> add`-ing a replacement by hand.
 - **Complete only what the user said is done.** When the detail md still has unchecked
   `- [ ]` lines, say so and let them confirm rather than assuming the task is finished.
 - `reopen` takes the item back out of `done.txt` and into the mode you name — priority,
@@ -276,6 +296,8 @@ todoに移しました: リリース作業 +torudo time:short energy:low (id: 8a
 | inboxの中身を見せて | `torudo inbox list` |
 | これのやることリストを書いて | `torudo inbox list --json` で id を得る → `todos/{id}.md` に `- [ ]` を書く |
 | 短時間・低エネルギーにしてtodoに移して | `torudo inbox set <id> --time short --energy low` → `torudo inbox promote <id> --to todo` |
+| ゴミ出しは毎週繰り返しにして | `torudo todo set <id> --rec 1w` |
+| もう繰り返さなくていい | `torudo todo set <id> --rec none` |
 | これはいつかやるやつ | `torudo inbox promote <id> --to someday` |
 | Astro7対応終わった | `torudo todo complete <id>` |
 | さっき完了にしたのやっぱ戻して | `torudo done list --json` で id を得る → `torudo todo reopen <id>` |

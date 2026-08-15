@@ -97,10 +97,17 @@ torudo todo list --json
 # Set GTD tags on an item (--time short|medium|long, --energy low|high)
 torudo todo set <id> --time short --energy low
 
+# Make an item recur on completion (see "Recurring Items" below)
+torudo todo set <id> --rec 1w
+
+# Stop an item recurring
+torudo todo set <id> --rec none
+
 # Move an item to another mode
 torudo inbox promote <id> --to todo
 
 # Complete an item — moves it to done.txt with today's date (Todo / Waiting only)
+# A recurring item also gets a "recurrence" field with the next occurrence's id/dates
 torudo todo complete <id>
 
 # Look at the archive, and undo a completion
@@ -180,6 +187,7 @@ Features supported:
 - Contexts: `@context_name`
 - Unique IDs: `id:unique_identifier` (automatically added if missing)
 - Key/value tags: `key:value` pairs (e.g. `t:2026-05-30`, `due:2026-06-01`) are parsed into a dedicated field; URLs in the description are not misdetected as tags
+- Recurring completion: `rec:1w` / `rec:+1m` — completing the item spawns its next occurrence automatically (see "Recurring Items" below)
 
 ### Todo Sorting
 
@@ -196,7 +204,21 @@ This ensures high-priority items are always visible at the top while preserving 
 - **Overdue highlighting** (`due:YYYY-MM-DD`): items past due render with a red border
 - **Detail md preview** (Todo / Waiting tabs): top 3 unchecked `- [ ]` from `todos/{id}.md` shown inline on each card
 - **Detail md badge** (Todo / Waiting tabs): right-aligned `{done}/{total} {elapsed}` (e.g. `2/7  5m`) on each card; updates live
+- **Recurrence chip**: `↻1w` / `↻+1m` next to the GTD chips when `rec:` is set and its pattern parses
 - **Dynamic text wrap** with per-item height calculation
+
+### Recurring Items
+
+Add `rec:<pattern>` to an item to spawn its next occurrence automatically when you complete it. A pattern is `<count><unit>`, where unit is `d` (day), `w` (week), `m` (month), or `y` (year) — e.g. `rec:1w`, `rec:2m`. Prefixing the pattern with `+` switches what it counts from:
+
+- **`rec:1w`** (no `+`) — the next occurrence is due one week after the day you actually complete it. Good for "water the plants": however late you are, the next round starts fresh from today.
+- **`rec:+1m`** (with `+`) — the next occurrence is due one month after the item's *original* `due:` date, ignoring how late you completed it. Good for "pay rent": the schedule stays fixed even if you complete it a few days late.
+
+A strict (`+`) pattern that has fallen a long way behind catches up in one go: the pattern is applied repeatedly until the next date lands *after* the day you completed it, so completing a `due:2025-01-01 rec:+1m` item on 2026-08-15 gives you 2026-09-01 rather than 2025-02-01. You never have to complete an item nineteen times to work off a backlog, and the schedule still lines up with the original day of the month. (This is a deliberate departure from topydo, which only ever advances one period.)
+
+To stop an item repeating, clear the tag with `torudo <mode> set <id> --rec none`.
+
+Completing a recurring item still moves the original line to `done.txt` as usual, and also appends a new line to the same mode file: a fresh `id:`, today as the creation date, `t:`/`due:` shifted by the pattern (the gap between them is preserved), and everything else — priority, `+project`, `@context`, `rec:`, `time:`, `energy:` — carried over unchanged. If the item has a `todos/{id}.md` detail file, it is copied to the new id with every `- [x]` checkbox reset to `- [ ]` (so a written-out procedure survives, just unchecked) and the frontmatter's `branch:` line dropped (`cwd:` is kept). An invalid `rec:` value never blocks completion — it just skips creating a next occurrence and reports why, both on the TUI status line and (for `torudo todo complete`) as a warning on stderr.
 
 ### Vim Integration
 

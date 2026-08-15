@@ -1,8 +1,10 @@
 use crate::app_state::ViewMode;
 use crate::md_preview;
-use crate::todo::{self, Item};
+use crate::recurrence::parse_pattern;
+use crate::todo::{self, Item, Recurred};
 use clap::{Subcommand, ValueEnum};
 use serde::Serialize;
+use serde_json::json;
 use std::error::Error;
 use std::path::Path;
 
@@ -31,6 +33,10 @@ pub enum ModeAction {
         /// Energy the item demands (`energy:` tag)
         #[arg(long, value_enum)]
         energy: Option<EnergyValue>,
+        /// How often the item repeats once completed (`rec:` tag), e.g. `1w`, `+1m`.
+        /// `none` removes the tag.
+        #[arg(long, value_parser = parse_rec_value)]
+        rec: Option<String>,
     },
     /// Complete an item, moving it to done.txt, and print it as JSON
     Complete {
@@ -59,6 +65,22 @@ pub enum ModeName {
     Waiting,
     Ref,
     Someday,
+}
+
+/// The `--rec` value that removes the tag instead of setting one. `--time` and
+/// `--energy` have no equivalent yet: a stale `rec:` keeps spawning occurrences,
+/// so being able to clear it matters more than for the other two tags.
+const REC_NONE: &str = "none";
+
+/// Reject a bad `rec:` pattern at the argument boundary, the way `--time` and
+/// `--energy` are rejected by their `value_enum`. [`REC_NONE`] is let through as
+/// the one non-pattern value.
+fn parse_rec_value(value: &str) -> Result<String, String> {
+    if value == REC_NONE {
+        return Ok(value.to_string());
+    }
+    parse_pattern(value).map_err(|error| error.to_string())?;
+    Ok(value.to_string())
 }
 
 impl ModeName {
@@ -113,9 +135,14 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
             println!("{}", todo::item_to_json(&item, todotxt_dir)?);
         }
         ModeAction::List { json } => print_items(&load_mode_items(&file)?, *json)?,
-        ModeAction::Set { id, time, energy } => {
-            if time.is_none() && energy.is_none() {
-                return Err("specify at least one of --time or --energy".into());
+        ModeAction::Set {
+            id,
+            time,
+            energy,
+            rec,
+        } => {
+            if time.is_none() && energy.is_none() && rec.is_none() {
+                return Err("specify at least one of --time, --energy or --rec".into());
             }
             require_item(&file, mode, id)?;
             if let Some(time) = time {
@@ -123,6 +150,13 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
             }
             if let Some(energy) = energy {
                 todo::set_key_value(&file, id, "energy", energy.as_str())?;
+            }
+            if let Some(rec) = rec {
+                if rec == REC_NONE {
+                    todo::clear_key_value(&file, id, "rec")?;
+                } else {
+                    todo::set_key_value(&file, id, "rec", rec)?;
+                }
             }
             print_item(&file, id, todotxt_dir)?;
         }
@@ -136,8 +170,13 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
                 .into());
             }
             require_item(&file, mode, id)?;
-            todo::mark_complete(&file, id)?;
-            print_item(&done_file(todotxt_dir), id, todotxt_dir)?;
+            let recurred = todo::mark_complete(&file, id)?;
+            // The item is completed either way, so a bad pattern is a warning on
+            // stderr rather than a non-zero exit.
+            if let Recurred::Failed { value, error } = &recurred {
+                eprintln!("warning: rec:{value} is invalid ({error}); no next occurrence created");
+            }
+            print_completed_item(&done_file(todotxt_dir), id, todotxt_dir, &recurred)?;
         }
         ModeAction::Reopen { id } => {
             let done = done_file(todotxt_dir);
@@ -337,13 +376,51 @@ fn require_item(file: &str, mode: ViewMode, id: &str) -> Result<(), Box<dyn Erro
     }
 }
 
-fn print_item(file: &str, id: &str, todotxt_dir: &str) -> Result<(), Box<dyn Error>> {
-    let items = load_mode_items(file)?;
-    let item = items
-        .iter()
+fn find_item(file: &str, id: &str) -> Result<Item, Box<dyn Error>> {
+    load_mode_items(file)?
+        .into_iter()
         .find(|item| item.id.as_deref() == Some(id))
-        .ok_or_else(|| format!("item id:{id} is gone from {file}"))?;
-    println!("{}", todo::item_to_json(item, todotxt_dir)?);
+        .ok_or_else(|| format!("item id:{id} is gone from {file}").into())
+}
+
+fn print_item(file: &str, id: &str, todotxt_dir: &str) -> Result<(), Box<dyn Error>> {
+    println!(
+        "{}",
+        todo::item_to_json(&find_item(file, id)?, todotxt_dir)?
+    );
+    Ok(())
+}
+
+/// The `recurrence` field of `complete`'s output. `None` when the item had no
+/// `rec:` tag, in which case the field is left out of the JSON entirely.
+fn recurrence_value(recurred: &Recurred) -> Option<serde_json::Value> {
+    match recurred {
+        Recurred::None => None,
+        Recurred::Created { id, t, due } => Some(json!({
+            "id": id,
+            "t": t.map(|d| d.to_string()),
+            "due": due.map(|d| d.to_string()),
+        })),
+        Recurred::Failed { value, error } => Some(json!({
+            "value": value,
+            "error": error.to_string(),
+        })),
+    }
+}
+
+/// Like `print_item`, but folds the recurrence outcome into the same object so
+/// stdout stays a single JSON document.
+fn print_completed_item(
+    file: &str,
+    id: &str,
+    todotxt_dir: &str,
+    recurred: &Recurred,
+) -> Result<(), Box<dyn Error>> {
+    let mut json = todo::item_to_value(&find_item(file, id)?, todotxt_dir)?;
+    if let Some(recurrence) = recurrence_value(recurred) {
+        json["recurrence"] = recurrence;
+    }
+    println!("{}", serde_json::to_string_pretty(&json)?);
     Ok(())
 }
 
@@ -394,6 +471,26 @@ fn format_item(item: &Item) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::recurrence::RecurrenceError;
+
+    #[test]
+    fn parse_rec_value_accepts_a_valid_pattern() {
+        assert_eq!(parse_rec_value("+1m"), Ok("+1m".to_string()));
+        assert_eq!(parse_rec_value("2w"), Ok("2w".to_string()));
+    }
+
+    #[test]
+    fn parse_rec_value_accepts_none_as_the_clearing_keyword() {
+        assert_eq!(parse_rec_value(REC_NONE), Ok(REC_NONE.to_string()));
+    }
+
+    #[test]
+    fn parse_rec_value_still_rejects_a_bad_pattern() {
+        assert_eq!(
+            parse_rec_value("banana"),
+            Err(RecurrenceError::Malformed.to_string())
+        );
+    }
 
     #[test]
     fn matched_field_is_none_when_nothing_contains_the_query() {
@@ -563,6 +660,38 @@ mod tests {
             format_item(&item),
             "x 2026-08-15 2026-08-01 Buy milk id:abc"
         );
+    }
+
+    #[test]
+    fn recurrence_value_is_left_out_when_nothing_recurred() {
+        assert_eq!(recurrence_value(&todo::Recurred::None), None);
+    }
+
+    #[test]
+    fn recurrence_value_reports_the_new_id_and_its_dates() {
+        let value = recurrence_value(&todo::Recurred::Created {
+            id: "new-id".to_string(),
+            t: None,
+            due: chrono::NaiveDate::from_ymd_opt(2026, 9, 15),
+        })
+        .expect("a created occurrence carries a recurrence field");
+
+        assert_eq!(value["id"], "new-id");
+        assert_eq!(value["due"], "2026-09-15");
+        assert!(value["t"].is_null(), "an unset date stays null: {value}");
+    }
+
+    #[test]
+    fn recurrence_value_reports_the_pattern_that_could_not_be_used() {
+        let value = recurrence_value(&todo::Recurred::Failed {
+            value: "1b".to_string(),
+            error: RecurrenceError::UnsupportedUnit('b'),
+        })
+        .expect("a failed recurrence carries a recurrence field");
+
+        assert_eq!(value["value"], "1b");
+        assert_eq!(value["error"], "unsupported unit 'b'");
+        assert!(value.get("id").is_none(), "nothing was created: {value}");
     }
 
     #[test]

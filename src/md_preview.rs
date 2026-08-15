@@ -4,6 +4,11 @@ use std::time::SystemTime;
 
 const PREVIEW_MAX: usize = 3;
 
+/// The checkbox markers torudo recognises at the start of a (trimmed) md line.
+/// Shared with `recurrence::reset_md` so both agree on what a checkbox is.
+pub const CHECKED_BOXES: [&str; 2] = ["- [x] ", "- [X] "];
+pub const UNCHECKED_BOX: &str = "- [ ] ";
+
 #[derive(Debug, Clone)]
 pub struct MdMeta {
     pub mtime: SystemTime,
@@ -37,12 +42,12 @@ fn scan_md(content: &str, max: usize) -> (Vec<String>, Option<(usize, usize)>) {
     let mut total = 0usize;
     for line in content.lines() {
         let t = line.trim_start();
-        if let Some(rest) = t.strip_prefix("- [ ] ") {
+        if let Some(rest) = t.strip_prefix(UNCHECKED_BOX) {
             total += 1;
             if preview.len() < max {
                 preview.push(rest.to_string());
             }
-        } else if t.starts_with("- [x] ") || t.starts_with("- [X] ") {
+        } else if CHECKED_BOXES.iter().any(|box_| t.starts_with(box_)) {
             done += 1;
             total += 1;
         }

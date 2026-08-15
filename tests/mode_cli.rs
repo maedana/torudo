@@ -170,6 +170,81 @@ fn set_without_any_option_fails() {
 }
 
 #[test]
+fn set_writes_a_recurrence_tag() {
+    let dir = fresh_dir("torudo_it_set_rec");
+    fs::write(dir.join("todo.txt"), "Pay rent id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--rec", "+1m"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["key_values"]["rec"], "+1m");
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(todo.contains("rec:+1m"), "tag is written: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_rec_none_clears_the_recurrence_tag() {
+    let dir = fresh_dir("torudo_it_set_rec_none");
+    fs::write(
+        dir.join("todo.txt"),
+        "2026-08-01 Pay rent +home due:2026-09-01 rec:+1m id:t1\n",
+    )
+    .unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--rec", "none"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert!(
+        json["key_values"].get("rec").is_none(),
+        "rec is gone from the JSON: {json}"
+    );
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(!todo.contains("rec:"), "rec: token is dropped: {todo}");
+    assert!(todo.contains("+home"), "the project survives: {todo}");
+    assert!(todo.contains("due:2026-09-01"), "due: survives: {todo}");
+    assert!(todo.contains("id:t1"), "id: survives: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_rec_none_succeeds_on_an_item_without_a_recurrence_tag() {
+    let dir = fresh_dir("torudo_it_set_rec_none_absent");
+    fs::write(dir.join("todo.txt"), "Pay rent +home id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--rec", "none"]);
+
+    assert!(
+        output.status.success(),
+        "clearing an absent rec: is not an error: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert_eq!(todo, "Pay rent +home id:t1\n");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_rejects_an_invalid_recurrence_pattern() {
+    let dir = fresh_dir("torudo_it_set_rec_invalid");
+    fs::write(dir.join("todo.txt"), "Pay rent id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--rec", "banana"]);
+
+    assert!(
+        !output.status.success(),
+        "an invalid pattern should exit non-zero"
+    );
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(!todo.contains("rec:"), "nothing should be written: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn set_rejects_an_invalid_value() {
     let dir = fresh_dir("torudo_it_set_invalid");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
@@ -302,6 +377,83 @@ fn complete_works_from_waiting() {
 
     let done = fs::read_to_string(dir.join("done.txt")).unwrap();
     assert!(done.contains("Waiting on bob"));
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn complete_spawns_the_next_occurrence() {
+    let dir = fresh_dir("torudo_it_complete_rec");
+    fs::write(
+        dir.join("todo.txt"),
+        "2026-08-01 Take out the trash +home due:2026-08-10 rec:+1w id:r1\n",
+    )
+    .unwrap();
+
+    let output = run(&dir, &["todo", "complete", "r1"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["id"], "r1");
+    let new_id = json["recurrence"]["id"]
+        .as_str()
+        .expect("the new id is a string");
+    assert_ne!(new_id, "r1", "the next occurrence gets its own id");
+    assert_eq!(json["recurrence"]["due"], "2026-08-17");
+
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(
+        todo.contains(&format!("id:{new_id}")),
+        "next occurrence lands in todo.txt: {todo}"
+    );
+    assert!(todo.contains("rec:+1w"), "rec: is carried over: {todo}");
+    assert!(todo.contains("due:2026-08-17"), "due: moves on: {todo}");
+    assert!(!todo.contains("id:r1"), "the old line is gone: {todo}");
+
+    let done = fs::read_to_string(dir.join("done.txt")).unwrap();
+    assert!(done.contains("id:r1"), "the old line is archived: {done}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn complete_with_an_invalid_rec_warns_but_still_succeeds() {
+    let dir = fresh_dir("torudo_it_complete_rec_invalid");
+    fs::write(dir.join("todo.txt"), "Pay rent +home rec:1b id:r2\n").unwrap();
+
+    let output = run(&dir, &["todo", "complete", "r2"]);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("rec:1b"),
+        "stderr names the bad pattern: {stderr}"
+    );
+
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+    assert_eq!(json["completed"], true);
+    assert_eq!(json["recurrence"]["value"], "1b");
+    assert!(json["recurrence"]["error"].is_string());
+
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(
+        todo.trim().is_empty(),
+        "no next occurrence was created: {todo}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn complete_without_a_rec_tag_leaves_the_recurrence_field_out() {
+    let dir = fresh_dir("torudo_it_complete_no_rec");
+    fs::write(dir.join("todo.txt"), "Write docs id:r3\n").unwrap();
+
+    let output = run(&dir, &["todo", "complete", "r3"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert!(
+        json.get("recurrence").is_none(),
+        "a plain item has no recurrence field: {json}"
+    );
 
     fs::remove_dir_all(&dir).ok();
 }

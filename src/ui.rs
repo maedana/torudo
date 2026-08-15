@@ -143,6 +143,17 @@ fn energy_chip_span(todo: &Item) -> Option<Span<'static>> {
     energy_value_span(todo.energy_estimate()?)
 }
 
+/// Dimmer than the GTD chips: recurrence is a property of the item, not a cue
+/// about picking it up next. A pattern the parser rejects gets no chip at all,
+/// which is how a typo becomes visible.
+fn rec_chip_span(todo: &Item) -> Option<Span<'static>> {
+    let value = todo.recurrence()?;
+    Some(Span::styled(
+        format!("↻{value}"),
+        Style::default().fg(MD_META_FG),
+    ))
+}
+
 const FILTER_BRACKET_STYLE: Style = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
 
 fn layout_chip_spans(layout: TodoLayout) -> Vec<Span<'static>> {
@@ -362,6 +373,7 @@ pub fn draw_project_column(
         let parts: Vec<Span> = [
             energy_chip_span(todo),
             time_chip_span(todo),
+            rec_chip_span(todo),
             meta_label(todo, now).map(|l| Span::styled(l, Style::default().fg(MD_META_FG))),
         ]
         .into_iter()
@@ -882,6 +894,38 @@ mod tests {
     #[test]
     fn energy_chip_span_none_for_invalid_value() {
         assert!(energy_chip_span(&item_with_energy("medium")).is_none());
+    }
+
+    fn item_with_rec(value: &str) -> Item {
+        let mut item = make_item("x");
+        item.key_values.insert("rec".to_string(), value.to_string());
+        item
+    }
+
+    #[test]
+    fn rec_chip_span_shows_the_pattern() {
+        let span = rec_chip_span(&item_with_rec("1w")).expect("should have chip");
+        assert_eq!(span.content, "↻1w");
+        assert_eq!(span.style.fg, Some(MD_META_FG));
+    }
+
+    #[test]
+    fn rec_chip_span_keeps_the_strict_marker() {
+        let span = rec_chip_span(&item_with_rec("+1m")).expect("should have chip");
+        assert_eq!(span.content, "↻+1m");
+    }
+
+    #[test]
+    fn rec_chip_span_none_without_tag() {
+        assert!(rec_chip_span(&make_item("x")).is_none());
+    }
+
+    #[test]
+    fn rec_chip_span_none_for_an_unparseable_pattern() {
+        // A missing chip is how a typo makes itself visible.
+        assert!(rec_chip_span(&item_with_rec("banana")).is_none());
+        assert!(rec_chip_span(&item_with_rec("1b")).is_none());
+        assert!(rec_chip_span(&item_with_rec("0w")).is_none());
     }
 
     #[test]
