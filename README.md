@@ -135,10 +135,10 @@ torudo search "release" --json | jq -r '.[0].id' | xargs torudo focus
 ### Driving torudo from Claude Code
 
 This repository ships an [Agent Skill](skills/torudo/SKILL.md) that lets Claude Code run the
-above for you in plain language — "inboxに牛乳を買うを追加して", "短時間・低エネルギーにして
-todoに移して", or a bare URL, in which case Claude resolves a readable title (using a
+above for you in plain language — "add buy milk to my inbox", "make it short and low energy,
+then move it to todo", or a bare URL, in which case Claude resolves a readable title (using a
 host-specific CLI when one exists, otherwise fetching the page) and confirms the line before
-adding it. It also writes the `- [ ]` checklist in `todos/{id}.md` for an item, and can start
+adding it. The skill is written to answer to Japanese phrasings as well. It also writes the `- [ ]` checklist in `todos/{id}.md` for an item, and can start
 work on a task — creating the git worktree, opening a terminal tab there, and launching a
 Claude session for it. That last part additionally needs
 [git-wt](https://github.com/k1LoW/git-wt) and [herdr](https://herdr.dev); without them the
