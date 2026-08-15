@@ -30,6 +30,11 @@ pub enum ModeAction {
         #[arg(long, value_enum)]
         energy: Option<EnergyValue>,
     },
+    /// Complete an item, moving it to done.txt, and print it as JSON
+    Complete {
+        /// Id of the item to complete
+        id: String,
+    },
     /// Move an item to another mode and print it as JSON
     Promote {
         /// Id of the item to move
@@ -122,6 +127,19 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
                 todo::set_key_value(&file, id, "energy", energy.as_str())?;
             }
             print_item(&file, id, todotxt_dir)?;
+        }
+        ModeAction::Complete { id } => {
+            // Matches the TUI, where `x` only works in Todo and Waiting.
+            if !matches!(mode, ViewMode::Todo | ViewMode::Waiting) {
+                return Err(format!(
+                    "cannot complete from {}; promote it to Todo first",
+                    mode.label()
+                )
+                .into());
+            }
+            require_item(&file, mode, id)?;
+            todo::mark_complete(&file, id)?;
+            print_item(&format!("{todotxt_dir}/done.txt"), id, todotxt_dir)?;
         }
         ModeAction::Promote { id, to } => {
             let target = to.view_mode();

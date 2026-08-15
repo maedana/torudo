@@ -262,6 +262,95 @@ fn promote_to_the_same_mode_fails() {
 }
 
 #[test]
+fn complete_moves_the_item_to_done() {
+    let dir = fresh_dir("torudo_it_complete");
+    fs::write(
+        dir.join("todo.txt"),
+        "2026-08-01 Write docs +torudo id:t1\nStay here id:t2\n",
+    )
+    .unwrap();
+
+    let output = run(&dir, &["todo", "complete", "t1"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["id"], "t1");
+    assert_eq!(json["completed"], true);
+    assert!(json["completion_date"].is_string());
+
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(!todo.contains("id:t1"), "gone from todo.txt: {todo}");
+    assert!(todo.contains("id:t2"), "others stay: {todo}");
+
+    let done = fs::read_to_string(dir.join("done.txt")).unwrap();
+    assert!(done.contains("Write docs"), "landed in done.txt: {done}");
+    assert!(done.starts_with("x "), "marked complete: {done}");
+    assert!(
+        done.contains("2026-08-01"),
+        "creation date survives: {done}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn complete_works_from_waiting() {
+    let dir = fresh_dir("torudo_it_complete_waiting");
+    fs::write(dir.join("waiting.txt"), "Waiting on bob id:w1\n").unwrap();
+
+    let output = run(&dir, &["waiting", "complete", "w1"]);
+    stdout_of(&output);
+
+    let done = fs::read_to_string(dir.join("done.txt")).unwrap();
+    assert!(done.contains("Waiting on bob"));
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn complete_from_inbox_is_refused() {
+    let dir = fresh_dir("torudo_it_complete_inbox");
+    fs::write(dir.join("inbox.txt"), "Capture me id:i1\n").unwrap();
+
+    let output = run(&dir, &["inbox", "complete", "i1"]);
+
+    assert!(
+        !output.status.success(),
+        "inbox complete should exit non-zero"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Todo"),
+        "stderr should point at promoting to Todo: {stderr}"
+    );
+
+    let inbox = fs::read_to_string(dir.join("inbox.txt")).unwrap();
+    assert!(inbox.contains("id:i1"), "item is untouched: {inbox}");
+    assert!(
+        !dir.join("done.txt").exists(),
+        "nothing written to done.txt"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn complete_on_unknown_id_fails() {
+    let dir = fresh_dir("torudo_it_complete_unknown");
+    fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "complete", "nope"]);
+
+    assert!(!output.status.success(), "unknown id should exit non-zero");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("nope"),
+        "stderr should name the id: {stderr}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn list_without_json_prints_one_line_per_item() {
     let dir = fresh_dir("torudo_it_list_plain");
     fs::write(

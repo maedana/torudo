@@ -1,6 +1,6 @@
 ---
 name: torudo
-description: Drive torudo (a todo.txt TUI) from natural language — capture into the inbox, break an item down into a checklist, tag it with time/energy, move it between GTD modes, and start work on a task in its own git worktree and Claude session. Use when the user says things like "inboxに〜を追加して", "inboxに<URL>を追加して", "inboxを見せて", "これをtodoに移して", "エネルギー低めで短時間にして", "やることリストを書いて", "これ着手して", "worktree切ってclaude立てて", or "add this to my inbox".
+description: Drive torudo (a todo.txt TUI) from natural language — capture into the inbox, break an item down into a checklist, tag it with time/energy, move it between GTD modes, complete it, and start work on a task in its own git worktree and Claude session. Use when the user says things like "inboxに〜を追加して", "inboxに<URL>を追加して", "inboxを見せて", "これをtodoに移して", "エネルギー低めで短時間にして", "やることリストを書いて", "これ着手して", "worktree切ってclaude立てて", "終わったから完了にして", or "add this to my inbox".
 ---
 
 # torudo
@@ -14,6 +14,7 @@ torudo <mode> add <text>                             # append an item, print it 
 torudo <mode> list [--json]                          # list the mode's items
 torudo <mode> set <id> [--time ...] [--energy ...]   # set GTD tags
 torudo <mode> promote <id> --to <mode>               # move to another mode
+torudo <mode> complete <id>                          # finish it: move to done.txt
 ```
 
 `<mode>` is one of `inbox` / `todo` / `waiting` / `ref` / `someday`. Everything works
@@ -129,6 +130,18 @@ torudo inbox promote i1 --to todo               # move inbox.txt → todo.txt
 - Estimating time/energy is a judgment call about the user's own capacity — propose values
   with your reasoning and let the user correct them, unless they already said what they want.
 
+## Completing
+
+```bash
+torudo todo complete <id>      # → done.txt, stamped with today's date
+```
+
+- Only **Todo** and **Waiting** can complete, matching the TUI's `x`. Finishing something
+  sitting in Inbox / Ref / Someday means promoting it to Todo first.
+- **Completing is not reversible from the CLI** — the item moves to `done.txt` and no command
+  brings it back. Only complete what the user said is done; when a checklist in the detail md
+  still has unchecked `- [ ]` lines, say so and let them confirm rather than assuming.
+
 ## Starting work on a task
 
 A development task gets its own git worktree, its own terminal tab, and its own Claude
@@ -237,5 +250,6 @@ todoに移しました: リリース作業 +torudo time:short energy:low (id: 8a
 | これのやることリストを書いて | `torudo inbox list --json` で id を得る → `todos/{id}.md` に `- [ ]` を書く |
 | 短時間・低エネルギーにしてtodoに移して | `torudo inbox set <id> --time short --energy low` → `torudo inbox promote <id> --to todo` |
 | これはいつかやるやつ | `torudo inbox promote <id> --to someday` |
+| Astro7対応終わった | `torudo todo complete <id>` |
 | Astro7対応に着手して | `git wt --nocd` でworktree作成 → `herdr tab create` → `herdr agent start` → ListAgentsで名前解決 → SendMessageで依頼 |
 | worktree切ってclaude立てて | 同上。ブランチ名とベースブランチを確認してから |
