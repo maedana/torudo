@@ -163,8 +163,8 @@ herdr pane wait-output <pane_id> --regex "WT_(OK|FAIL)" --timeout 600000
 # 5. Confirm the pane actually landed in the worktree before going on
 herdr pane get <pane_id>        # foreground_cwd should be the worktree path
 
-# 6. Start Claude in that pane. Returns once it is ready for input
-herdr agent start <name> --kind claude --pane <pane_id>
+# 6. Start Claude in that pane, in plan mode. Returns once it is ready for input
+herdr agent start <name> --kind claude --pane <pane_id> -- --permission-mode plan
 
 # 7. Resolve the peer name with ListAgents, then hand the task over with SendMessage
 ```
@@ -183,8 +183,18 @@ what makes that safe — without it the only signal is screen text, which is eas
 - **The peer name is not the name passed to `agent start`.** It is derived from the worktree
   directory name plus a random suffix (`wt-probe` → `wt-probe-df`), so it cannot be predicted.
   Call ListAgents after starting and match on the directory-name prefix.
+- **Plan first.** The session starts in plan mode, so the handover message asks for a plan,
+  not for the work: describe the task, point at the relevant files if you know them, and ask
+  for a plan. Include the item's detail md (`todos/{id}.md`) content when it has one — the
+  `- [ ]` checklist is the shape of the task as the user sees it.
+- **The plan is the user's to approve.** Tell them it is ready and stop there. Do not approve
+  it from this session, and do not drive the child's UI with `agent send-keys` to get past
+  the prompt — that turns a deliberate checkpoint into a rubber stamp.
 - **Handing over** — send the task with SendMessage. A spawned session answers on its own
   screen, not back to you, unless you explicitly ask it to reply with SendMessage.
+- **Waiting for the plan** — `herdr agent wait <name> --until blocked --until idle`. Which of
+  the two a pending plan approval reports as has not been verified, so match on both and
+  confirm with `herdr agent read <name>`.
 - **Watching it** — `herdr agent wait <name> --until idle` blocks until it settles, and
   `herdr agent read <name>` dumps its screen. Neither needs the peer to cooperate.
 - **Permission boundaries** — never hand a spawned session work that was blocked in this
