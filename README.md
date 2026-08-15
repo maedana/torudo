@@ -27,6 +27,12 @@ A terminal-based todo.txt viewer and manager written in Rust with TUI interface.
 curl -sSL https://raw.githubusercontent.com/maedana/torudo/main/install.sh | sh
 ```
 
+Set `TORUDO_VERSION` to install a specific release instead of the latest one:
+
+```sh
+curl -sSL https://raw.githubusercontent.com/maedana/torudo/main/install.sh | TORUDO_VERSION=v0.17.0 sh
+```
+
 ### From crates.io
 
 ```sh

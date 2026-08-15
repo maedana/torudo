@@ -30,14 +30,27 @@ esac
 
 echo "Detected platform: ${TARGET}"
 
-# Get latest release tag
-TAG=$(curl -sSL "https://api.github.com/repos/${REPO}/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
+# Resolve the release tag. TORUDO_VERSION pins it; otherwise ask the GitHub API,
+# then fall back to the repository's tags. Sandboxed environments often reach
+# github.com but not api.github.com, so the fallback keeps the install working.
+TAG="${TORUDO_VERSION:-}"
+
 if [ -z "${TAG}" ]; then
-  echo "Error: failed to fetch latest release tag" >&2
+  TAG=$(curl -sSL "https://api.github.com/repos/${REPO}/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
+fi
+
+if [ -z "${TAG}" ] && command -v git >/dev/null 2>&1; then
+  echo "GitHub API unavailable, falling back to the repository's tags..." >&2
+  TAG=$(git ls-remote --tags --refs "https://github.com/${REPO}.git" 2>/dev/null | sed -n 's#.*refs/tags/##p' | sort -V | tail -n 1)
+fi
+
+if [ -z "${TAG}" ]; then
+  echo "Error: failed to resolve the latest release tag" >&2
+  echo "Set TORUDO_VERSION to install a specific release, e.g. TORUDO_VERSION=v0.17.0" >&2
   exit 1
 fi
 
-echo "Latest release: ${TAG}"
+echo "Release: ${TAG}"
 
 # Download and extract
 URL="https://github.com/${REPO}/releases/download/${TAG}/torudo-${TARGET}.tar.gz"
