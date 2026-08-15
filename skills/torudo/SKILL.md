@@ -93,6 +93,7 @@ them.
 ```markdown
 ---
 cwd: /home/maedana/src/github.com/maedana/torudo
+branch: readme-dev-setup
 ---
 # やること
 
@@ -103,8 +104,11 @@ cwd: /home/maedana/src/github.com/maedana/torudo
 
 - **Break the task into checkable steps**, one per `- [ ]` line, ordered so the first three
   are the ones to start with — those are what shows on the card.
-- **`cwd` frontmatter** is required for torudo's `clp` / `cli` claude launch. Set it when
-  the item belongs to a repository you can identify; omit it otherwise.
+- **`cwd` frontmatter** names the repository the item belongs to. Set it when you can
+  identify one; omit it otherwise.
+- **`branch` frontmatter** is written when work starts (see below) and ties the item to its
+  worktree. Treat it as a record, not something to invent up front — and never change it on
+  an item that already has one, or the task loses track of its own worktree.
 - **Preserve what is already there.** Read the file first when it exists; append to the
   checklist rather than overwriting notes, and never flip `- [ ]` to `- [x]` unless the user
   says the step is done.
@@ -147,6 +151,7 @@ command -v git-wt herdr
   own terminal rather than substituting another multiplexer.
 
 ```bash
+# 0. Reuse the branch recorded in todos/{id}.md if there is one; otherwise name it yourself
 # 1. Base ref — the repo's default branch unless the user says otherwise
 git -C <repo> symbolic-ref --short refs/remotes/origin/HEAD        # → origin/main
 
@@ -163,6 +168,8 @@ herdr pane wait-output <pane_id> --regex "WT_(OK|FAIL)" --timeout 600000
 # 5. Confirm the pane actually landed in the worktree before going on
 herdr pane get <pane_id>        # foreground_cwd should be the worktree path
 
+# 5b. Record the branch in the item's md, so the task and the worktree stay tied together
+
 # 6. Start Claude in that pane, in plan mode. Returns once it is ready for input
 herdr agent start <name> --kind claude --pane <pane_id> -- --permission-mode plan
 
@@ -174,8 +181,15 @@ install` scroll by instead of staring at a silent terminal. The `WT_OK` / `WT_FA
 what makes that safe — without it the only signal is screen text, which is easy to misread.
 
 - **Repository** — take it from the item's `cwd` frontmatter when it has one; ask otherwise.
-- **Branch name** — propose one from the task and let the user correct it. `git wt <branch>
-  <base-ref>` creates the branch, so a typo becomes a real branch.
+- **Branch name** — name it yourself, do not ask. Slugify the task into three or four
+  lowercase words in kebab-case, in English even when the task is not ("READMEに開発環境
+  セットアップ手順を追記する" → `readme-dev-setup`). Then **write it into the item's md as
+  `branch:` frontmatter** once the worktree exists. `git wt <branch> <base-ref>` creates the
+  branch, so the name you pick becomes a real branch — check it is not already taken.
+- **A recorded `branch:` wins.** When the item's md already has one, reuse it instead of
+  naming a new one: `git wt <branch>` alone switches to the existing worktree, so resuming an
+  interrupted task lands back where it was. Only fall back to naming when the frontmatter has
+  none.
 - **`WT_FAIL` means stop.** A repo configured with `wt.hook` (`bundle install`, `pnpm
   install`) can fail after the worktree directory already exists. **Do not start Claude** in
   that case — a worktree without its dependencies is worse than no worktree at all. Report
