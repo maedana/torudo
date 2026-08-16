@@ -22,6 +22,13 @@ fn run(dir: &Path, args: &[&str]) -> std::process::Output {
         .expect("failed to run torudo")
 }
 
+/// A date `offset` days away from today. Recurrence is resolved against the day
+/// the command runs, so fixtures that exercise it are seeded from today rather
+/// than from a fixed calendar date that would rot.
+fn days_from_today(offset: i64) -> chrono::NaiveDate {
+    chrono::Local::now().date_naive() + chrono::Duration::days(offset)
+}
+
 fn stdout_of(output: &std::process::Output) -> String {
     assert!(
         output.status.success(),
@@ -496,9 +503,14 @@ fn complete_works_from_waiting() {
 #[test]
 fn complete_spawns_the_next_occurrence() {
     let dir = fresh_dir("torudo_it_complete_rec");
+    // The binary reads the clock, so the item is seeded relative to today. Strict
+    // `+1w` counts from the item's own due date, three days back, putting the next
+    // occurrence four days out; counting from the completion date would give seven.
+    let seeded_due = days_from_today(-3);
+    let expected_due = days_from_today(4).to_string();
     fs::write(
         dir.join("todo.txt"),
-        "2026-08-01 Take out the trash +home due:2026-08-10 rec:+1w id:r1\n",
+        format!("2026-08-01 Take out the trash +home due:{seeded_due} rec:+1w id:r1\n"),
     )
     .unwrap();
 
@@ -510,7 +522,7 @@ fn complete_spawns_the_next_occurrence() {
         .as_str()
         .expect("the new id is a string");
     assert_ne!(new_id, "r1", "the next occurrence gets its own id");
-    assert_eq!(json["recurrence"]["due"], "2026-08-17");
+    assert_eq!(json["recurrence"]["due"], expected_due);
 
     let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
     assert!(
@@ -518,7 +530,10 @@ fn complete_spawns_the_next_occurrence() {
         "next occurrence lands in todo.txt: {todo}"
     );
     assert!(todo.contains("rec:+1w"), "rec: is carried over: {todo}");
-    assert!(todo.contains("due:2026-08-17"), "due: moves on: {todo}");
+    assert!(
+        todo.contains(&format!("due:{expected_due}")),
+        "due: moves on: {todo}"
+    );
     assert!(!todo.contains("id:r1"), "the old line is gone: {todo}");
 
     let done = fs::read_to_string(dir.join("done.txt")).unwrap();

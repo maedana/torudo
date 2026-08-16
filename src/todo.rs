@@ -2450,6 +2450,13 @@ Learn Rust +learning @coding id:task-003";
         NaiveDate::from_ymd_opt(y, m, d).unwrap()
     }
 
+    /// A date `offset` days away from today. `mark_complete` reads the clock
+    /// itself, so tests that go through it seed their dates from today rather
+    /// than writing a fixed calendar date that would rot.
+    fn days_from_today(offset: i64) -> NaiveDate {
+        chrono::Local::now().date_naive() + chrono::Duration::days(offset)
+    }
+
     #[test]
     fn next_occurrence_line_carries_everything_but_the_dates_and_the_id() {
         let original = "(A) 2026-08-01 Take out the trash +home @errands t:2026-08-08 due:2026-08-10 \
@@ -2495,9 +2502,14 @@ Learn Rust +learning @coding id:task-003";
     fn mark_complete_spawns_the_next_occurrence() {
         let dir = tempfile::tempdir().unwrap();
         let todo_file = dir.path().join("todo.txt");
+        // A strict `+1w` counts from the item's own due date, three days back, so
+        // the next occurrence lands four days out. A pattern read as loose would
+        // count from the completion date and land seven days out instead.
+        let seeded_due = days_from_today(-3);
+        let expected_due = days_from_today(4);
         fs::write(
             &todo_file,
-            "2026-08-01 Take out the trash +home due:2026-08-10 rec:+1w id:r1\n",
+            format!("2026-08-01 Take out the trash +home due:{seeded_due} rec:+1w id:r1\n"),
         )
         .unwrap();
 
@@ -2507,7 +2519,7 @@ Learn Rust +learning @coding id:task-003";
         };
         assert_ne!(id, "r1");
         assert_eq!(t, None);
-        assert_eq!(due, Some(ymd(2026, 8, 17)));
+        assert_eq!(due, Some(expected_due));
 
         let remaining = fs::read_to_string(&todo_file).unwrap();
         let lines: Vec<&str> = remaining.lines().filter(|l| !l.trim().is_empty()).collect();
@@ -2520,7 +2532,10 @@ Learn Rust +learning @coding id:task-003";
         assert!(!spawned.starts_with("x "), "spawned line must be open");
         assert!(spawned.contains("rec:+1w"), "rec: should carry over");
         assert!(spawned.contains("+home"), "project should carry over");
-        assert!(spawned.contains("due:2026-08-17"));
+        assert!(
+            spawned.contains(&format!("due:{expected_due}")),
+            "got {spawned}"
+        );
         assert!(spawned.contains(&format!("id:{id}")));
 
         let done = fs::read_to_string(dir.path().join("done.txt")).unwrap();
@@ -2662,9 +2677,14 @@ Learn Rust +learning @coding id:task-003";
     fn mark_complete_spawns_into_the_file_it_completed_from() {
         let dir = tempfile::tempdir().unwrap();
         let waiting_file = dir.path().join("waiting.txt");
+        // Seeded relative to today for the same reason as
+        // `mark_complete_spawns_the_next_occurrence`: strict `+1w` from a threshold
+        // three days back lands four days out, whatever day the test runs on.
+        let seeded_t = days_from_today(-3);
+        let expected_t = days_from_today(4);
         fs::write(
             &waiting_file,
-            "Chase the invoice t:2026-08-08 rec:+1m id:r1\n",
+            format!("Chase the invoice t:{seeded_t} rec:+1w id:r1\n"),
         )
         .unwrap();
 
@@ -2678,7 +2698,10 @@ Learn Rust +learning @coding id:task-003";
             }
         ));
         let spawned = fs::read_to_string(&waiting_file).unwrap();
-        assert!(spawned.contains("t:2026-09-08"), "got {spawned}");
+        assert!(
+            spawned.contains(&format!("t:{expected_t}")),
+            "got {spawned}"
+        );
         assert!(!spawned.contains("due:"));
     }
 }

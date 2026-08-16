@@ -442,6 +442,27 @@ mod tests {
     }
 
     #[test]
+    fn next_dates_strict_week_from_three_days_back_always_lands_four_days_out() {
+        // The invariant the completion tests in todo.rs, app_state.rs and
+        // tests/mode_cli.rs seed their fixtures from, so that they assert the real
+        // behaviour on whichever day they happen to run. Day arithmetic never
+        // clamps, so it holds across month and year boundaries alike.
+        let mut completion = date(2026, 1, 1);
+        for _ in 0..800 {
+            let due = completion.checked_sub_days(Days::new(3)).unwrap();
+            assert_eq!(
+                next("+1w", None, Some(due), completion),
+                NextDates {
+                    t: None,
+                    due: completion.checked_add_days(Days::new(4)),
+                },
+                "completed on {completion}"
+            );
+            completion = completion.checked_add_days(Days::new(1)).unwrap();
+        }
+    }
+
+    #[test]
     fn next_dates_strict_advances_again_when_it_lands_on_the_completion_date() {
         // 2026-08-08 + 1w is exactly the completion date, so it takes one more period.
         assert_eq!(

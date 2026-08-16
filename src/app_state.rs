@@ -1448,23 +1448,41 @@ mod tests {
 
         let todos = load_todos(todo_file.to_str().unwrap()).unwrap();
         let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
-        state.status_message = Some("Completed. Next occurrence due 2026-08-22".to_string());
+        // Deliberately not a message any completion could produce, so a test can
+        // never pass by finding the leftover text it expected.
+        state.status_message = Some("stale message from a previous completion".to_string());
         state.handle_complete_todo(todo_file.to_str().unwrap());
 
         fs::remove_dir_all(&temp_dir).ok();
         state
     }
 
+    /// A date `offset` days away from today. Completion reads the clock itself,
+    /// so these tests seed their dates from today instead of writing a fixed
+    /// calendar date that would rot as soon as today passed it.
+    fn days_from_today(offset: i64) -> chrono::NaiveDate {
+        chrono::Local::now().date_naive() + chrono::Duration::days(offset)
+    }
+
     #[test]
     fn handle_complete_todo_reports_the_next_due_date() {
+        // Strict `+1w` counts from the item's own due date, three days back, so the
+        // next occurrence is four days out; counting from the completion date would
+        // report seven days out.
         let state = complete_only_todo(
             "torudo_test_complete_rec_due",
-            "Take out the trash +home due:2026-08-10 rec:+1w id:rec-due\n",
+            &format!(
+                "Take out the trash +home due:{} rec:+1w id:rec-due\n",
+                days_from_today(-3)
+            ),
         );
 
         assert_eq!(
-            state.status_message.as_deref(),
-            Some("Completed. Next occurrence due 2026-08-17")
+            state.status_message,
+            Some(format!(
+                "Completed. Next occurrence due {}",
+                days_from_today(4)
+            ))
         );
     }
 
@@ -1472,12 +1490,18 @@ mod tests {
     fn handle_complete_todo_reports_the_next_start_date() {
         let state = complete_only_todo(
             "torudo_test_complete_rec_t",
-            "Water the plants +home t:2026-08-10 rec:+1w id:rec-t\n",
+            &format!(
+                "Water the plants +home t:{} rec:+1w id:rec-t\n",
+                days_from_today(-3)
+            ),
         );
 
         assert_eq!(
-            state.status_message.as_deref(),
-            Some("Completed. Next occurrence starts 2026-08-17")
+            state.status_message,
+            Some(format!(
+                "Completed. Next occurrence starts {}",
+                days_from_today(4)
+            ))
         );
     }
 
