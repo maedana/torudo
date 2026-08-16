@@ -37,6 +37,9 @@ pub enum ModeAction {
         /// `none` removes the tag.
         #[arg(long, value_parser = parse_rec_value)]
         rec: Option<String>,
+        /// Priority letter (`A`-`E`). `none` clears it.
+        #[arg(long, value_enum, ignore_case = true)]
+        priority: Option<PriorityValue>,
     },
     /// Complete an item, moving it to done.txt, and print it as JSON
     Complete {
@@ -127,6 +130,30 @@ impl EnergyValue {
     }
 }
 
+#[derive(Clone, Copy, ValueEnum)]
+pub enum PriorityValue {
+    A,
+    B,
+    C,
+    D,
+    E,
+    /// Clears the priority instead of setting one, mirroring `REC_NONE`.
+    None,
+}
+
+impl PriorityValue {
+    const fn as_char(self) -> Option<char> {
+        match self {
+            Self::A => Some('A'),
+            Self::B => Some('B'),
+            Self::C => Some('C'),
+            Self::D => Some('D'),
+            Self::E => Some('E'),
+            Self::None => None,
+        }
+    }
+}
+
 pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(), Box<dyn Error>> {
     let file = mode.file_path(todotxt_dir);
     match action {
@@ -140,9 +167,10 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
             time,
             energy,
             rec,
+            priority,
         } => {
-            if time.is_none() && energy.is_none() && rec.is_none() {
-                return Err("specify at least one of --time, --energy or --rec".into());
+            if time.is_none() && energy.is_none() && rec.is_none() && priority.is_none() {
+                return Err("specify at least one of --time, --energy, --rec or --priority".into());
             }
             require_item(&file, mode, id)?;
             if let Some(time) = time {
@@ -157,6 +185,9 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
                 } else {
                     todo::set_key_value(&file, id, "rec", rec)?;
                 }
+            }
+            if let Some(priority) = priority {
+                todo::set_priority(&file, id, priority.as_char())?;
             }
             print_item(&file, id, todotxt_dir)?;
         }
@@ -692,6 +723,20 @@ mod tests {
         assert_eq!(value["value"], "1b");
         assert_eq!(value["error"], "unsupported unit 'b'");
         assert!(value.get("id").is_none(), "nothing was created: {value}");
+    }
+
+    #[test]
+    fn priority_value_as_char_maps_the_letters() {
+        assert_eq!(PriorityValue::A.as_char(), Some('A'));
+        assert_eq!(PriorityValue::B.as_char(), Some('B'));
+        assert_eq!(PriorityValue::C.as_char(), Some('C'));
+        assert_eq!(PriorityValue::D.as_char(), Some('D'));
+        assert_eq!(PriorityValue::E.as_char(), Some('E'));
+    }
+
+    #[test]
+    fn priority_value_none_clears_the_priority() {
+        assert_eq!(PriorityValue::None.as_char(), None);
     }
 
     #[test]

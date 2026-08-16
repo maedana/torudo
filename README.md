@@ -109,6 +109,12 @@ torudo todo set <id> --rec 1w
 # Stop an item recurring
 torudo todo set <id> --rec none
 
+# Set the priority (a-e, uppercase also works)
+torudo todo set <id> --priority a
+
+# Clear the priority
+torudo todo set <id> --priority none
+
 # Move an item to another mode
 torudo inbox promote <id> --to todo
 
@@ -186,7 +192,7 @@ Learn Rust programming +learning @coding id:abc123
 ```
 
 Features supported:
-- Priority levels: `(A)`, `(B)`, `(C)`
+- Priority levels: `(A)` through `(E)`
 - Completion status: `x` prefix with completion date
 - Creation date: `YYYY-MM-DD` format
 - Projects: `+project_name`
@@ -199,7 +205,7 @@ Features supported:
 
 Todos are automatically sorted within each project column using the following priority:
 
-1. **Priority level**: (A) items first, then (B), then (C)
+1. **Priority level**: (A) items first, then (B), and so on down to (E)
 2. **File line number**: Within the same priority level, todos maintain their original file order
 
 This ensures high-priority items are always visible at the top while preserving your intended ordering for items of the same priority.

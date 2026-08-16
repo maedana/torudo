@@ -263,6 +263,118 @@ fn set_rejects_an_invalid_value() {
 }
 
 #[test]
+fn set_writes_a_priority() {
+    let dir = fresh_dir("torudo_it_set_priority");
+    fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--priority", "a"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["priority"], "A");
+
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(todo.starts_with("(A) "), "todo.txt: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_replaces_an_existing_priority() {
+    let dir = fresh_dir("torudo_it_set_priority_replace");
+    fs::write(dir.join("todo.txt"), "(A) Write docs id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--priority", "c"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["priority"], "C");
+
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(todo.starts_with("(C) "), "todo.txt: {todo}");
+    assert!(!todo.contains("(A)"), "old priority is gone: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_priority_none_clears_the_priority() {
+    let dir = fresh_dir("torudo_it_set_priority_none");
+    fs::write(dir.join("todo.txt"), "(X) Write docs id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--priority", "none"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert!(
+        json["priority"].is_null(),
+        "priority is cleared in JSON: {json}"
+    );
+
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(!todo.contains("(X)"), "prefix is gone: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_priority_accepts_an_uppercase_value() {
+    let dir = fresh_dir("torudo_it_set_priority_upper");
+    fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--priority", "B"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["priority"], "B");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_priority_accepts_the_lowest_level() {
+    let dir = fresh_dir("torudo_it_set_priority_lowest");
+    fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--priority", "e"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["priority"], "E");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_rejects_an_invalid_priority() {
+    let dir = fresh_dir("torudo_it_set_priority_invalid");
+    fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--priority", "z"]);
+
+    assert!(
+        !output.status.success(),
+        "invalid priority should exit non-zero"
+    );
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert_eq!(todo, "Write docs id:t1\n", "nothing should be written");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_priority_on_unknown_id_fails() {
+    let dir = fresh_dir("torudo_it_set_priority_unknown");
+    fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "set", "nope", "--priority", "a"]);
+
+    assert!(!output.status.success(), "unknown id should exit non-zero");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("nope"),
+        "stderr should name the id: {stderr}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn promote_moves_an_item_between_modes() {
     let dir = fresh_dir("torudo_it_promote");
     fs::write(

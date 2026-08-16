@@ -1,6 +1,6 @@
 ---
 name: torudo
-description: Drive torudo (a todo.txt TUI) from natural language — capture into the inbox, break an item down into a checklist, tag it with time/energy, move it between GTD modes, complete it, find it by keyword and jump the running TUI's cursor to it, and start work on a task in its own git worktree and Claude session. Use when the user says things like "inboxに〜を追加して", "inboxに<URL>を追加して", "inboxを見せて", "これをtodoに移して", "エネルギー低めで短時間にして", "やることリストを書いて", "これ着手して", "worktree切ってclaude立てて", "終わったから完了にして", "〜のタスクどこだっけ", "あれ画面に出して", or "add this to my inbox".
+description: Drive torudo (a todo.txt TUI) from natural language — capture into the inbox, break an item down into a checklist, tag it with time/energy, move it between GTD modes, complete it, find it by keyword and jump the running TUI's cursor to it, and start work on a task in its own git worktree and Claude session. Use when the user says things like "inboxに〜を追加して", "inboxに<URL>を追加して", "inboxを見せて", "これをtodoに移して", "エネルギー低めで短時間にして", "これ最優先にして", "やることリストを書いて", "これ着手して", "worktree切ってclaude立てて", "終わったから完了にして", "〜のタスクどこだっけ", "あれ画面に出して", or "add this to my inbox".
 ---
 
 # torudo
@@ -12,7 +12,7 @@ torudo keeps one todo.txt-format file per GTD mode under `~/todotxt/` (`inbox.tx
 ```bash
 torudo <mode> add <text>                             # append an item, print it as JSON
 torudo <mode> list [--json]                          # list the mode's items
-torudo <mode> set <id> [--time ...] [--energy ...] [--rec ...]  # set GTD tags / recurrence
+torudo <mode> set <id> [--time ...] [--energy ...] [--rec ...] [--priority ...]  # set GTD tags / recurrence / priority
 torudo <mode> promote <id> --to <mode>               # move to another mode
 torudo <mode> complete <id>                          # finish it: move to done.txt
 torudo <mode> reopen <id>                            # pull it back out of done.txt
@@ -42,8 +42,10 @@ The text follows the todo.txt format, assembled in this order:
 ```
 
 - **Summary** — short, in the language the user used. No trailing period.
-- **Priority** — `(A)` / `(B)` / `(C)` only when the user explicitly signals urgency
-  ("最優先で", "急ぎ", "(A)で"). Never invent one.
+- **Priority** — `(A)` through `(E)` only when the user explicitly signals urgency
+  ("最優先で", "急ぎ", "(A)で"). Never invent one. This is only for what to embed at capture
+  time; to change or clear the priority on an item that already exists, use
+  `torudo <mode> set <id> --priority` instead (see "Triaging" below).
 - **`+project` / `@context`** — add only when the request makes it obvious (e.g. "torudoの
   リリース作業" → `+torudo`). When it is a guess, ask the user with AskUserQuestion instead
   of guessing; offering "タグなしで追加" as one of the options is usually right, since inbox
@@ -132,18 +134,22 @@ branch: readme-dev-setup
 torudo inbox set i1 --time short --energy low   # time:short energy:low
 torudo todo set t1 --rec 1w                     # rec:1w — recur weekly from completion
 torudo todo set t1 --rec none                   # drop rec: — stop the item repeating
+torudo todo set t1 --priority a                 # (A) — bump it to top priority
+torudo todo set t1 --priority none              # drop the priority prefix
 torudo inbox promote i1 --to todo               # move inbox.txt → todo.txt
 ```
 
 - `--time` is `short` / `medium` / `long`, `--energy` is `low` / `high`, `--rec` is a pattern
-  like `1w` or `+1m` (see "Capturing" above for what `rec:` means). An existing value is
-  replaced. Any subset of the three flags may be given at once; `--rec` with an unparseable
-  pattern (e.g. a typo like `1z`) fails loudly and writes nothing, so retype it rather than
-  guessing.
-- `--rec none` removes the `rec:` tag, which is the only way to stop an item repeating. It is
-  fine to run on an item that has no `rec:` — nothing changes and it still succeeds. `--time`
-  and `--energy` take no `none` yet, so a stale `time:` or `energy:` can only be overwritten,
-  not cleared.
+  like `1w` or `+1m` (see "Capturing" above for what `rec:` means), and `--priority` is `a`
+  through `e` (uppercase works too). An existing value is replaced. Any subset of the four
+  flags may be given at once; `--rec` with an unparseable pattern (e.g. a typo like `1z`) fails
+  loudly and writes nothing, so retype it rather than guessing.
+- `--rec none` and `--priority none` remove the `rec:` tag and the `(A)`–`(E)` prefix
+  respectively — the only way to clear either. Both are fine to run on an item that has
+  nothing to clear — nothing changes and it still succeeds. `--time` and `--energy` take no
+  `none` yet, so a stale `time:` or `energy:` can only be overwritten, not cleared.
+- `(A)` surfaces in its own column in the TUI's Pick view, so reserve it for things the user
+  really means to do today rather than everything they call "priority".
 - Set the tags **before** promoting, so the item lands in Todo ready to be picked. That is
   the usual flow: capture → write the checklist → set time/energy → promote to todo.
 - Both commands need the item's `id` and fail loudly on an unknown one. Take the `id` from
@@ -298,6 +304,9 @@ todoに移しました: リリース作業 +torudo time:short energy:low (id: 8a
 | 短時間・低エネルギーにしてtodoに移して | `torudo inbox set <id> --time short --energy low` → `torudo inbox promote <id> --to todo` |
 | ゴミ出しは毎週繰り返しにして | `torudo todo set <id> --rec 1w` |
 | もう繰り返さなくていい | `torudo todo set <id> --rec none` |
+| これ最優先にして | `torudo todo set <id> --priority a` |
+| 優先度下げていい | `torudo todo set <id> --priority c` |
+| 優先度外して | `torudo todo set <id> --priority none` |
 | これはいつかやるやつ | `torudo inbox promote <id> --to someday` |
 | Astro7対応終わった | `torudo todo complete <id>` |
 | さっき完了にしたのやっぱ戻して | `torudo done list --json` で id を得る → `torudo todo reopen <id>` |
