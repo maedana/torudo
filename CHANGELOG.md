@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`torudo <mode> set <id> --priority`**: set an item's priority to `(A)` through `(E)` (`a`-`e`, uppercase works too) without opening the TUI, replacing whatever it had before. `--priority none` clears it. Combine freely with `--time`, `--energy`, and `--rec` in the same command
 
 ### Fixed
+- **Skill: starting work opened the tab in the wrong place**: the new terminal tab is now created in the same herdr workspace as the session you asked from, instead of the default one, so you don't have to go looking for it
 - **`install.sh` behind a restricted network**: the installer no longer gives up when `api.github.com` is unreachable — it falls back to the repository's tags to find the latest release. Set `TORUDO_VERSION` (e.g. `TORUDO_VERSION=v0.17.0`) to install a specific release instead
 
 ## [0.17.0] - 2026-08-15

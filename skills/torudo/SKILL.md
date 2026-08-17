@@ -247,8 +247,9 @@ command -v git-wt herdr
 # 1. Base ref — the repo's default branch unless the user says otherwise
 git -C <repo> symbolic-ref --short refs/remotes/origin/HEAD        # → origin/main
 
-# 2. Open a tab on the repository. The JSON reply carries the pane_id
-herdr tab create --cwd <repo> --label "<repo>/<branch>" --no-focus
+# 2. Open a tab on the repository, in the workspace this session is running in.
+#    The JSON reply carries the pane_id
+herdr tab create --cwd <repo> --label "<repo>/<branch>" --no-focus --workspace <workspace_id>
 
 # 3. Create the worktree in that pane, marking the outcome so it can be matched on.
 #    The shell integration cd's the pane into the new worktree.
@@ -271,6 +272,14 @@ herdr agent start <name> --kind claude --pane <pane_id> -- --permission-mode pla
 The worktree is created **in the pane**, not from here, so the user can watch `bundle
 install` scroll by instead of staring at a silent terminal. The `WT_OK` / `WT_FAIL` marker is
 what makes that safe — without it the only signal is screen text, which is easy to misread.
+
+- **Workspace** — `--workspace` is what keeps the new tab next to the session that asked for
+  it; without it herdr drops the tab in the default workspace, away from the user's work.
+  Take the id from this session's `HERDR_WORKSPACE_ID` environment variable and substitute it
+  literally (`--workspace w1`), rather than letting the shell expand `$HERDR_WORKSPACE_ID`
+  inside the command — `${HERDR_WORKSPACE_ID:+--workspace "$HERDR_WORKSPACE_ID"}` is passed as
+  a single argument under zsh and herdr rejects it. If the variable is unset, this session is
+  not running inside herdr: drop the flag.
 
 - **Repository** — take it from the item's `cwd` frontmatter when it has one; ask otherwise.
 - **Branch name** — name it yourself, do not ask. Slugify the task into three or four
