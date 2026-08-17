@@ -1,6 +1,6 @@
 ---
 name: torudo
-description: Drive torudo (a todo.txt TUI) from natural language — capture into the inbox, break an item down into a checklist, tag it with time/energy, move it between GTD modes, complete it, find it by keyword and jump the running TUI's cursor to it, and start work on a task in its own git worktree and Claude session. Use when the user says things like "inboxに〜を追加して", "inboxに<URL>を追加して", "inboxを見せて", "これをtodoに移して", "エネルギー低めで短時間にして", "これ最優先にして", "やることリストを書いて", "これ着手して", "worktree切ってclaude立てて", "終わったから完了にして", "〜のタスクどこだっけ", "あれ画面に出して", or "add this to my inbox".
+description: Drive torudo (a todo.txt TUI) from natural language — capture into the inbox, break an item down into a checklist, tag it with time/energy, move it between GTD modes, complete it, find it by keyword and jump the running TUI's cursor to it, and start work on a task in its own git worktree and Claude session. Use when the user says things like "inboxに〜を追加して", "inboxに<URL>を追加して", "inboxを見せて", "これをtodoに移して", "エネルギー低めで短時間にして", "これ最優先にして", "やることリストを書いて", "これ着手して", "〜の件進めたい", "worktree切ってclaude立てて", "終わったから完了にして", "〜のタスクどこだっけ", "あれ画面に出して", or "add this to my inbox".
 ---
 
 # torudo
@@ -127,6 +127,9 @@ branch: readme-dev-setup
 - **Preserve what is already there.** Read the file first when it exists; append to the
   checklist rather than overwriting notes, and never flip `- [ ]` to `- [x]` unless the user
   says the step is done.
+- **Record *what*, not *how*.** The checklist is the shape of the task and the background
+  behind it, not its design. Working out an approach means reading the target repository, and
+  that belongs to the worktree session — see "Starting work on a task".
 
 ## Triaging
 
@@ -200,6 +203,29 @@ torudo focus <id>                       # move the running TUI's cursor onto tha
 A development task gets its own git worktree, its own terminal tab, and its own Claude
 session. This session is the commander: it sets that up and hands the task over, it does not
 do the work itself.
+
+**This section fires the moment the user asks to move an item forward** — however they phrase
+it. "Astro7対応に着手して" and "worktree切ってclaude立てて" are the obvious ones, but "実績出力の
+件進めたい", "〜やろうか", "次これやる" are the same request. Route first; do not start digging
+here and cut the worktree later.
+
+The trigger is the item, not the kind of change. A task that touches no code — a production
+operation, a data fix, an investigation that needs the repository's history — still gets its
+own worktree and session. Anything that needs the target repo's context goes through here.
+
+**What this session may do, and may not:**
+
+- **May** — read the item's source of truth (the board entry, the issue, the ticket) and
+  summarise it into `todos/{id}.md`. Writing a useful checklist needs that much.
+- **May not** — read the target repository's code, settle on an implementation approach, or
+  write code or scripts. Those are the worktree session's job. The md records *what* to do
+  and why; it does not record *how*.
+
+That boundary is easy to slide past, because investigating for the md is legitimately this
+session's work and designing feels like a continuation of it. **When a question can only be
+answered by reading the target repo, that is the signal to stop and cut the worktree** — not
+a reason to open one more file. Being told you may act now ("exited plan mode", an approval,
+a go-ahead) says nothing about *where* to act; it is never a reason to skip this section.
 
 This flow leans on two tools besides torudo — [git-wt](https://github.com/k1LoW/git-wt) for
 the worktree and [herdr](https://herdr.dev) for the tab. Check for both before starting, so a
@@ -313,5 +339,7 @@ todoに移しました: リリース作業 +torudo time:short energy:low (id: 8a
 | 今週何が終わった? | `torudo done list` |
 | Astro7対応に着手して | `git wt --nocd` でworktree作成 → `herdr tab create` → `herdr agent start` → ListAgentsで名前解決 → SendMessageで依頼 |
 | worktree切ってclaude立てて | 同上。ブランチ名とベースブランチを確認してから |
+| 実績出力の件進めたい | 同上。「進めたい」「やろうか」も着手の依頼。ここで調べ始めない |
+| 本番でスクリプト流したい | 同上。コード変更を伴わない作業もworktreeとセッションを切る |
 | 経費精算のタスクどこだっけ | `torudo search "経費精算"` |
 | あれ画面に出して | `torudo focus <id>`（直前の `search` で得た id） |
