@@ -225,12 +225,17 @@ Look for these five things, in this order:
   weigh that against what has come up since.
 - **Undecided** — how long `inbox` items have been sitting. What is stuck there is a *decision*
   (todo? someday? drop it?), not work, so a long-stale inbox is cheap to clear.
-- **Stale** — `todo` items whose `creation_date` is months old. Say how long, and ask what is
-  actually going on: no appetite for it, too big to start, or it was never really a todo.
+- **Started, and not started** — split `todo` in two. An item is underway when its detail md
+  carries a `branch:` or already has some `- [x]` in its checklist; everything else has not been
+  picked up yet. Do not editorialise about age here — just say which side each item is on.
 - **Batchable** — items that share a project, a repository, or a kind of work and would be cheaper
   done together (two dependabot items, three small fixes in one repo).
 - **By time and energy** — group what is left by `time:` and `energy:` so the user can match the
   list against whatever gap they get. "30分あるとき" and "半日とれるとき" are the useful buckets.
+
+**Put what has sat longest at the bottom of each heading.** Something untouched for months is, in
+practice, not a priority — leading with it buries the things the user might actually pick up. Sort
+by `creation_date`, newest first, and let the old ones fall to the end where they belong.
 
 Report it as a survey and stop there. Do not rank the items, do not pick one, and do not ask
 "which do you want to start?" — the user is deciding on their own schedule, and the answer may
@@ -248,19 +253,26 @@ instead of restarting under each one. The number is the handle the user grabs: "
   1. Nodeのバージョン更新 [#123947] — 待っていた自動テストが8/17に落ちて報告済み
 
 ■ 判断待ち (inbox)
-  2. dependabot対応 +ga-pms — 8/13から5日
-  3. dependabot対応 +aegis — 8/13から5日
-  4. スマホからtorudoへキャプチャ +torudo — 8/17から
+  2. スマホからtorudoへキャプチャ +torudo — 8/17から
+  3. dependabot対応 +ga-pms — 8/13から5日
+  4. dependabot対応 +aegis — 8/13から5日
 
-■ 塩漬け (todo)
-  5. 家族旅行検討 — 4/19から4ヶ月、t:2026-07-25 超過。long/high で着手しづらい形
-  6. 保険検討 — 5/22から3ヶ月、short/low なのに動いていない
+■ 着手済み (todo)
+  5. 脆弱性診断(API)の対応 +aegis — branch: remove-api-key-query-param、実装とテストまで済み
+  6. メニューの見切れ +ga-pms — branch: fix-sidebar-menu-cutoff
+
+■ 未着手 (todo)
+  7. 登録番号のDRY化 +jfa-apps — short/low
+  8. sentry移行 — short/low
+  9. メンスケ機能 [#122088] +jfa-apps — long/high
+ 10. 保険検討 — short/low、5/22から
+ 11. 家族旅行検討 — long/high、4/19から、t:2026-07-25 超過
 
 ■ 空き時間別
-  30分  : 7. 登録番号のDRY化   8. sentry移行
-  半日  : 9. メンスケ機能 [#122088]
+  30分  : 7, 8
+  半日  : 9
 
-2 と 3 は同じ dependabot なのでまとめて処理できる。
+3 と 4 は同じ dependabot なのでまとめて処理できる。
 ```
 
 - **One number per item.** When an item would fit under two headings, number it where it first
