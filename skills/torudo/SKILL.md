@@ -1,6 +1,6 @@
 ---
 name: torudo
-description: Drive torudo (a todo.txt TUI) from natural language — capture into the inbox, break an item down into a checklist, tag it with time/energy, move it between GTD modes, complete it, find it by keyword and jump the running TUI's cursor to it, and start work on a task in its own git worktree and Claude session. Use when the user says things like "inboxに〜を追加して", "inboxに<URL>を追加して", "inboxを見せて", "これをtodoに移して", "エネルギー低めで短時間にして", "これ最優先にして", "やることリストを書いて", "これ着手して", "〜の件進めたい", "worktree切ってclaude立てて", "終わったから完了にして", "〜のタスクどこだっけ", "あれ画面に出して", or "add this to my inbox".
+description: Drive torudo (a todo.txt TUI) from natural language — capture into the inbox, break an item down into a checklist, tag it with time/energy, move it between GTD modes, complete it, find it by keyword and jump the running TUI's cursor to it, survey what is sitting across the modes when deciding what to pick up next, and start work on a task in its own git worktree and Claude session. Use when the user says things like "inboxに〜を追加して", "inboxに<URL>を追加して", "inboxを見せて", "これをtodoに移して", "エネルギー低めで短時間にして", "これ最優先にして", "やることリストを書いて", "これ着手して", "〜の件進めたい", "worktree切ってclaude立てて", "終わったから完了にして", "〜のタスクどこだっけ", "あれ画面に出して", "次何やろう", "時間空いたら何やれるかな", "ちょっと棚卸ししたい", or "add this to my inbox".
 ---
 
 # torudo
@@ -198,6 +198,81 @@ torudo focus <id>                       # move the running TUI's cursor onto tha
 - Multiple hits are normal — prefer a `title` match over a `md` match, and ask the user when it is still
   ambiguous rather than guessing which one they meant.
 
+## Reviewing what to do next
+
+```bash
+torudo inbox list --json
+torudo todo list --json
+torudo waiting list --json
+```
+
+"次何やろう" / "時間空いたら何やれるかな" / "ちょっと棚卸ししたい" is a request to **survey**, not
+to start anything. The user wants to know what is sitting there so they can decide later, when
+they actually have a gap. Read the three modes, then report what you found.
+
+**This is not the trigger for "Starting work on a task".** That section fires on "進めたい",
+"着手して", "次これやる" — a decision already made about one item. Here nothing has been chosen
+yet, so do not cut a worktree, and do not push the user toward one item.
+
+**Leave running work out of it.** Agents mid-task, sessions waiting on a plan, anything already
+in flight — the user is tracking those. Reporting them back is noise.
+
+Look for these five things, in this order:
+
+- **Ball back in your court** — items in `waiting` whose condition has since been met. This is the
+  most valuable thing to surface, because it is the easiest to miss: the item looks parked, but the
+  thing it was parked on already happened. Read the detail md to see what it is waiting on, and
+  weigh that against what has come up since.
+- **Undecided** — how long `inbox` items have been sitting. What is stuck there is a *decision*
+  (todo? someday? drop it?), not work, so a long-stale inbox is cheap to clear.
+- **Stale** — `todo` items whose `creation_date` is months old. Say how long, and ask what is
+  actually going on: no appetite for it, too big to start, or it was never really a todo.
+- **Batchable** — items that share a project, a repository, or a kind of work and would be cheaper
+  done together (two dependabot items, three small fixes in one repo).
+- **By time and energy** — group what is left by `time:` and `energy:` so the user can match the
+  list against whatever gap they get. "30分あるとき" and "半日とれるとき" are the useful buckets.
+
+Report it as a survey and stop there. Do not rank the items, do not pick one, and do not ask
+"which do you want to start?" — the user is deciding on their own schedule, and the answer may
+well be "none of them today". If nothing turns up under a heading, drop the heading rather than
+padding it.
+
+### Number the items
+
+Number them `1.`, `2.`, `3.` … straight through the whole survey, continuing across the headings
+instead of restarting under each one. The number is the handle the user grabs: "1は完了で",
+"3をtodoに上げて", "2と4は今日やる". Keep the number → id mapping for the rest of the conversation.
+
+```
+■ ボールが戻っているかも (waiting)
+  1. Nodeのバージョン更新 [#123947] — 待っていた自動テストが8/17に落ちて報告済み
+
+■ 判断待ち (inbox)
+  2. dependabot対応 +ga-pms — 8/13から5日
+  3. dependabot対応 +aegis — 8/13から5日
+  4. スマホからtorudoへキャプチャ +torudo — 8/17から
+
+■ 塩漬け (todo)
+  5. 家族旅行検討 — 4/19から4ヶ月、t:2026-07-25 超過。long/high で着手しづらい形
+  6. 保険検討 — 5/22から3ヶ月、short/low なのに動いていない
+
+■ 空き時間別
+  30分  : 7. 登録番号のDRY化   8. sentry移行
+  半日  : 9. メンスケ機能 [#122088]
+
+2 と 3 は同じ dependabot なのでまとめて処理できる。
+```
+
+- **One number per item.** When an item would fit under two headings, number it where it first
+  appears and refer back to that number afterwards ("2 と 3 はまとめてやれる"), rather than handing
+  the same item a second number further down.
+- **The numbering lasts until the next survey.** Running a new one renumbers everything, so a number
+  from an earlier survey no longer means what it did. If the user points at a stale number, say so
+  and re-resolve it instead of acting on the old mapping.
+- **Echo the title back before acting.** "1は完了で" is a one-word instruction aimed at a position,
+  so name what you are about to touch — `完了にしました: <title> (id: …)` — and pass the **id** to the
+  command. Never re-derive the item from its position in a list you rebuild later.
+
 ## Starting work on a task
 
 A development task gets its own git worktree, its own terminal tab, and its own Claude
@@ -208,6 +283,9 @@ do the work itself.
 it. "Astro7対応に着手して" and "worktree切ってclaude立てて" are the obvious ones, but "実績出力の
 件進めたい", "〜やろうか", "次これやる" are the same request. Route first; do not start digging
 here and cut the worktree later.
+
+The item has to be already chosen, though. "次何やろう" and "時間空いたら何やれるかな" pick nothing —
+they are a survey, and belong to "Reviewing what to do next" instead.
 
 The trigger is the item, not the kind of change. A task that touches no code — a production
 operation, a data fix, an investigation that needs the repository's history — still gets its
@@ -350,5 +428,6 @@ todoに移しました: リリース作業 +torudo time:short energy:low (id: 8a
 | worktree切ってclaude立てて | 同上。ブランチ名とベースブランチを確認してから |
 | 実績出力の件進めたい | 同上。「進めたい」「やろうか」も着手の依頼。ここで調べ始めない |
 | 本番でスクリプト流したい | 同上。コード変更を伴わない作業もworktreeとセッションを切る |
+| 次何やろう / 時間空いたら何やれる? | inbox/todo/waiting を `list --json` で読んで棚卸しする。着手依頼ではないのでworktreeは切らない |
 | 経費精算のタスクどこだっけ | `torudo search "経費精算"` |
 | あれ画面に出して | `torudo focus <id>`（直前の `search` で得た id） |
