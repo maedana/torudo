@@ -1,6 +1,6 @@
 ---
 name: torudo
-description: Drive torudo (a todo.txt TUI) from natural language — capture into the inbox, break an item down into a checklist, tag it with time/energy, move it between GTD modes, complete it, find it by keyword and jump the running TUI's cursor to it, survey what is sitting across the modes when deciding what to pick up next, and start work on a task in its own git worktree and Claude session. Use when the user says things like "inboxに〜を追加して", "inboxに<URL>を追加して", "inboxを見せて", "これをtodoに移して", "エネルギー低めで短時間にして", "これ最優先にして", "やることリストを書いて", "これ着手して", "〜の件進めたい", "worktree切ってclaude立てて", "終わったから完了にして", "〜のタスクどこだっけ", "あれ画面に出して", "次何やろう", "時間空いたら何やれるかな", "ちょっと棚卸ししたい", or "add this to my inbox".
+description: Drive torudo (a todo.txt TUI) from natural language. Use whenever the user is capturing, organising, reviewing, or acting on their own todo list — in any wording or language, and whether or not they name torudo. That covers dropping something into the inbox (often a bare URL), showing or triaging a mode, tagging an item with time/energy or a priority, breaking one into a checklist, moving it between the GTD modes (inbox/todo/waiting/ref/someday), completing or reopening it, finding where an item lives and putting the running TUI's cursor on it, surveying what there is to pick up next, and starting work on an item in its own git worktree and Claude session.
 ---
 
 # torudo
@@ -206,13 +206,14 @@ torudo todo list --json
 torudo waiting list --json
 ```
 
-"次何やろう" / "時間空いたら何やれるかな" / "ちょっと棚卸ししたい" is a request to **survey**, not
-to start anything. The user wants to know what is sitting there so they can decide later, when
-they actually have a gap. Read the three modes, then report what you found.
+**An ask with no item in it is a request to survey.** The user is not telling you to do something;
+they are asking what there is, so they can decide later when they actually get a gap. The tell is the
+missing object — they are pointing at the list, not at anything on it — and that holds in any
+language. "次何やろう", "時間空いたら何やれるかな", "そろそろ棚卸ししたい" are the usual shapes.
+Read the three modes, then report what you found.
 
-**This is not the trigger for "Starting work on a task".** That section fires on "進めたい",
-"着手して", "次これやる" — a decision already made about one item. Here nothing has been chosen
-yet, so do not cut a worktree, and do not push the user toward one item.
+**So this is not the trigger for "Starting work on a task".** That section needs an item already
+picked out. Here there is none, so do not cut a worktree, and do not nudge the user toward one.
 
 **Leave running work out of it.** Agents mid-task, sessions waiting on a plan, anything already
 in flight — the user is tracking those. Reporting them back is noise.
@@ -291,13 +292,14 @@ A development task gets its own git worktree, its own terminal tab, and its own 
 session. This session is the commander: it sets that up and hands the task over, it does not
 do the work itself.
 
-**This section fires the moment the user asks to move an item forward** — however they phrase
-it. "Astro7対応に着手して" and "worktree切ってclaude立てて" are the obvious ones, but "実績出力の
-件進めたい", "〜やろうか", "次これやる" are the same request. Route first; do not start digging
-here and cut the worktree later.
+**This section fires the moment the user asks to move a particular item forward** — however they
+phrase it, in any language. What makes it this request is that an item is named and they are
+pointing at it; the verb they reach for barely matters, and it is usually nowhere near "着手して".
+"実績出力の件進めたい", "〜やろうか", "次これやる" are all the same ask. Route first; do not start
+digging here and cut the worktree later.
 
-The item has to be already chosen, though. "次何やろう" and "時間空いたら何やれるかな" pick nothing —
-they are a survey, and belong to "Reviewing what to do next" instead.
+An ask with no item in it is the other thing entirely — nothing has been chosen, so it belongs to
+"Reviewing what to do next" instead.
 
 The trigger is the item, not the kind of change. A task that touches no code — a production
 operation, a data fix, an investigation that needs the repository's history — still gets its
