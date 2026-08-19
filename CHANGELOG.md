@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-08-19
+
 ### Added
 - **`torudo show <id>`**: print one item as JSON, detail md included, without knowing which mode holds it. It sweeps every GTD mode and then `done.txt`, and reports where it landed in a `mode` field (`done` for something already completed), so looking a completed item up before a `reopen` no longer means guessing at file paths. The md is always included — there is no flag to pass — and an unknown id exits non-zero. Unlike `focus` it only reads the files, so it needs no running TUI and it honours `--todotxt-dir`
 - **`--with-md` on `<mode> list`, `done list`, and `search`**: add each item's raw `todos/{id}.md` body to the JSON as an `md` field, so reviewing a whole mode's detail takes one command instead of one read per item. It is opt-in because a mode's worth of md bodies is a lot of output when all you wanted was an id, and it requires `--json` — a raw body has no place in the one-line output. An item whose detail file is missing, or that has no `id:`, carries no `md` key at all rather than a null one. `add`, `set`, `promote`, `complete`, and `reopen` are unchanged: they have always included `md`. `done list --with-md` returns md too, since completing an item leaves its `todos/{id}.md` in place
@@ -235,7 +237,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Contexts (@context_name)
   - Custom IDs (id:unique_identifier)
 
-[Unreleased]: https://github.com/maedana/torudo/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/maedana/torudo/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/maedana/torudo/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/maedana/torudo/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/maedana/torudo/compare/v0.15.2...v0.16.0
 [0.15.2]: https://github.com/maedana/torudo/compare/v0.15.1...v0.15.2
