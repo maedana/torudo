@@ -115,6 +115,16 @@ torudo todo set <id> --priority a
 # Clear the priority
 torudo todo set <id> --priority none
 
+# Push an item out to a date (t:) — until then it sorts last and renders dimmed
+torudo todo set <id> --threshold 2026-08-24
+
+# Give it a deadline (due:)
+torudo todo set <id> --due 2026-08-31
+
+# Drop the threshold, or the deadline — none is case-insensitive here and above
+torudo todo set <id> --threshold none
+torudo todo set <id> --due none
+
 # Move an item to another mode
 torudo inbox promote <id> --to todo
 
@@ -212,7 +222,7 @@ This ensures high-priority items are always visible at the top while preserving 
 
 ### Display Features
 
-- **Threshold dates** (`t:YYYY-MM-DD`): future items sort to bottom and render dimmed
+- **Threshold dates** (`t:YYYY-MM-DD`): future items sort to bottom and render dimmed; set or clear one with `torudo <mode> set <id> --threshold`
 - **Overdue highlighting** (`due:YYYY-MM-DD`): items past due render with a red border
 - **Detail md preview** (Todo / Waiting tabs): top 3 unchecked `- [ ]` from `todos/{id}.md` shown inline on each card
 - **Detail md badge** (Todo / Waiting tabs): right-aligned `{done}/{total} {elapsed}` (e.g. `2/7  5m`) on each card; updates live

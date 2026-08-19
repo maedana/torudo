@@ -217,6 +217,33 @@ fn set_rec_none_clears_the_recurrence_tag() {
 }
 
 #[test]
+fn set_rec_none_is_case_insensitive() {
+    let dir = fresh_dir("torudo_it_set_rec_none_case");
+    fs::write(
+        dir.join("todo.txt"),
+        "2026-08-01 Pay rent +home due:2026-09-01 rec:+1m id:t1\n",
+    )
+    .unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--rec", "None"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert!(
+        json["key_values"].get("rec").is_none(),
+        "rec is gone from the JSON: {json}"
+    );
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    // Not just "rec:+1m": a parser that accepted the keyword without lowercasing
+    // it would write the keyword back out as rec:None.
+    assert!(!todo.contains("rec:"), "rec: token is dropped: {todo}");
+    assert!(todo.contains("+home"), "the project survives: {todo}");
+    assert!(todo.contains("due:2026-09-01"), "due: survives: {todo}");
+    assert!(todo.contains("id:t1"), "id: survives: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn set_rec_none_succeeds_on_an_item_without_a_recurrence_tag() {
     let dir = fresh_dir("torudo_it_set_rec_none_absent");
     fs::write(dir.join("todo.txt"), "Pay rent +home id:t1\n").unwrap();
@@ -247,6 +274,235 @@ fn set_rejects_an_invalid_recurrence_pattern() {
     );
     let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
     assert!(!todo.contains("rec:"), "nothing should be written: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_writes_a_threshold_tag() {
+    let dir = fresh_dir("torudo_it_set_threshold");
+    fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--threshold", "2026-08-24"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["key_values"]["t"], "2026-08-24");
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(todo.contains("t:2026-08-24"), "tag is written: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_writes_a_due_tag() {
+    let dir = fresh_dir("torudo_it_set_due");
+    fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--due", "2026-08-24"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["key_values"]["due"], "2026-08-24");
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(todo.contains("due:2026-08-24"), "tag is written: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_replaces_an_existing_threshold() {
+    let dir = fresh_dir("torudo_it_set_threshold_replace");
+    fs::write(
+        dir.join("todo.txt"),
+        "2026-08-01 Write docs t:2026-08-10 id:t1\n",
+    )
+    .unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--threshold", "2026-08-24"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["key_values"]["t"], "2026-08-24");
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(todo.contains("t:2026-08-24"), "the new value lands: {todo}");
+    assert!(
+        !todo.contains("t:2026-08-10"),
+        "the old value is gone: {todo}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_threshold_none_clears_the_threshold_tag() {
+    let dir = fresh_dir("torudo_it_set_threshold_none");
+    fs::write(
+        dir.join("todo.txt"),
+        "2026-08-01 Pay rent +home t:2026-08-20 due:2026-09-01 rec:+1m id:t1\n",
+    )
+    .unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--threshold", "none"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert!(
+        json["key_values"].get("t").is_none(),
+        "t is gone from the JSON: {json}"
+    );
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    // A bare "t:" would also match a word in the description, so the absence is
+    // checked on the leading space that separates the tag from what precedes it.
+    assert!(!todo.contains(" t:"), "t: token is dropped: {todo}");
+    assert!(todo.contains("+home"), "the project survives: {todo}");
+    assert!(todo.contains("due:2026-09-01"), "due: survives: {todo}");
+    assert!(todo.contains("rec:+1m"), "rec: survives: {todo}");
+    assert!(todo.contains("id:t1"), "id: survives: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_threshold_none_is_case_insensitive() {
+    let dir = fresh_dir("torudo_it_set_threshold_none_case");
+    fs::write(
+        dir.join("todo.txt"),
+        "2026-08-01 Pay rent +home t:2026-08-20 rec:+1m id:t1\n",
+    )
+    .unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--threshold", "NONE"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert!(
+        json["key_values"].get("t").is_none(),
+        "t is gone from the JSON: {json}"
+    );
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    // A bare "t:" would also match a word in the description, so the absence is
+    // checked on the leading space that separates the tag from what precedes it.
+    // This also catches a t:NONE written back out by a parser that took the
+    // keyword without lowercasing it.
+    assert!(!todo.contains(" t:"), "t: token is dropped: {todo}");
+    assert!(todo.contains("+home"), "the project survives: {todo}");
+    assert!(todo.contains("rec:+1m"), "rec: survives: {todo}");
+    assert!(todo.contains("id:t1"), "id: survives: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_due_none_clears_the_due_tag() {
+    let dir = fresh_dir("torudo_it_set_due_none");
+    fs::write(
+        dir.join("todo.txt"),
+        "2026-08-01 Pay rent +home t:2026-08-20 due:2026-09-01 rec:+1m id:t1\n",
+    )
+    .unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--due", "none"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert!(
+        json["key_values"].get("due").is_none(),
+        "due is gone from the JSON: {json}"
+    );
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(!todo.contains("due:"), "due: token is dropped: {todo}");
+    assert!(todo.contains("+home"), "the project survives: {todo}");
+    assert!(todo.contains("t:2026-08-20"), "t: survives: {todo}");
+    assert!(todo.contains("rec:+1m"), "rec: survives: {todo}");
+    assert!(todo.contains("id:t1"), "id: survives: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_threshold_none_succeeds_on_an_item_without_a_threshold_tag() {
+    let dir = fresh_dir("torudo_it_set_threshold_none_absent");
+    fs::write(dir.join("todo.txt"), "Pay rent +home id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--threshold", "none"]);
+
+    assert!(
+        output.status.success(),
+        "clearing an absent t: is not an error: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert_eq!(todo, "Pay rent +home id:t1\n");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_rejects_a_relative_threshold() {
+    let dir = fresh_dir("torudo_it_set_threshold_relative");
+    fs::write(dir.join("todo.txt"), "Pay rent id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--threshold", "next monday"]);
+
+    assert!(
+        !output.status.success(),
+        "a relative date should exit non-zero"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("YYYY-MM-DD"),
+        "the error names the format it wants: {stderr}"
+    );
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    // A bare "t:" would also match a word in the description, so the absence is
+    // checked on the leading space that separates the tag from what precedes it.
+    assert!(!todo.contains(" t:"), "nothing should be written: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_rejects_an_impossible_due_date() {
+    let dir = fresh_dir("torudo_it_set_due_impossible");
+    fs::write(dir.join("todo.txt"), "Pay rent id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "set", "t1", "--due", "2026-02-30"]);
+
+    assert!(
+        !output.status.success(),
+        "a date that never happens should exit non-zero"
+    );
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(!todo.contains("due:"), "nothing should be written: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_writes_a_threshold_and_a_due_together() {
+    let dir = fresh_dir("torudo_it_set_threshold_and_due");
+    fs::write(dir.join("todo.txt"), "Pay rent id:t1\n").unwrap();
+    let threshold = days_from_today(7).to_string();
+    let due = days_from_today(14).to_string();
+
+    let output = run(
+        &dir,
+        &[
+            "todo",
+            "set",
+            "t1",
+            "--threshold",
+            &threshold,
+            "--due",
+            &due,
+            "--time",
+            "short",
+        ],
+    );
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["key_values"]["t"], threshold);
+    assert_eq!(json["key_values"]["due"], due);
+    assert_eq!(json["key_values"]["time"], "short");
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(todo.contains(&format!("t:{threshold}")), "t: lands: {todo}");
+    assert!(todo.contains(&format!("due:{due}")), "due: lands: {todo}");
+    assert!(todo.contains("time:short"), "time: lands: {todo}");
 
     fs::remove_dir_all(&dir).ok();
 }
@@ -581,6 +837,112 @@ fn complete_without_a_rec_tag_leaves_the_recurrence_field_out() {
         json.get("recurrence").is_none(),
         "a plain item has no recurrence field: {json}"
     );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn complete_after_clearing_due_falls_back_to_the_completion_date() {
+    let dir = fresh_dir("torudo_it_due_none_then_complete");
+    // A strict pattern normally counts from the item's own due date. With the due
+    // date cleared there is nothing to count from, so `rec:+1w` falls back to the
+    // completion date — today — and the next occurrence lands a week out. This is
+    // the pre-existing fallback; the test is here so `--due none` cannot break it.
+    let seeded_due = days_from_today(-3);
+    let expected_due = days_from_today(7).to_string();
+    fs::write(
+        dir.join("todo.txt"),
+        format!("2026-08-01 Pay rent +home due:{seeded_due} rec:+1w id:r4\n"),
+    )
+    .unwrap();
+
+    let cleared = run(&dir, &["todo", "set", "r4", "--due", "none"]);
+    let cleared_json: serde_json::Value = serde_json::from_str(stdout_of(&cleared).trim()).unwrap();
+    assert!(
+        cleared_json["key_values"].get("due").is_none(),
+        "due is gone before the completion: {cleared_json}"
+    );
+
+    let output = run(&dir, &["todo", "complete", "r4"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("rec:"),
+        "a due-less strict pattern is not warned about: {stderr}"
+    );
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["completed"], true);
+    let new_id = json["recurrence"]["id"]
+        .as_str()
+        .expect("the next occurrence still gets an id");
+    assert_eq!(json["recurrence"]["due"], expected_due);
+
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(
+        todo.contains(&format!("id:{new_id}")),
+        "next occurrence lands in todo.txt: {todo}"
+    );
+    assert!(todo.contains("rec:+1w"), "rec: is carried over: {todo}");
+    assert!(
+        todo.contains(&format!("due:{expected_due}")),
+        "due: is rebuilt from the completion date: {todo}"
+    );
+
+    let done = fs::read_to_string(dir.join("done.txt")).unwrap();
+    assert!(done.contains("id:r4"), "the old line is archived: {done}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn complete_after_clearing_a_threshold_only_recurrence_gains_a_due_date() {
+    let dir = fresh_dir("torudo_it_threshold_none_then_complete");
+    // The mirror of the case above. An item carrying only a threshold moves that
+    // threshold on completion; once `--threshold none` takes the threshold away
+    // there is no date left to move, so the next occurrence is given a `due:`
+    // counted from the completion date instead. The recurrence keeps running —
+    // it just changes shape — and this pins that down.
+    let seeded_threshold = days_from_today(-3);
+    let expected_due = days_from_today(7).to_string();
+    fs::write(
+        dir.join("todo.txt"),
+        format!("2026-08-01 Water the plants +home t:{seeded_threshold} rec:+1w id:w5\n"),
+    )
+    .unwrap();
+
+    let cleared = run(&dir, &["todo", "set", "w5", "--threshold", "none"]);
+    let cleared_json: serde_json::Value = serde_json::from_str(stdout_of(&cleared).trim()).unwrap();
+    assert!(
+        cleared_json["key_values"].get("t").is_none(),
+        "t is gone before the completion: {cleared_json}"
+    );
+
+    let output = run(&dir, &["todo", "complete", "w5"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["completed"], true);
+    let new_id = json["recurrence"]["id"]
+        .as_str()
+        .expect("the next occurrence still gets an id");
+    assert_eq!(json["recurrence"]["due"], expected_due);
+    assert!(
+        json["recurrence"]["t"].is_null(),
+        "no threshold comes back: {json}"
+    );
+
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(
+        todo.contains(&format!("id:{new_id}")),
+        "next occurrence lands in todo.txt: {todo}"
+    );
+    assert!(todo.contains("rec:+1w"), "rec: is carried over: {todo}");
+    assert!(
+        todo.contains(&format!("due:{expected_due}")),
+        "the next occurrence is driven by a due date now: {todo}"
+    );
+    // A bare "t:" would also match a word in the description, so the absence is
+    // checked on the leading space that separates the tag from what precedes it.
+    assert!(!todo.contains(" t:"), "no threshold is reinstated: {todo}");
 
     fs::remove_dir_all(&dir).ok();
 }

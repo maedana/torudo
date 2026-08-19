@@ -40,6 +40,13 @@ pub enum ModeAction {
         /// Priority letter (`A`-`E`). `none` clears it.
         #[arg(long, value_enum, ignore_case = true)]
         priority: Option<PriorityValue>,
+        /// Threshold date (`t:` tag) as `YYYY-MM-DD`: the item stays in the list
+        /// but sinks to the bottom until then. `none` removes the tag.
+        #[arg(long, value_parser = parse_date_value)]
+        threshold: Option<String>,
+        /// Due date (`due:` tag) as `YYYY-MM-DD`. `none` removes the tag.
+        #[arg(long, value_parser = parse_date_value)]
+        due: Option<String>,
     },
     /// Complete an item, moving it to done.txt, and print it as JSON
     Complete {
@@ -70,20 +77,39 @@ pub enum ModeName {
     Someday,
 }
 
-/// The `--rec` value that removes the tag instead of setting one. `--time` and
-/// `--energy` have no equivalent yet: a stale `rec:` keeps spawning occurrences,
-/// so being able to clear it matters more than for the other two tags.
-const REC_NONE: &str = "none";
+/// The one value that removes a tag instead of setting one, shared by `--rec`,
+/// `--threshold` and `--due`. Spelled in any case on the command line — the
+/// parsers normalise to this lowercase form, which `set_or_clear` compares
+/// against — matching `--priority none`, which clap already accepts either way. `--time` and `--energy` have no equivalent yet: a
+/// stale `rec:` keeps spawning occurrences and a stale `t:` keeps an item at the
+/// bottom of the list, so being able to clear those matters more than for the
+/// other two.
+const NONE_VALUE: &str = "none";
 
 /// Reject a bad `rec:` pattern at the argument boundary, the way `--time` and
-/// `--energy` are rejected by their `value_enum`. [`REC_NONE`] is let through as
-/// the one non-pattern value.
+/// `--energy` are rejected by their `value_enum`. [`NONE_VALUE`] is let through
+/// as the one non-pattern value, in any case, normalised to lowercase so
+/// `set_or_clear` still recognises it.
 fn parse_rec_value(value: &str) -> Result<String, String> {
-    if value == REC_NONE {
-        return Ok(value.to_string());
+    if value.eq_ignore_ascii_case(NONE_VALUE) {
+        return Ok(NONE_VALUE.to_string());
     }
     parse_pattern(value).map_err(|error| error.to_string())?;
     Ok(value.to_string())
+}
+
+/// Reject a bad date at the argument boundary, the way `--rec` rejects a bad
+/// pattern. [`NONE_VALUE`] is let through as the one non-date value, in any
+/// case, normalised to lowercase so `set_or_clear` still recognises it. Only an
+/// absolute date is accepted — "next monday" is the caller's job to resolve —
+/// and the parsed date is written back out so `2026-8-1` lands as `2026-08-01`.
+fn parse_date_value(value: &str) -> Result<String, String> {
+    if value.eq_ignore_ascii_case(NONE_VALUE) {
+        return Ok(NONE_VALUE.to_string());
+    }
+    let date = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+        .map_err(|_| "expected a date as YYYY-MM-DD, or none to clear it".to_string())?;
+    Ok(date.format("%Y-%m-%d").to_string())
 }
 
 impl ModeName {
@@ -137,7 +163,11 @@ pub enum PriorityValue {
     C,
     D,
     E,
-    /// Clears the priority instead of setting one, mirroring `REC_NONE`.
+    /// Clears the priority instead of setting one.
+    // Plays the same role that `NONE_VALUE` does for `--rec`, `--threshold` and
+    // `--due`; it is a variant rather than that sentinel because `--priority` is
+    // a closed `value_enum`. Kept off the doc comment, which clap prints in
+    // `--help`, so the internal name stays out of user-facing text.
     None,
 }
 
@@ -151,6 +181,16 @@ impl PriorityValue {
             Self::E => Some('E'),
             Self::None => None,
         }
+    }
+}
+
+/// Apply a nullable tag flag: `none` clears the tag, anything else sets it. The
+/// value has already been validated at the argument boundary.
+fn set_or_clear(file: &str, id: &str, key: &str, value: &str) -> Result<(), Box<dyn Error>> {
+    if value == NONE_VALUE {
+        todo::clear_key_value(file, id, key)
+    } else {
+        todo::set_key_value(file, id, key, value)
     }
 }
 
@@ -168,9 +208,20 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
             energy,
             rec,
             priority,
+            threshold,
+            due,
         } => {
-            if time.is_none() && energy.is_none() && rec.is_none() && priority.is_none() {
-                return Err("specify at least one of --time, --energy, --rec or --priority".into());
+            if time.is_none()
+                && energy.is_none()
+                && rec.is_none()
+                && priority.is_none()
+                && threshold.is_none()
+                && due.is_none()
+            {
+                return Err(
+                    "specify at least one of --time, --energy, --rec, --priority, --threshold or --due"
+                        .into(),
+                );
             }
             require_item(&file, mode, id)?;
             if let Some(time) = time {
@@ -180,14 +231,16 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
                 todo::set_key_value(&file, id, "energy", energy.as_str())?;
             }
             if let Some(rec) = rec {
-                if rec == REC_NONE {
-                    todo::clear_key_value(&file, id, "rec")?;
-                } else {
-                    todo::set_key_value(&file, id, "rec", rec)?;
-                }
+                set_or_clear(&file, id, "rec", rec)?;
             }
             if let Some(priority) = priority {
                 todo::set_priority(&file, id, priority.as_char())?;
+            }
+            if let Some(threshold) = threshold {
+                set_or_clear(&file, id, "t", threshold)?;
+            }
+            if let Some(due) = due {
+                set_or_clear(&file, id, "due", due)?;
             }
             print_item(&file, id, todotxt_dir)?;
         }
@@ -512,7 +565,15 @@ mod tests {
 
     #[test]
     fn parse_rec_value_accepts_none_as_the_clearing_keyword() {
-        assert_eq!(parse_rec_value(REC_NONE), Ok(REC_NONE.to_string()));
+        assert_eq!(parse_rec_value(NONE_VALUE), Ok(NONE_VALUE.to_string()));
+    }
+
+    #[test]
+    fn parse_rec_value_accepts_none_whatever_the_case() {
+        // The returned value feeds `set_or_clear`, which compares it against the
+        // lowercase `NONE_VALUE`, so it has to come back normalised.
+        assert_eq!(parse_rec_value("NONE"), Ok(NONE_VALUE.to_string()));
+        assert_eq!(parse_rec_value("None"), Ok(NONE_VALUE.to_string()));
     }
 
     #[test]
@@ -520,6 +581,43 @@ mod tests {
         assert_eq!(
             parse_rec_value("banana"),
             Err(RecurrenceError::Malformed.to_string())
+        );
+    }
+
+    #[test]
+    fn parse_date_value_accepts_an_iso_date() {
+        assert_eq!(parse_date_value("2026-08-24"), Ok("2026-08-24".to_string()));
+    }
+
+    #[test]
+    fn parse_date_value_accepts_none_as_the_clearing_keyword() {
+        assert_eq!(parse_date_value(NONE_VALUE), Ok(NONE_VALUE.to_string()));
+    }
+
+    #[test]
+    fn parse_date_value_accepts_none_whatever_the_case() {
+        assert_eq!(parse_date_value("NONE"), Ok(NONE_VALUE.to_string()));
+        assert_eq!(parse_date_value("None"), Ok(NONE_VALUE.to_string()));
+    }
+
+    #[test]
+    fn parse_date_value_normalises_a_short_date() {
+        assert_eq!(parse_date_value("2026-8-1"), Ok("2026-08-01".to_string()));
+    }
+
+    #[test]
+    fn parse_date_value_rejects_a_relative_date() {
+        assert_eq!(
+            parse_date_value("next monday"),
+            Err("expected a date as YYYY-MM-DD, or none to clear it".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_date_value_rejects_an_impossible_date() {
+        assert_eq!(
+            parse_date_value("2026-02-30"),
+            Err("expected a date as YYYY-MM-DD, or none to clear it".to_string())
         );
     }
 

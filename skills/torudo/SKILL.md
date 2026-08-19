@@ -1,6 +1,6 @@
 ---
 name: torudo
-description: Drive torudo (a todo.txt TUI) from natural language. Use whenever the user is capturing, organising, reviewing, or acting on their own todo list — in any wording or language, and whether or not they name torudo. That covers dropping something into the inbox (often a bare URL), showing or triaging a mode, tagging an item with time/energy or a priority, breaking one into a checklist, moving it between the GTD modes (inbox/todo/waiting/ref/someday), completing or reopening it, finding where an item lives and putting the running TUI's cursor on it, surveying what there is to pick up next, and starting work on an item in its own git worktree and Claude session.
+description: Drive torudo (a todo.txt TUI) from natural language. Use whenever the user is capturing, organising, reviewing, or acting on their own todo list — in any wording or language, and whether or not they name torudo. That covers dropping something into the inbox (often a bare URL), showing or triaging a mode, tagging an item with time/energy or a priority, pushing it out to a later date or giving it a deadline, breaking one into a checklist, moving it between the GTD modes (inbox/todo/waiting/ref/someday), completing or reopening it, finding where an item lives and putting the running TUI's cursor on it, surveying what there is to pick up next, and starting work on an item in its own git worktree and Claude session.
 ---
 
 # torudo
@@ -12,7 +12,7 @@ torudo keeps one todo.txt-format file per GTD mode under `~/todotxt/` (`inbox.tx
 ```bash
 torudo <mode> add <text>                             # append an item, print it as JSON
 torudo <mode> list [--json]                          # list the mode's items
-torudo <mode> set <id> [--time ...] [--energy ...] [--rec ...] [--priority ...]  # set GTD tags / recurrence / priority
+torudo <mode> set <id> [--time ...] [--energy ...] [--rec ...] [--priority ...] [--threshold ...] [--due ...]  # set GTD tags / recurrence / priority / dates
 torudo <mode> promote <id> --to <mode>               # move to another mode
 torudo <mode> complete <id>                          # finish it: move to done.txt
 torudo <mode> reopen <id>                            # pull it back out of done.txt
@@ -52,7 +52,9 @@ The text follows the todo.txt format, assembled in this order:
   items get sorted later anyway. Reuse existing tags — `torudo inbox list --json` and
   `torudo todo list --json` show what is already in use.
 - **`t:` / `due:`** — only when the user gave a date. Convert relative dates ("明日", "来週
-  月曜") to absolute `YYYY-MM-DD` using today's date.
+  月曜") to absolute `YYYY-MM-DD` using today's date. This is only for what to embed at capture
+  time; to add, move or drop a date on an item that already exists, use
+  `torudo <mode> set <id> --threshold` / `--due` instead (see "Triaging" below).
 - **`rec:<count><unit>`** — only when the user says the task repeats ("毎週", "毎月",
   "定期で"). Unit is `d` / `w` / `m` / `y`. No `+` (e.g. `rec:1w`) counts from the day it gets
   completed — use it for chores like taking out the trash. A leading `+` (e.g. `rec:+1m`)
@@ -139,20 +141,38 @@ torudo todo set t1 --rec 1w                     # rec:1w — recur weekly from c
 torudo todo set t1 --rec none                   # drop rec: — stop the item repeating
 torudo todo set t1 --priority a                 # (A) — bump it to top priority
 torudo todo set t1 --priority none              # drop the priority prefix
+torudo todo set t1 --threshold 2026-08-24       # t:2026-08-24 — hold it back until then
+torudo todo set t1 --due 2026-08-31             # due:2026-08-31 — the deadline
+torudo todo set t1 --threshold none             # drop t: — back in play right away
 torudo inbox promote i1 --to todo               # move inbox.txt → todo.txt
 ```
 
 - `--time` is `short` / `medium` / `long`, `--energy` is `low` / `high`, `--rec` is a pattern
-  like `1w` or `+1m` (see "Capturing" above for what `rec:` means), and `--priority` is `a`
-  through `e` (uppercase works too). An existing value is replaced. Any subset of the four
-  flags may be given at once; `--rec` with an unparseable pattern (e.g. a typo like `1z`) fails
-  loudly and writes nothing, so retype it rather than guessing.
-- `--rec none` and `--priority none` remove the `rec:` tag and the `(A)`–`(E)` prefix
-  respectively — the only way to clear either. Both are fine to run on an item that has
-  nothing to clear — nothing changes and it still succeeds. `--time` and `--energy` take no
-  `none` yet, so a stale `time:` or `energy:` can only be overwritten, not cleared.
+  like `1w` or `+1m` (see "Capturing" above for what `rec:` means), `--priority` is `a` through
+  `e` (uppercase works too), and `--threshold` / `--due` take an absolute date, `YYYY-MM-DD` and
+  nothing else. An existing value is replaced. Any subset of the six flags may be given at once;
+  `--rec` with an unparseable pattern (e.g. a typo like `1z`) fails loudly and writes nothing,
+  and so does a date that is not `YYYY-MM-DD` (e.g. "来週月曜") — resolve it yourself and retype
+  it rather than guessing.
+- `--rec none`, `--priority none`, `--threshold none` and `--due none` remove the `rec:` tag,
+  the `(A)`–`(E)` prefix, the `t:` tag and the `due:` tag respectively — each is the only way to
+  clear its own. The keyword is case-insensitive on all four, so `NONE` and `None` work as well
+  as `none`. All four are fine to run on an item that has nothing to clear — nothing changes
+  and it still succeeds. `--time` and `--energy` take no `none` yet, so a stale `time:` or
+  `energy:` can only be overwritten, not cleared.
 - `(A)` surfaces in its own column in the TUI's Pick view, so reserve it for things the user
   really means to do today rather than everything they call "priority".
+- Postponing something is `--threshold`, not a move to another mode. "来週月曜まで寝かせて",
+  "今日はやらない" and "月末まで置いといて" all point at `t:`, and a single
+  `torudo <mode> set <id> --threshold <YYYY-MM-DD>` is the whole of it. Work the relative date
+  out against today's date yourself — the CLI takes nothing but `YYYY-MM-DD`. Do not reach for
+  `someday` here: that mode says "might never happen", which is not what "not yet" means. Say
+  the date you arrived at back to the user ("8/24まで先送りしました"), so a bad conversion gets
+  caught on the spot.
+- `--due` is the deadline; `--threshold` is the day it becomes workable. "月末までにやらないと
+  まずい" is `--due`, "来週までは触らない" is `--threshold`. An item with a future `t:` does not
+  vanish from the list — it sinks to the bottom and renders dimmed in the TUI — so folding it
+  away at review time is the survey's job, under the rule in "Reviewing what to do next".
 - Set the tags **before** promoting, so the item lands in Todo ready to be picked. That is
   the usual flow: capture → write the checklist → set time/energy → promote to todo.
 - Both commands need the item's `id` and fail loudly on an unknown one. Take the `id` from
@@ -234,6 +254,13 @@ Look for these five things, in this order:
 - **By time and energy** — group what is left by `time:` and `energy:` so the user can match the
   list against whatever gap they get. "30分あるとき" and "半日とれるとき" are the useful buckets.
 
+**Leave postponed items out.** An item whose `t:` is in the future has already been decided
+on — the user parked it there deliberately, and listing it again every survey undoes that
+decision. Drop those from every heading, count them, and close the survey with a single line:
+`先送り中 3件（最短 8/22）`, where the date is the earliest `t:` among them. No titles, no
+reasons, no heading of their own. An item whose `t:` has already passed is back in play and
+gets surveyed normally — say `t:2026-07-25 超過` next to it as before.
+
 **Put what has sat longest at the bottom of each heading.** Something untouched for months is, in
 practice, not a priority — leading with it buries the things the user might actually pick up. Sort
 by `creation_date`, newest first, and let the old ones fall to the end where they belong.
@@ -272,6 +299,8 @@ instead of restarting under each one. The number is the handle the user grabs: "
 ■ 空き時間別
   30分  : 7, 8
   半日  : 9
+
+先送り中 3件（最短 8/22）
 
 3 と 4 は同じ dependabot なのでまとめて処理できる。
 ```
@@ -434,6 +463,10 @@ todoに移しました: リリース作業 +torudo time:short energy:low (id: 8a
 | これ最優先にして | `torudo todo set <id> --priority a` |
 | 優先度下げていい | `torudo todo set <id> --priority c` |
 | 優先度外して | `torudo todo set <id> --priority none` |
+| 来週月曜まで先送りして | 今日の日付から日付を算出 → `torudo todo set <id> --threshold 2026-08-24` |
+| 今日はやらない / しばらく寝かせたい | 同上。何日まで寝かせるか決まらなければ確認してから `--threshold` |
+| 月末までにやらないとまずい | `torudo todo set <id> --due 2026-08-31` |
+| もう着手できる / 先送りやめる | `torudo todo set <id> --threshold none` |
 | これはいつかやるやつ | `torudo inbox promote <id> --to someday` |
 | Astro7対応終わった | `torudo todo complete <id>` |
 | さっき完了にしたのやっぱ戻して | `torudo done list --json` で id を得る → `torudo todo reopen <id>` |

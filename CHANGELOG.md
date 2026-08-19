@@ -8,9 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`torudo <mode> set <id> --threshold` / `--due`**: set or move an item's `t:` and `due:` dates from the CLI, so pushing something out to next Monday no longer means editing the `.txt` by hand. Dates are absolute `YYYY-MM-DD` only — a relative date has to be resolved first — and `--threshold none` / `--due none` clear the tag, spelled in whatever case you like. A future `t:` still shows up in `list`: it sorts to the bottom and renders dimmed in the TUI rather than disappearing
 - **`torudo <mode> set <id> --priority`**: set an item's priority to `(A)` through `(E)` (`a`-`e`, uppercase works too) without opening the TUI, replacing whatever it had before. `--priority none` clears it. Combine freely with `--time`, `--energy`, and `--rec` in the same command
 
 ### Fixed
+- **`--rec NONE` was rejected**: the keyword that clears a tag is now case-insensitive for `--rec`, the way it already was for `--priority`, so `--rec NONE` and `--rec None` stop an item repeating just like `--rec none`
 - **Skill: starting work opened the tab in the wrong place**: the new terminal tab is now created in the same herdr workspace as the session you asked from, instead of the default one, so you don't have to go looking for it
 - **`install.sh` behind a restricted network**: the installer no longer gives up when `api.github.com` is unreachable — it falls back to the repository's tags to find the latest release. Set `TORUDO_VERSION` (e.g. `TORUDO_VERSION=v0.17.0`) to install a specific release instead
 
