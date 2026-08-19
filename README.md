@@ -100,6 +100,9 @@ torudo inbox add "Fix #123 id:my-custom-id"
 torudo inbox list
 torudo todo list --json
 
+# Fold each item's detail md (todos/{id}.md) into the JSON as an "md" field (--json required)
+torudo todo list --json --with-md
+
 # Set GTD tags on an item (--time short|medium|long, --energy low|high)
 torudo todo set <id> --time short --energy low
 
@@ -141,6 +144,12 @@ torudo todo reopen <id>
 torudo search "release" --json
 torudo search "release" --mode todo
 
+# Take the detail md of every hit along with it
+torudo search "release" --json --with-md
+
+# Print one item by id as JSON with its detail md, from whatever mode holds it (done.txt included)
+torudo show <id>
+
 # Move the running TUI's cursor onto an item — the TUI must already be running
 torudo focus <id>
 
@@ -151,6 +160,10 @@ torudo search "release" --json | jq -r '.[0].id' | xargs torudo focus
 `add`, `set`, and `promote` print the resulting item as JSON in the same format as `torudo current`; `set` and `promote` exit non-zero on an unknown id. When a TUI session is running, the file watcher picks up the change and the affected tab updates automatically.
 
 `search` matches case-insensitively against the item's title, its `+project` and `@context` tags, and the body of its detail md; `key:value` tags such as `id:` and `time:` are not searched. The `matched` field reports where the query landed — `title` (title or tags), `md`, or `both`.
+
+`--with-md` on `<mode> list`, `done list`, and `search` adds each item's raw detail md as an `md` field. It requires `--json` and is rejected at the argument boundary without it, since a raw md body has no place in the one-line output. An item whose `todos/{id}.md` is missing — or that has no `id:` — carries no `md` key at all rather than a null one, so check for the key. It is opt-in because a whole mode's worth of md bodies is a lot of output when all you wanted was an id; `add`, `set`, `promote`, `complete`, and `reopen` include `md` unconditionally, as they always have. `done list --with-md` works too: completing an item leaves its detail md in place.
+
+`torudo show <id>` is the single-item read. It looks the id up across every GTD mode and then `done.txt`, and prints that one item as JSON with its detail md and a `mode` field naming where it was found (`done` for something already completed); an id that is in both a mode file and the archive is reported under the mode it can still be acted on from. The md is always included, so there is no `--with-md` to pass, and an unknown id exits non-zero. Unlike `focus`, `show` only reads files: it needs no running TUI and it honours `--todotxt-dir`.
 
 `search` is a stateless CLI command; `focus` is not — it talks to a running TUI over its RPC socket and moves the cursor there, switching modes and clearing the Now filter automatically if the item is hidden. With no TUI running it prints `torudo is not running` and exits non-zero. Because the target is whichever session holds the socket, `focus` ignores `--todotxt-dir` and acts on the directory that TUI was started with.
 

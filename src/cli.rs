@@ -22,6 +22,9 @@ pub enum ModeAction {
         /// Print the items as a JSON array instead of one todo.txt line each
         #[arg(long)]
         json: bool,
+        /// Add each item's detail md (`todos/{id}.md`) as an `md` field. JSON only
+        #[arg(long, requires = "json")]
+        with_md: bool,
     },
     /// Set GTD tags on an item and print it as JSON
     Set {
@@ -201,7 +204,13 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
             let item = todo::add_item(&file, &text.join(" "))?;
             println!("{}", todo::item_to_json(&item, todotxt_dir)?);
         }
-        ModeAction::List { json } => print_items(&load_mode_items(&file)?, *json)?,
+        ModeAction::List { json, with_md } => {
+            print_items(
+                &load_mode_items(&file)?,
+                *json,
+                with_md.then_some(todotxt_dir),
+            )?;
+        }
         ModeAction::Set {
             id,
             time,
@@ -292,12 +301,19 @@ pub enum DoneAction {
         /// Print the items as a JSON array instead of one todo.txt line each
         #[arg(long)]
         json: bool,
+        /// Add each item's detail md (`todos/{id}.md`) as an `md` field. JSON only
+        #[arg(long, requires = "json")]
+        with_md: bool,
     },
 }
 
 pub fn run_done(action: &DoneAction, todotxt_dir: &str) -> Result<(), Box<dyn Error>> {
     match action {
-        DoneAction::List { json } => print_items(&load_mode_items(&done_file(todotxt_dir))?, *json),
+        DoneAction::List { json, with_md } => print_items(
+            &load_mode_items(&done_file(todotxt_dir))?,
+            *json,
+            with_md.then_some(todotxt_dir),
+        ),
     }
 }
 
@@ -338,6 +354,14 @@ struct SearchHit {
     /// The bare description: tags are searched, but not echoed back here.
     title: String,
     matched: MatchField,
+    /// The detail md body, and only under `--with-md`. Absent drops the key
+    /// instead of printing null — the opposite of `id` above, deliberately: this is
+    /// the shape `item_to_value` already gives `add`, `set`, `show` and `list
+    /// --with-md`, so one `md` in the object means one thing everywhere. `id: null`
+    /// is itself an answer ("the item exists but cannot be focused"), whereas a null
+    /// `md` could not say whether the file was missing or the flag was left off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    md: Option<String>,
 }
 
 /// One line per hit, id first so `awk '{print $1}'` feeds `torudo focus`.
@@ -386,6 +410,7 @@ fn matched_field(title: &str, md: Option<&str>, query: &str) -> Option<MatchFiel
 pub fn run_search(
     query: &str,
     json: bool,
+    with_md: bool,
     mode: Option<ModeName>,
     todotxt_dir: &str,
 ) -> Result<(), Box<dyn Error>> {
@@ -394,7 +419,7 @@ pub fn run_search(
     }
     let mut hits = Vec::new();
     for mode in search_targets(mode) {
-        hits.extend(collect_hits(mode, todotxt_dir, query)?);
+        hits.extend(collect_hits(mode, todotxt_dir, query, with_md)?);
     }
     print_hits(&hits, json)
 }
@@ -404,6 +429,7 @@ fn collect_hits(
     mode: ViewMode,
     todotxt_dir: &str,
     query: &str,
+    with_md: bool,
 ) -> Result<Vec<SearchHit>, Box<dyn Error>> {
     let mut hits = Vec::new();
     for item in load_mode_items(&mode.file_path(todotxt_dir))? {
@@ -414,6 +440,9 @@ fn collect_hits(
                 mode: mode.cli_name(),
                 title: item.description,
                 matched,
+                // The body was read to match against anyway, so `--with-md` costs no
+                // extra read — it only decides whether to hand it back.
+                md: if with_md { md } else { None },
             });
         }
     }
@@ -437,9 +466,31 @@ fn print_hits(hits: &[SearchHit], json: bool) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn print_items(items: &[Item], json: bool) -> Result<(), Box<dyn Error>> {
+/// The JSON body of a `list`. With `md_dir` set — that is, with `--with-md` — every
+/// item goes through `todo::item_to_value`, the same merge `add` and `set` print, so
+/// an item whose `todos/{id}.md` is missing or unreadable simply carries no `md` key
+/// rather than a null one.
+fn items_to_values(
+    items: &[Item],
+    md_dir: Option<&str>,
+) -> Result<Vec<serde_json::Value>, Box<dyn Error>> {
+    items
+        .iter()
+        .map(|item| {
+            md_dir.map_or_else(
+                || serde_json::to_value(item).map_err(Into::into),
+                |dir| todo::item_to_value(item, dir),
+            )
+        })
+        .collect()
+}
+
+fn print_items(items: &[Item], json: bool, md_dir: Option<&str>) -> Result<(), Box<dyn Error>> {
     if json {
-        println!("{}", serde_json::to_string_pretty(items)?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&items_to_values(items, md_dir)?)?
+        );
     } else {
         for item in items {
             println!("{}", format_item(item));
@@ -452,6 +503,39 @@ fn done_file(todotxt_dir: &str) -> String {
     format!("{todotxt_dir}/done.txt")
 }
 
+/// The mode label `show` reports for an item that has already been completed.
+/// `done.txt` is an archive rather than a `ViewMode`, so it needs its own name.
+const DONE_MODE: &str = "done";
+
+/// Look an item up by id across every mode, the archive included. The GTD modes come
+/// first, so an id that somehow sits in both is reported where it can still be acted
+/// on. `search` skips `done.txt` because a completed item cannot be focused; `show`
+/// only reads, so the archive belongs in its sweep — `reopen` decisions need the md
+/// of something already completed.
+fn find_item_anywhere(
+    todotxt_dir: &str,
+    id: &str,
+) -> Result<Option<(&'static str, Item)>, Box<dyn Error>> {
+    for mode in ViewMode::ALL {
+        if let Some(item) = find_in_file(&mode.file_path(todotxt_dir), id)? {
+            return Ok(Some((mode.cli_name(), item)));
+        }
+    }
+    Ok(find_in_file(&done_file(todotxt_dir), id)?.map(|item| (DONE_MODE, item)))
+}
+
+/// One item by id, md included, with the mode it was found in folded into the same
+/// object — the way `complete` folds in `recurrence`. Always JSON: the point of
+/// `show` is the md body, which has no useful one-line rendering.
+pub fn run_show(id: &str, todotxt_dir: &str) -> Result<(), Box<dyn Error>> {
+    let (mode, item) = find_item_anywhere(todotxt_dir, id)?
+        .ok_or_else(|| format!("no item with id:{id} in any mode"))?;
+    let mut json = todo::item_to_value(&item, todotxt_dir)?;
+    json["mode"] = serde_json::Value::String(mode.to_string());
+    println!("{}", serde_json::to_string_pretty(&json)?);
+    Ok(())
+}
+
 fn require_item(file: &str, mode: ViewMode, id: &str) -> Result<(), Box<dyn Error>> {
     if todo::has_todo_with_id(file, id) {
         Ok(())
@@ -460,11 +544,17 @@ fn require_item(file: &str, mode: ViewMode, id: &str) -> Result<(), Box<dyn Erro
     }
 }
 
-fn find_item(file: &str, id: &str) -> Result<Item, Box<dyn Error>> {
-    load_mode_items(file)?
+/// The id lookup `find_item` and `find_item_anywhere` share: one file in, at most one
+/// item out. Keeping the match in one place means a change to what counts as the same
+/// id lands everywhere at once.
+fn find_in_file(file: &str, id: &str) -> Result<Option<Item>, Box<dyn Error>> {
+    Ok(load_mode_items(file)?
         .into_iter()
-        .find(|item| item.id.as_deref() == Some(id))
-        .ok_or_else(|| format!("item id:{id} is gone from {file}").into())
+        .find(|item| item.id.as_deref() == Some(id)))
+}
+
+fn find_item(file: &str, id: &str) -> Result<Item, Box<dyn Error>> {
+    find_in_file(file, id)?.ok_or_else(|| format!("item id:{id} is gone from {file}").into())
 }
 
 fn print_item(file: &str, id: &str, todotxt_dir: &str) -> Result<(), Box<dyn Error>> {
@@ -727,6 +817,7 @@ mod tests {
             mode: "inbox",
             title: "Buy milk".to_string(),
             matched: MatchField::Title,
+            md: None,
         };
         assert_eq!(format_hit(&hit), "aaa-111 [inbox] Buy milk (title)");
     }
@@ -738,6 +829,7 @@ mod tests {
             mode: "ref",
             title: "Untagged line".to_string(),
             matched: MatchField::Both,
+            md: None,
         };
         assert_eq!(format_hit(&hit), "- [ref] Untagged line (both)");
     }
@@ -758,6 +850,35 @@ mod tests {
         assert_eq!(
             ViewMode::Waiting.file_path("/tmp/todotxt"),
             "/tmp/todotxt/waiting.txt"
+        );
+    }
+
+    #[test]
+    fn items_to_values_without_an_md_dir_matches_plain_item_serialisation() {
+        // Without the flag the objects have to carry exactly what `Serialize` gives —
+        // nothing added, nothing dropped. Value equality, not byte equality: routing
+        // through `serde_json::Value` sorts the keys, so `list --json` now prints them
+        // alphabetically, the way `add` and `set` always have, rather than in the
+        // struct's declaration order.
+        let items = vec![
+            Item::parse("(A) Buy milk +grocery @home id:aaa", 1),
+            Item::parse("No id here", 2),
+        ];
+        assert_eq!(
+            serde_json::Value::Array(items_to_values(&items, None).unwrap()),
+            serde_json::to_value(&items).unwrap()
+        );
+    }
+
+    #[test]
+    fn items_to_values_leaves_the_md_key_out_when_the_directory_holds_nothing() {
+        let items = vec![Item::parse("Buy milk id:aaa", 1)];
+        let values = items_to_values(&items, Some("/tmp/torudo-does-not-exist")).unwrap();
+        assert_eq!(values.len(), 1);
+        assert!(
+            values[0].get("md").is_none(),
+            "an unreadable detail file drops the key: {}",
+            values[0]
         );
     }
 

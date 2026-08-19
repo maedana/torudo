@@ -1116,3 +1116,127 @@ fn list_without_json_prints_one_line_per_item() {
 
     fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn list_with_md_includes_the_detail_md_body() {
+    let dir = fresh_dir("torudo_it_list_with_md");
+    fs::write(dir.join("inbox.txt"), "Buy milk id:aaa\n").unwrap();
+    fs::create_dir_all(dir.join("todos")).unwrap();
+    fs::write(dir.join("todos/aaa.md"), "- [ ] compare prices\n").unwrap();
+
+    let output = run(&dir, &["inbox", "list", "--json", "--with-md"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    let items = json.as_array().expect("stdout is a JSON array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], "aaa");
+    assert_eq!(items[0]["md"], "- [ ] compare prices\n");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn list_with_md_omits_the_md_key_when_there_is_no_detail_file() {
+    let dir = fresh_dir("torudo_it_list_with_md_no_file");
+    fs::write(dir.join("inbox.txt"), "Buy milk id:aaa\n").unwrap();
+
+    let output = run(&dir, &["inbox", "list", "--json", "--with-md"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    let items = json.as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert!(
+        items[0].get("md").is_none(),
+        "a missing detail file drops the key instead of printing null: {}",
+        items[0]
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn list_with_md_leaves_an_item_without_an_id_alone() {
+    let dir = fresh_dir("torudo_it_list_with_md_no_id");
+    fs::write(dir.join("inbox.txt"), "No id here\n").unwrap();
+
+    let output = run(&dir, &["inbox", "list", "--json", "--with-md"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    let items = json.as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert!(items[0]["id"].is_null());
+    assert!(items[0].get("md").is_none(), "no id means no md to look up");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn list_json_without_with_md_has_no_md_key() {
+    let dir = fresh_dir("torudo_it_list_json_no_md");
+    fs::write(dir.join("inbox.txt"), "Buy milk id:aaa\n").unwrap();
+    fs::create_dir_all(dir.join("todos")).unwrap();
+    fs::write(dir.join("todos/aaa.md"), "- [ ] compare prices\n").unwrap();
+
+    let output = run(&dir, &["inbox", "list", "--json"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    let items = json.as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert!(
+        items[0].get("md").is_none(),
+        "the md body is opt-in even when the file is right there: {}",
+        items[0]
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn list_with_md_requires_json() {
+    let dir = fresh_dir("torudo_it_list_with_md_requires_json");
+    fs::write(dir.join("inbox.txt"), "Buy milk id:aaa\n").unwrap();
+
+    let output = run(&dir, &["inbox", "list", "--with-md"]);
+
+    assert!(!output.status.success(), "the flag pair is rejected");
+    assert!(output.stdout.is_empty(), "nothing is printed on rejection");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("--json"), "stderr names --json: {stderr}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn done_list_with_md_includes_the_detail_md_body() {
+    let dir = fresh_dir("torudo_it_done_list_with_md");
+    fs::write(dir.join("done.txt"), "x 2026-08-19 Old thing id:zzz\n").unwrap();
+    fs::create_dir_all(dir.join("todos")).unwrap();
+    // Completing an item leaves `todos/{id}.md` where it is, so the archive can
+    // still hand back what was written while the item was live.
+    fs::write(dir.join("todos/zzz.md"), "what came of it\n").unwrap();
+
+    let output = run(&dir, &["done", "list", "--json", "--with-md"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    let items = json.as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], "zzz");
+    assert_eq!(items[0]["md"], "what came of it\n");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn done_list_with_md_requires_json() {
+    let dir = fresh_dir("torudo_it_done_list_with_md_requires_json");
+    fs::write(dir.join("done.txt"), "x 2026-08-19 Old thing id:zzz\n").unwrap();
+
+    let output = run(&dir, &["done", "list", "--with-md"]);
+
+    assert!(!output.status.success(), "the flag pair is rejected");
+    assert!(output.stdout.is_empty(), "nothing is printed on rejection");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("--json"), "stderr names --json: {stderr}");
+
+    fs::remove_dir_all(&dir).ok();
+}

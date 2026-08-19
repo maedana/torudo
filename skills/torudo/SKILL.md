@@ -11,13 +11,14 @@ torudo keeps one todo.txt-format file per GTD mode under `~/todotxt/` (`inbox.tx
 
 ```bash
 torudo <mode> add <text>                             # append an item, print it as JSON
-torudo <mode> list [--json]                          # list the mode's items
+torudo <mode> list [--json] [--with-md]              # list the mode's items
 torudo <mode> set <id> [--time ...] [--energy ...] [--rec ...] [--priority ...] [--threshold ...] [--due ...]  # set GTD tags / recurrence / priority / dates
 torudo <mode> promote <id> --to <mode>               # move to another mode
 torudo <mode> complete <id>                          # finish it: move to done.txt
 torudo <mode> reopen <id>                            # pull it back out of done.txt
-torudo done list [--json]                            # what has been completed
-torudo search <query> [--json] [--mode <mode>]       # find an item by title, tag or detail text, across every mode
+torudo done list [--json] [--with-md]                # what has been completed
+torudo search <query> [--json] [--with-md] [--mode <mode>] # find an item by title, tag or detail text, across every mode
+torudo show <id>                                     # print one item by id, detail md included, from any mode
 torudo focus <id>                                    # move the running TUI's cursor onto an item
 ```
 
@@ -27,7 +28,11 @@ watcher. Pass `--todotxt-dir <path>` **before** the mode when the user works out
 non-default directory.
 
 Never edit the `.txt` files by hand — always go through these commands. The detail md files
-under `todos/` are the exception: torudo only reads those, so write them directly.
+under `todos/` are the exception: their content is yours to author, so write them with
+Write/Edit. torudo touches them only as a side effect — carrying one over when a `rec:` item
+is completed, deleting it with its item — never as content. To find out what an item already
+holds, read it back through the CLI: `torudo show <id>` for one item,
+`<mode> list --json --with-md` for a whole mode.
 
 ## Capturing
 
@@ -93,18 +98,27 @@ immediately without asking.
 ## Listing
 
 ```bash
-torudo inbox list --json     # structured: id, title, priority, projects, contexts, key_values
-torudo todo list             # one todo.txt line per item, for showing the user
+torudo inbox list --json             # structured: id, title, priority, projects, contexts, key_values
+torudo todo list                     # one todo.txt line per item, for showing the user
+torudo inbox list --json --with-md   # the same, plus each item's detail md in an `md` field
 ```
 
 Use `--json` whenever you need the `id` of an existing item — every other command takes one.
 A mode whose file does not exist yet lists as an empty array, which is normal.
 
+`--with-md` folds each item's `todos/{id}.md` into the JSON as an `md` field, raw — frontmatter
+and checkboxes included. It requires `--json` and is rejected at the argument boundary without
+it. An item whose detail file is missing — or that has no `id:` — carries no `md` key at all
+rather than a null one, so test for the key. Leave the flag off when an `id` is all you need: a
+whole mode's worth of md bodies is a lot of output. For one item whose id you already have,
+`torudo show <id>` is the cheaper read (see "Finding and focusing").
+
 ## Writing the detail md
 
 Long-form detail lives in `$TODOTXT_DIR/todos/{id}.md` (default `~/todotxt/todos/{id}.md`).
-torudo only reads these files, so write them with Write/Edit. Unchecked `- [ ]` lines are
-what the TUI surfaces: the top 3 appear on the card, and the `{done}/{total}` badge counts
+The content is yours to author, so write these with Write/Edit — and to see what one already
+holds, `torudo show <id>` reads it back without going near the path. Unchecked `- [ ]` lines
+are what the TUI surfaces: the top 3 appear on the card, and the `{done}/{total}` badge counts
 them.
 
 ```markdown
@@ -126,9 +140,10 @@ branch: readme-dev-setup
 - **`branch` frontmatter** is written when work starts (see below) and ties the item to its
   worktree. Treat it as a record, not something to invent up front — and never change it on
   an item that already has one, or the task loses track of its own worktree.
-- **Preserve what is already there.** Read the file first when it exists; append to the
-  checklist rather than overwriting notes, and never flip `- [ ]` to `- [x]` unless the user
-  says the step is done.
+- **Preserve what is already there.** Append to the checklist rather than overwriting notes,
+  and never flip `- [ ]` to `- [x]` unless the user says the step is done. Editing an existing
+  file means opening it with Read first — Write and Edit both refuse one they have not read,
+  and rebuilding it from what `show` printed is how notes get lost.
 - **Record *what*, not *how*.** The checklist is the shape of the task and the background
   behind it, not its design. Working out an approach means reading the target repository, and
   that belongs to the worktree session — see "Starting work on a task".
@@ -193,8 +208,9 @@ torudo todo reopen <id>        # done.txt → todo.txt, completion marker cleare
 - If the item carries `rec:`, completing it also appends a fresh next occurrence to the same
   file — nothing more to do. The JSON output's `recurrence` field carries the new item's `id`
   and dates; report that instead of `torudo <mode> add`-ing a replacement by hand.
-- **Complete only what the user said is done.** When the detail md still has unchecked
-  `- [ ]` lines, say so and let them confirm rather than assuming the task is finished.
+- **Complete only what the user said is done.** `torudo show <id>` prints the item's detail
+  md; when it still has unchecked `- [ ]` lines, say so and let them confirm rather than
+  assuming the task is finished.
 - `reopen` takes the item back out of `done.txt` and into the mode you name — priority,
   creation date, and tags all survive the round trip, so a mistaken completion costs nothing.
   It reads ids from `done.txt`, so get them from `torudo done list --json`.
@@ -203,9 +219,11 @@ torudo todo reopen <id>        # done.txt → todo.txt, completion marker cleare
 ## Finding and focusing
 
 ```bash
-torudo search "release" --json          # search every mode's title, tags and detail md, case-insensitive substring
-torudo search "release" --mode todo     # narrow to one mode
-torudo focus <id>                       # move the running TUI's cursor onto that item
+torudo search "release" --json           # search every mode's title, tags and detail md, case-insensitive substring
+torudo search "release" --json --with-md # the same, plus the detail md body of every hit
+torudo search "release" --mode todo      # narrow to one mode
+torudo show <id>                         # print one item by id, from whatever mode holds it
+torudo focus <id>                        # move the running TUI's cursor onto that item
 ```
 
 - Use `search` when the user is not sure which mode holds something ("release作業のタスクどこだっけ").
@@ -213,6 +231,12 @@ torudo focus <id>                       # move the running TUI's cursor onto tha
 - A `title` hit means the query was in the item's title **or** in one of its `+project` / `@context` tags,
   so searching for a project name finds every item filed under it. `key:value` tags (`id:`, `time:`,
   `energy:`) are not searched — narrow by those with `--mode` plus `list --json` instead.
+- `--with-md` hands back the detail md of every hit, so an `md` match no longer needs a second read
+  to see what it matched on. It requires `--json`, and a hit with no detail file carries no `md` key.
+- `show` is the id-shaped lookup: it sweeps every mode and then `done.txt`, and prints that one item
+  as JSON with its detail md and a `mode` field naming where it turned up (`done` for something
+  already completed). The md is always there — no flag to pass — and an unknown id fails loudly.
+  Unlike `focus` it only reads files, so it needs no running TUI and honours `--todotxt-dir`.
 - `focus` needs a running TUI; without one it fails loudly instead of doing nothing silently. Reach for it when
   the user wants the item on screen ("あれ画面に出して"), typically right after a `search` that resolved the id.
 - Multiple hits are normal — prefer a `title` match over a `md` match, and ask the user when it is still
@@ -221,9 +245,9 @@ torudo focus <id>                       # move the running TUI's cursor onto tha
 ## Reviewing what to do next
 
 ```bash
-torudo inbox list --json
-torudo todo list --json
-torudo waiting list --json
+torudo inbox list --json --with-md
+torudo todo list --json --with-md
+torudo waiting list --json --with-md
 ```
 
 **An ask with no item in it is a request to survey.** The user is not telling you to do something;
@@ -242,13 +266,13 @@ Look for these five things, in this order:
 
 - **Ball back in your court** — items in `waiting` whose condition has since been met. This is the
   most valuable thing to surface, because it is the easiest to miss: the item looks parked, but the
-  thing it was parked on already happened. Read the detail md to see what it is waiting on, and
-  weigh that against what has come up since.
+  thing it was parked on already happened. The `md` in the `--with-md` output says what it is
+  waiting on — weigh that against what has come up since.
 - **Undecided** — how long `inbox` items have been sitting. What is stuck there is a *decision*
   (todo? someday? drop it?), not work, so a long-stale inbox is cheap to clear.
-- **Started, and not started** — split `todo` in two. An item is underway when its detail md
-  carries a `branch:` or already has some `- [x]` in its checklist; everything else has not been
-  picked up yet. Do not editorialise about age here — just say which side each item is on.
+- **Started, and not started** — split `todo` in two. An item is underway when the `md` from
+  `--with-md` carries a `branch:` or already has some `- [x]` in its checklist; everything else has
+  not been picked up yet. Do not editorialise about age here — just say which side each item is on.
 - **Batchable** — items that share a project, a repository, or a kind of work and would be cheaper
   done together (two dependabot items, three small fixes in one repo).
 - **By time and energy** — group what is left by `time:` and `energy:` so the user can match the
@@ -364,7 +388,7 @@ command -v git-wt herdr
   own terminal rather than substituting another multiplexer.
 
 ```bash
-# 0. Reuse the branch recorded in todos/{id}.md if there is one; otherwise name it yourself
+# 0. Reuse the branch the item's md records (torudo show <id>); otherwise name it yourself
 # 1. Base ref — the repo's default branch unless the user says otherwise
 git -C <repo> symbolic-ref --short refs/remotes/origin/HEAD        # → origin/main
 
@@ -402,16 +426,17 @@ what makes that safe — without it the only signal is screen text, which is eas
   a single argument under zsh and herdr rejects it. If the variable is unset, this session is
   not running inside herdr: drop the flag.
 
-- **Repository** — take it from the item's `cwd` frontmatter when it has one; ask otherwise.
+- **Repository** — take it from the item's `cwd` frontmatter (`torudo show <id>` prints it)
+  when it has one; ask otherwise.
 - **Branch name** — name it yourself, do not ask. Slugify the task into three or four
   lowercase words in kebab-case, in English even when the task is not ("READMEに開発環境
   セットアップ手順を追記する" → `readme-dev-setup`). Then **write it into the item's md as
   `branch:` frontmatter** once the worktree exists. `git wt <branch> <base-ref>` creates the
   branch, so the name you pick becomes a real branch — check it is not already taken.
-- **A recorded `branch:` wins.** When the item's md already has one, reuse it instead of
-  naming a new one: `git wt <branch>` alone switches to the existing worktree, so resuming an
-  interrupted task lands back where it was. Only fall back to naming when the frontmatter has
-  none.
+- **A recorded `branch:` wins.** When `torudo show <id>` shows the md already has one, reuse
+  it instead of naming a new one: `git wt <branch>` alone switches to the existing worktree, so
+  resuming an interrupted task lands back where it was. Only fall back to naming when the
+  frontmatter has none.
 - **`WT_FAIL` means stop.** A repo configured with `wt.hook` (`bundle install`, `pnpm
   install`) can fail after the worktree directory already exists. **Do not start Claude** in
   that case — a worktree without its dependencies is worse than no worktree at all. Report
@@ -421,7 +446,7 @@ what makes that safe — without it the only signal is screen text, which is eas
   Call ListAgents after starting and match on the directory-name prefix.
 - **Plan first.** The session starts in plan mode, so the handover message asks for a plan,
   not for the work: describe the task, point at the relevant files if you know them, and ask
-  for a plan. Include the item's detail md (`todos/{id}.md`) content when it has one — the
+  for a plan. Include the item's detail md (`torudo show <id>` prints it) when it has one — the
   `- [ ]` checklist is the shape of the task as the user sees it.
 - **The plan is the user's to approve.** Tell them it is ready and stop there. Do not approve
   it from this session, and do not drive the child's UI with `agent send-keys` to get past
@@ -456,7 +481,7 @@ todoに移しました: リリース作業 +torudo time:short energy:low (id: 8a
 | inboxにhttps://example.com/blog/rust-tui を追加して | タイトル解決 → 確認 → `torudo inbox add "Rust TUI入門 https://example.com/blog/rust-tui"` |
 | inboxにhttps://github.com/owner/repo/issues/12 を追加して | `gh issue view 12 -R owner/repo` でタイトル取得 → 確認 → `torudo inbox add "<issueタイトル> https://github.com/owner/repo/issues/12"` |
 | inboxの中身を見せて | `torudo inbox list` |
-| これのやることリストを書いて | `torudo inbox list --json` で id を得る → `todos/{id}.md` に `- [ ]` を書く |
+| これのやることリストを書いて | `torudo inbox list --json` で id を得る → `torudo show <id>` で既存mdを確認 → `todos/{id}.md` に `- [ ]` を書く |
 | 短時間・低エネルギーにしてtodoに移して | `torudo inbox set <id> --time short --energy low` → `torudo inbox promote <id> --to todo` |
 | ゴミ出しは毎週繰り返しにして | `torudo todo set <id> --rec 1w` |
 | もう繰り返さなくていい | `torudo todo set <id> --rec none` |
@@ -475,6 +500,7 @@ todoに移しました: リリース作業 +torudo time:short energy:low (id: 8a
 | worktree切ってclaude立てて | 同上。ブランチ名とベースブランチを確認してから |
 | 実績出力の件進めたい | 同上。「進めたい」「やろうか」も着手の依頼。ここで調べ始めない |
 | 本番でスクリプト流したい | 同上。コード変更を伴わない作業もworktreeとセッションを切る |
-| 次何やろう / 時間空いたら何やれる? | inbox/todo/waiting を `list --json` で読んで棚卸しする。着手依頼ではないのでworktreeは切らない |
+| 次何やろう / 時間空いたら何やれる? | inbox/todo/waiting を `list --json --with-md` で読んで棚卸しする。着手依頼ではないのでworktreeは切らない |
 | 経費精算のタスクどこだっけ | `torudo search "経費精算"` |
+| このタスクの詳細見せて | `torudo show <id>`（モードを知らなくても引ける。完了済みも出る） |
 | あれ画面に出して | `torudo focus <id>`（直前の `search` で得た id） |

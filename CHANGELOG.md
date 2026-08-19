@@ -8,8 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`torudo show <id>`**: print one item as JSON, detail md included, without knowing which mode holds it. It sweeps every GTD mode and then `done.txt`, and reports where it landed in a `mode` field (`done` for something already completed), so looking a completed item up before a `reopen` no longer means guessing at file paths. The md is always included — there is no flag to pass — and an unknown id exits non-zero. Unlike `focus` it only reads the files, so it needs no running TUI and it honours `--todotxt-dir`
+- **`--with-md` on `<mode> list`, `done list`, and `search`**: add each item's raw `todos/{id}.md` body to the JSON as an `md` field, so reviewing a whole mode's detail takes one command instead of one read per item. It is opt-in because a mode's worth of md bodies is a lot of output when all you wanted was an id, and it requires `--json` — a raw body has no place in the one-line output. An item whose detail file is missing, or that has no `id:`, carries no `md` key at all rather than a null one. `add`, `set`, `promote`, `complete`, and `reopen` are unchanged: they have always included `md`. `done list --with-md` returns md too, since completing an item leaves its `todos/{id}.md` in place
 - **`torudo <mode> set <id> --threshold` / `--due`**: set or move an item's `t:` and `due:` dates from the CLI, so pushing something out to next Monday no longer means editing the `.txt` by hand. Dates are absolute `YYYY-MM-DD` only — a relative date has to be resolved first — and `--threshold none` / `--due none` clear the tag, spelled in whatever case you like. A future `t:` still shows up in `list`: it sorts to the bottom and renders dimmed in the TUI rather than disappearing
 - **`torudo <mode> set <id> --priority`**: set an item's priority to `(A)` through `(E)` (`a`-`e`, uppercase works too) without opening the TUI, replacing whatever it had before. `--priority none` clears it. Combine freely with `--time`, `--energy`, and `--rec` in the same command
+
+### Changed
+- **`list --json` prints its keys in alphabetical order**: `<mode> list --json` and `done list --json` now order each object's fields the way `add`, `set`, and `show` always have (`completed`, `completion_date`, `contexts`, ...) instead of following the struct's declaration order. The fields themselves are unchanged, so anything reading the JSON as JSON is unaffected — only output that was compared byte-for-byte would notice
 
 ### Fixed
 - **`--rec NONE` was rejected**: the keyword that clears a tag is now case-insensitive for `--rec`, the way it already was for `--priority`, so `--rec NONE` and `--rec None` stop an item repeating just like `--rec none`

@@ -216,3 +216,66 @@ fn search_with_an_empty_query_fails() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn search_with_md_returns_the_body_of_an_md_hit() {
+    let dir = fresh_dir("torudo_it_search_with_md_body");
+    fs::write(dir.join("todo.txt"), "Fix the spec id:aaa\n").unwrap();
+    fs::create_dir_all(dir.join("todos")).unwrap();
+    fs::write(dir.join("todos/aaa.md"), "the flaky one is spec/foo\n").unwrap();
+
+    let out = stdout_of(&run(&dir, &["search", "flaky", "--json", "--with-md"]));
+    let hits: serde_json::Value = serde_json::from_str(&out).unwrap();
+
+    assert_eq!(hits.as_array().unwrap().len(), 1);
+    assert_eq!(hits[0]["matched"], "md");
+    assert_eq!(hits[0]["md"], "the flaky one is spec/foo\n");
+}
+
+#[test]
+fn search_with_md_omits_the_key_for_a_title_hit_without_an_md_file() {
+    let dir = fresh_dir("torudo_it_search_with_md_no_file");
+    fs::write(dir.join("todo.txt"), "Fix the flaky spec id:aaa\n").unwrap();
+
+    let out = stdout_of(&run(&dir, &["search", "flaky", "--json", "--with-md"]));
+    let hits: serde_json::Value = serde_json::from_str(&out).unwrap();
+
+    assert_eq!(hits.as_array().unwrap().len(), 1);
+    assert_eq!(hits[0]["matched"], "title");
+    assert!(
+        hits[0].get("md").is_none(),
+        "a missing detail file drops the key instead of printing null: {}",
+        hits[0]
+    );
+}
+
+#[test]
+fn search_json_without_with_md_has_no_md_key() {
+    let dir = fresh_dir("torudo_it_search_json_no_md");
+    fs::write(dir.join("todo.txt"), "Fix the spec id:aaa\n").unwrap();
+    fs::create_dir_all(dir.join("todos")).unwrap();
+    fs::write(dir.join("todos/aaa.md"), "the flaky one is spec/foo\n").unwrap();
+
+    let out = stdout_of(&run(&dir, &["search", "flaky", "--json"]));
+    let hits: serde_json::Value = serde_json::from_str(&out).unwrap();
+
+    assert_eq!(hits.as_array().unwrap().len(), 1);
+    assert!(
+        hits[0].get("md").is_none(),
+        "the md body is opt-in even for an md hit: {}",
+        hits[0]
+    );
+}
+
+#[test]
+fn search_with_md_requires_json() {
+    let dir = fresh_dir("torudo_it_search_with_md_requires_json");
+    fs::write(dir.join("todo.txt"), "Fix the flaky spec id:aaa\n").unwrap();
+
+    let output = run(&dir, &["search", "flaky", "--with-md"]);
+
+    assert!(!output.status.success(), "the flag pair is rejected");
+    assert!(output.stdout.is_empty(), "nothing is printed on rejection");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("--json"), "stderr names --json: {stderr}");
+}

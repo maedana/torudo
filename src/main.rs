@@ -63,6 +63,11 @@ enum Commands {
         /// Id of the item to select (as printed by `torudo search`)
         id: String,
     },
+    /// Print one item by id as JSON, detail md included, whatever mode it is in
+    Show {
+        /// Id of the item to print (as printed by `torudo search`)
+        id: String,
+    },
     /// Update torudo to the latest version
     Update {
         /// Skip version check and force re-download
@@ -79,6 +84,9 @@ enum Commands {
         /// Print the hits as a JSON array instead of one line each
         #[arg(long)]
         json: bool,
+        /// Add each hit's detail md (`todos/{id}.md`) as an `md` field. JSON only
+        #[arg(long, requires = "json")]
+        with_md: bool,
         /// Search only this mode instead of all of them
         #[arg(long, value_enum)]
         mode: Option<cli::ModeName>,
@@ -147,13 +155,25 @@ fn main() -> Result<(), Box<dyn Error>> {
     if let Some(Commands::Focus { id }) = &args.command {
         return rpc_client::run_focus(id);
     }
+    if let Some(Commands::Show { id }) = &args.command {
+        // Unlike `focus`, `show` reads the files itself instead of asking the running
+        // TUI, so `--todotxt-dir` applies.
+        let todotxt_dir = resolve_todotxt_dir(args.todotxt_dir.clone());
+        return cli::run_show(id, &todotxt_dir);
+    }
     if let Some(Commands::Update { force, check }) = args.command {
         handle_update(force, check);
         return Ok(());
     }
-    if let Some(Commands::Search { query, json, mode }) = &args.command {
+    if let Some(Commands::Search {
+        query,
+        json,
+        with_md,
+        mode,
+    }) = &args.command
+    {
         let todotxt_dir = resolve_todotxt_dir(args.todotxt_dir.clone());
-        return cli::run_search(query, *json, *mode, &todotxt_dir);
+        return cli::run_search(query, *json, *with_md, *mode, &todotxt_dir);
     }
     if let Some(command) = &args.command
         && let Some((mode, action)) = mode_command(command)
