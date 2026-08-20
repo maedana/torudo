@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A confirmed plan is filed with its task**: a session started on an item in its own worktree now records the path of the plan it confirmed in the item's detail md, as `plan:` frontmatter. Claude Code names a plan file after the prompt that opened it, so until now nothing tied one back to the task it was written for. Completing a recurring item drops the line along with `branch:`, so the next occurrence does not start out claiming the previous round's plan
+
 ## [0.18.0] - 2026-08-19
 
 ### Added

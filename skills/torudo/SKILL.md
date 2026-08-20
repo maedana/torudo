@@ -125,6 +125,7 @@ them.
 ---
 cwd: /home/maedana/src/github.com/maedana/torudo
 branch: readme-dev-setup
+plan: /home/maedana/.claude/plans/2026-08-20-readme-dev-setup.md
 ---
 # やること
 
@@ -140,6 +141,10 @@ branch: readme-dev-setup
 - **`branch` frontmatter** is written when work starts (see below) and ties the item to its
   worktree. Treat it as a record, not something to invent up front — and never change it on
   an item that already has one, or the task loses track of its own worktree.
+- **`plan` frontmatter** points at the plan file the worktree session confirmed for this
+  item. That session writes the line itself once its plan is approved (see below), so — like
+  `branch` — it is a record, never something to invent. Keep it when you rewrite the file:
+  dropping it loses the only link back to the plan.
 - **Preserve what is already there.** Append to the checklist rather than overwriting notes,
   and never flip `- [ ]` to `- [x]` unless the user says the step is done. Editing an existing
   file means opening it with Read first — Write and Edit both refuse one they have not read,
@@ -451,6 +456,11 @@ what makes that safe — without it the only signal is screen text, which is eas
 - **The plan is the user's to approve.** Tell them it is ready and stop there. Do not approve
   it from this session, and do not drive the child's UI with `agent send-keys` to get past
   the prompt — that turns a deliberate checkpoint into a rubber stamp.
+- **Ask it to record its plan.** The handover message is also where you tell the spawned
+  session to write the path of its confirmed plan into the item's md as `plan:` frontmatter.
+  Claude Code names a plan file after the prompt that opened it, so without that line nothing
+  ties the plan back to the task. Give the md's full path in the message — the session is
+  working in the worktree and has no reason to know where `todos/{id}.md` lives.
 - **Handing over** — send the task with SendMessage. A spawned session answers on its own
   screen, not back to you, unless you explicitly ask it to reply with SendMessage.
 - **Waiting for the plan** — `herdr agent wait <name> --until blocked --until idle`. Which of

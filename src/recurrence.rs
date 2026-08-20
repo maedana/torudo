@@ -161,9 +161,10 @@ pub fn next_dates(
 }
 
 /// Prepare an existing detail file for the next occurrence: clear every checked
-/// box and drop the frontmatter's `branch:` line, which points at the worktree of
-/// the occurrence that just finished. Checkbox detection matches
-/// `md_preview::scan_md`, so a `- [x]` appearing mid-line is left alone.
+/// box and drop the frontmatter's `branch:` and `plan:` lines, which both point
+/// at the occurrence that just finished — its worktree and the plan confirmed
+/// there. Checkbox detection matches `md_preview::scan_md`, so a `- [x]`
+/// appearing mid-line is left alone.
 pub fn reset_md(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
     let mut in_frontmatter = content.starts_with("---\n") || content == "---";
@@ -171,7 +172,9 @@ pub fn reset_md(content: &str) -> String {
         if in_frontmatter {
             if index > 0 && line.trim_end() == "---" {
                 in_frontmatter = false;
-            } else if line.trim_start().starts_with("branch:") {
+            } else if line.trim_start().starts_with("branch:")
+                || line.trim_start().starts_with("plan:")
+            {
                 continue;
             }
         }
@@ -599,6 +602,22 @@ mod tests {
             reset_md(content),
             "---\ncwd: /home/me/src\n---\n\n- [x] done\n".replace("- [x]", "- [ ]")
         );
+    }
+
+    #[test]
+    fn reset_md_drops_plan_from_the_frontmatter() {
+        let content =
+            "---\ncwd: /home/me/src\nplan: /home/me/.claude/plans/old.md\n---\n\n- [x] done\n";
+        assert_eq!(
+            reset_md(content),
+            "---\ncwd: /home/me/src\n---\n\n- [ ] done\n"
+        );
+    }
+
+    #[test]
+    fn reset_md_leaves_a_plan_line_outside_the_frontmatter_alone() {
+        let content = "---\ncwd: /home/me/src\n---\n\nplan: mentioned in the body\n";
+        assert_eq!(reset_md(content), content);
     }
 
     #[test]
