@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`torudo <mode> link <id> <url>...`**: attach a URL to an item that already exists, instead of only being able to bake one in at capture time. Only URLs on the item's line get a link icon and open with `o` in the TUI, so a URL that lived in the detail md was a dead note until now. Several can be attached in one go, `--remove <url>` drops one, and passing both in the same command swaps one URL for another. Attaching a URL the item already carries changes nothing, and removing one it never had still succeeds, so repeating the command is safe. Only `http://` and `https://` values are accepted
 - **A confirmed plan is filed with its task**: a session started on an item in its own worktree now records the path of the plan it confirmed in the item's detail md, as `plan:` frontmatter. Claude Code names a plan file after the prompt that opened it, so until now nothing tied one back to the task it was written for. Completing a recurring item drops the line along with `branch:`, so the next occurrence does not start out claiming the previous round's plan
 
 ## [0.18.0] - 2026-08-19

@@ -128,6 +128,14 @@ torudo todo set <id> --due 2026-08-31
 torudo todo set <id> --threshold none
 torudo todo set <id> --due none
 
+# Attach a URL to an item that already exists — the TUI opens line URLs with `o`
+torudo todo link <id> https://example.com/spec
+
+# Attach several at once, drop one, or swap one for another in a single write
+torudo todo link <id> https://a.example https://b.example
+torudo todo link <id> --remove https://a.example
+torudo todo link <id> https://new.example --remove https://b.example
+
 # Move an item to another mode
 torudo inbox promote <id> --to todo
 

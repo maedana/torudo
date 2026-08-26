@@ -2,6 +2,7 @@ use crate::app_state::ViewMode;
 use crate::md_preview;
 use crate::recurrence::parse_pattern;
 use crate::todo::{self, Item, Recurred};
+use crate::url::is_url;
 use clap::{Subcommand, ValueEnum};
 use serde::Serialize;
 use serde_json::json;
@@ -50,6 +51,19 @@ pub enum ModeAction {
         /// Due date (`due:` tag) as `YYYY-MM-DD`. `none` removes the tag.
         #[arg(long, value_parser = parse_date_value)]
         due: Option<String>,
+    },
+    /// Append URLs to an item's line, or drop them, and print it as JSON
+    Link {
+        /// Id of the item to update
+        id: String,
+        /// URLs to append. One the item already carries is left as it is.
+        #[arg(value_parser = parse_url_value)]
+        urls: Vec<String>,
+        /// URL to drop from the line. Repeatable, and dropping one the item does
+        /// not carry is not an error. Pass it alongside a URL to append to swap
+        /// one for the other in a single write.
+        #[arg(long, value_parser = parse_url_value)]
+        remove: Vec<String>,
     },
     /// Complete an item, moving it to done.txt, and print it as JSON
     Complete {
@@ -113,6 +127,21 @@ fn parse_date_value(value: &str) -> Result<String, String> {
     let date = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
         .map_err(|_| "expected a date as YYYY-MM-DD, or none to clear it".to_string())?;
     Ok(date.format("%Y-%m-%d").to_string())
+}
+
+/// Reject anything that is not a URL at the argument boundary, the way `--rec`
+/// and `--threshold` reject a bad pattern or date. The rule is [`is_url`], the one
+/// the TUI opens links by. Whitespace is refused on top of it: a todo.txt line is
+/// whitespace-delimited, so a value carrying a space would land as two tokens and
+/// neither would round-trip.
+fn parse_url_value(value: &str) -> Result<String, String> {
+    if !is_url(value) {
+        return Err(format!("`{value}` is not an http:// or https:// URL"));
+    }
+    if value.split_whitespace().count() != 1 {
+        return Err(format!("`{value}` contains whitespace"));
+    }
+    Ok(value.to_string())
 }
 
 impl ModeName {
@@ -251,6 +280,14 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
             if let Some(due) = due {
                 set_or_clear(&file, id, "due", due)?;
             }
+            print_item(&file, id, todotxt_dir)?;
+        }
+        ModeAction::Link { id, urls, remove } => {
+            if urls.is_empty() && remove.is_empty() {
+                return Err("specify at least one URL to append, or --remove".into());
+            }
+            require_item(&file, mode, id)?;
+            todo::edit_urls(&file, id, urls, remove)?;
             print_item(&file, id, todotxt_dir)?;
         }
         ModeAction::Complete { id } => {

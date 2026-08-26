@@ -1,6 +1,6 @@
 ---
 name: torudo
-description: Drive torudo (a todo.txt TUI) from natural language. Use whenever the user is capturing, organising, reviewing, or acting on their own todo list — in any wording or language, and whether or not they name torudo. That covers dropping something into the inbox (often a bare URL), showing or triaging a mode, tagging an item with time/energy or a priority, pushing it out to a later date or giving it a deadline, breaking one into a checklist, moving it between the GTD modes (inbox/todo/waiting/ref/someday), completing or reopening it, finding where an item lives and putting the running TUI's cursor on it, surveying what there is to pick up next, and starting work on an item in its own git worktree and Claude session.
+description: Drive torudo (a todo.txt TUI) from natural language. Use whenever the user is capturing, organising, reviewing, or acting on their own todo list — in any wording or language, and whether or not they name torudo. That covers dropping something into the inbox (often a bare URL), showing or triaging a mode, tagging an item with time/energy or a priority, attaching a URL to an item that already exists, pushing it out to a later date or giving it a deadline, breaking one into a checklist, moving it between the GTD modes (inbox/todo/waiting/ref/someday), completing or reopening it, finding where an item lives and putting the running TUI's cursor on it, surveying what there is to pick up next, and starting work on an item in its own git worktree and Claude session.
 ---
 
 # torudo
@@ -13,6 +13,7 @@ torudo keeps one todo.txt-format file per GTD mode under `~/todotxt/` (`inbox.tx
 torudo <mode> add <text>                             # append an item, print it as JSON
 torudo <mode> list [--json] [--with-md]              # list the mode's items
 torudo <mode> set <id> [--time ...] [--energy ...] [--rec ...] [--priority ...] [--threshold ...] [--due ...]  # set GTD tags / recurrence / priority / dates
+torudo <mode> link <id> <url>... [--remove <url>]     # attach URLs to an item that already exists
 torudo <mode> promote <id> --to <mode>               # move to another mode
 torudo <mode> complete <id>                          # finish it: move to done.txt
 torudo <mode> reopen <id>                            # pull it back out of done.txt
@@ -199,6 +200,28 @@ torudo inbox promote i1 --to todo               # move inbox.txt → todo.txt
   `add`'s output or from `list --json`.
 - Estimating time/energy is a judgment call about the user's own capacity — propose values
   with your reasoning and let the user correct them, unless they already said what they want.
+
+## Attaching a URL to an item that already exists
+
+```bash
+torudo todo link t1 https://example.com/spec              # append one URL to the line
+torudo todo link t1 https://a.example https://b.example   # append several at once
+torudo todo link t1 --remove https://example.com/spec     # drop one from the line
+torudo todo link t1 https://new --remove https://old      # swap one for the other in one write
+```
+
+- Only the **line** gets a link icon and opens with `o` in the TUI. A URL written into
+  `todos/{id}.md` is a note and nothing more, so "このタスクにこのURL紐付けて" means `link`,
+  never an edit to the detail md.
+- URLs are matched as whole tokens, so `--remove` needs the URL exactly as it stands in the
+  line. Read it back with `torudo show <id>` first rather than retyping it from memory.
+- Appending a URL the item already carries changes nothing, and removing one it never had is
+  not an error — both still succeed, so a repeated `link` is safe.
+- `http://` and `https://` are the only accepted values; anything else fails loudly and
+  writes nothing. There is no way to append arbitrary text to a line — rewording an item
+  means the user rewriting it, not `link`.
+- Attaching at capture time is different: build the line with the URL already in it, under
+  "When the input is a URL" above. `link` is for the item that is already on file.
 
 ## Completing
 
@@ -502,6 +525,9 @@ todoに移しました: リリース作業 +torudo time:short energy:low (id: 8a
 | 今日はやらない / しばらく寝かせたい | 同上。何日まで寝かせるか決まらなければ確認してから `--threshold` |
 | 月末までにやらないとまずい | `torudo todo set <id> --due 2026-08-31` |
 | もう着手できる / 先送りやめる | `torudo todo set <id> --threshold none` |
+| このタスクにこのURL紐付けて | `torudo search` などで id を得る → `torudo todo link <id> https://…` |
+| さっきのissueのリンクも足しといて | `torudo todo link <id> https://github.com/owner/repo/issues/12` |
+| このURLもう関係ないから外して | `torudo show <id>` で正確なURLを確認 → `torudo todo link <id> --remove https://…` |
 | これはいつかやるやつ | `torudo inbox promote <id> --to someday` |
 | Astro7対応終わった | `torudo todo complete <id>` |
 | さっき完了にしたのやっぱ戻して | `torudo done list --json` で id を得る → `torudo todo reopen <id>` |

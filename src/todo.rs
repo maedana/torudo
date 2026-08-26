@@ -657,6 +657,84 @@ pub fn clear_key_value(todo_file: &str, todo_id: &str, key: &str) -> Result<(), 
     Ok(())
 }
 
+/// Rewrite the line of the item with `todo_id` in place, handing it to `transform`
+/// and leaving every other line — blank ones and completed ones included —
+/// byte-identical. Nothing is written when the transform changes nothing, so a
+/// no-op edit does not touch the file's mtime and wake the watcher. Reports
+/// whether it wrote.
+fn rewrite_item_line(
+    todo_file: &str,
+    todo_id: &str,
+    transform: impl Fn(&str) -> String,
+) -> Result<bool, Box<dyn Error>> {
+    let content = fs::read_to_string(todo_file)?;
+    let lines: Vec<&str> = content.lines().collect();
+    let mut new_lines = Vec::with_capacity(lines.len());
+    let mut changed = false;
+
+    for (line_num, line) in lines.iter().enumerate() {
+        if line.trim().is_empty() || line.starts_with("x ") {
+            new_lines.push((*line).to_string());
+            continue;
+        }
+        let todo = Item::parse(line, line_num + 1);
+        if todo.id.as_deref() != Some(todo_id) {
+            new_lines.push((*line).to_string());
+            continue;
+        }
+        let new_line = transform(line);
+        changed |= new_line != *line;
+        new_lines.push(new_line);
+    }
+
+    if changed {
+        let mut out = new_lines.join("\n");
+        if content.ends_with('\n') {
+            out.push('\n');
+        }
+        fs::write(todo_file, out)?;
+    }
+    Ok(changed)
+}
+
+/// Drop the URLs in `remove` from `line`, then append the ones in `add` that are
+/// not on it already. URLs live in the description rather than in `key_values` —
+/// `split_key_value` deliberately lets `://` tokens through — so they are matched
+/// as whole whitespace-separated tokens, and only tokens that are themselves URLs
+/// can be removed. Removal runs first so one call can swap one URL for another;
+/// a URL handed to both therefore survives.
+fn apply_url_edits(line: &str, add: &[String], remove: &[String]) -> String {
+    let mut tokens: Vec<&str> = line
+        .split_whitespace()
+        .filter(|tok| !(crate::url::is_url(tok) && remove.iter().any(|url| url == tok)))
+        .collect();
+    for url in add {
+        if !tokens.contains(&url.as_str()) {
+            tokens.push(url);
+        }
+    }
+    tokens.join(" ")
+}
+
+/// Append URLs to the item with `todo_id`, and drop others from it. The new ones
+/// go at the end of the line, where `replace_key_value` already puts the tags it
+/// writes. A URL the item already carries is not appended twice, and one it never
+/// had is not an error to remove — the same "absent is not an error" stance as
+/// [`clear_key_value`].
+pub fn edit_urls(
+    todo_file: &str,
+    todo_id: &str,
+    add: &[String],
+    remove: &[String],
+) -> Result<(), Box<dyn Error>> {
+    if rewrite_item_line(todo_file, todo_id, |line| {
+        apply_url_edits(line, add, remove)
+    })? {
+        debug!("Edited urls on {todo_id} in {todo_file}");
+    }
+    Ok(())
+}
+
 pub fn move_to_file(
     source_file: &str,
     dest_file: &str,
@@ -2703,5 +2781,88 @@ Learn Rust +learning @coding id:task-003";
             "got {spawned}"
         );
         assert!(!spawned.contains("due:"));
+    }
+
+    fn urls(values: &[&str]) -> Vec<String> {
+        values.iter().map(|v| (*v).to_string()).collect()
+    }
+
+    #[test]
+    fn apply_url_edits_appends_at_the_end_of_the_line() {
+        assert_eq!(
+            apply_url_edits(
+                "Write docs +torudo id:t1",
+                &urls(&["https://example.com/a"]),
+                &[]
+            ),
+            "Write docs +torudo id:t1 https://example.com/a"
+        );
+    }
+
+    #[test]
+    fn apply_url_edits_keeps_a_url_the_line_already_has() {
+        let line = "Write docs https://example.com/a id:t1";
+        assert_eq!(
+            apply_url_edits(line, &urls(&["https://example.com/a"]), &[]),
+            line
+        );
+    }
+
+    #[test]
+    fn apply_url_edits_drops_only_the_url_asked_for() {
+        assert_eq!(
+            apply_url_edits(
+                "Write docs https://example.com/a https://example.com/b id:t1",
+                &[],
+                &urls(&["https://example.com/a"])
+            ),
+            "Write docs https://example.com/b id:t1"
+        );
+    }
+
+    #[test]
+    fn apply_url_edits_removes_before_it_appends() {
+        assert_eq!(
+            apply_url_edits(
+                "Write docs https://example.com/old id:t1",
+                &urls(&["https://example.com/new"]),
+                &urls(&["https://example.com/old"])
+            ),
+            "Write docs id:t1 https://example.com/new"
+        );
+    }
+
+    #[test]
+    fn apply_url_edits_will_not_remove_a_token_that_is_not_a_url() {
+        // `remove` reaches here validated, but the guard means a caller that hands
+        // it `id:t1` cannot strip the id off the line.
+        let line = "Write docs id:t1";
+        assert_eq!(apply_url_edits(line, &[], &urls(&["id:t1"])), line);
+    }
+
+    #[test]
+    fn apply_url_edits_leaves_a_line_it_changes_nothing_on_alone() {
+        let line = "Write docs id:t1";
+        assert_eq!(apply_url_edits(line, &[], &urls(&["https://absent"])), line);
+    }
+
+    #[test]
+    fn edit_urls_touches_only_the_item_with_the_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("todo.txt");
+        fs::write(&file, "Write docs id:t1\nShip it id:t2\n").unwrap();
+
+        edit_urls(
+            file.to_str().unwrap(),
+            "t1",
+            &urls(&["https://example.com/a"]),
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            "Write docs id:t1 https://example.com/a\nShip it id:t2\n"
+        );
     }
 }

@@ -1,4 +1,7 @@
-fn is_url(word: &str) -> bool {
+/// Whether `word` is a URL torudo will treat as one: `http://` or `https://`,
+/// and nothing else. Public because the CLI validates `link`'s arguments against
+/// the same rule the TUI opens links by, so the two can never drift apart.
+pub fn is_url(word: &str) -> bool {
     word.starts_with("https://") || word.starts_with("http://")
 }
 

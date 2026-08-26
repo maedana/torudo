@@ -1240,3 +1240,241 @@ fn done_list_with_md_requires_json() {
 
     fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn link_appends_a_url_to_the_line() {
+    let dir = fresh_dir("torudo_it_link_append");
+    fs::write(dir.join("todo.txt"), "Write docs +torudo id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "link", "t1", "https://example.com/a"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["id"], "t1");
+    assert_eq!(json["title"], "Write docs https://example.com/a");
+
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(todo.contains("https://example.com/a"), "todo.txt: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn link_appends_several_urls_at_once() {
+    let dir = fresh_dir("torudo_it_link_many");
+    fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
+
+    let output = run(
+        &dir,
+        &[
+            "todo",
+            "link",
+            "t1",
+            "https://example.com/a",
+            "https://example.com/b",
+        ],
+    );
+    stdout_of(&output);
+
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(todo.contains("https://example.com/a"), "todo.txt: {todo}");
+    assert!(todo.contains("https://example.com/b"), "todo.txt: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn link_skips_a_url_the_item_already_has() {
+    let dir = fresh_dir("torudo_it_link_dedup");
+    fs::write(
+        dir.join("todo.txt"),
+        "Write docs https://example.com/a id:t1\n",
+    )
+    .unwrap();
+
+    let output = run(&dir, &["todo", "link", "t1", "https://example.com/a"]);
+    stdout_of(&output);
+
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert_eq!(
+        todo.matches("https://example.com/a").count(),
+        1,
+        "the url is not duplicated: {todo}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn link_removes_a_url() {
+    let dir = fresh_dir("torudo_it_link_remove");
+    fs::write(
+        dir.join("todo.txt"),
+        "Write docs https://example.com/a https://example.com/b id:t1\n",
+    )
+    .unwrap();
+
+    let output = run(
+        &dir,
+        &["todo", "link", "t1", "--remove", "https://example.com/a"],
+    );
+    stdout_of(&output);
+
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(!todo.contains("https://example.com/a"), "todo.txt: {todo}");
+    assert!(todo.contains("https://example.com/b"), "todo.txt: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn link_remove_of_an_absent_url_succeeds() {
+    let dir = fresh_dir("torudo_it_link_remove_absent");
+    fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
+
+    let output = run(
+        &dir,
+        &["todo", "link", "t1", "--remove", "https://example.com/a"],
+    );
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["title"], "Write docs");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn link_swaps_a_url_in_one_call() {
+    let dir = fresh_dir("torudo_it_link_swap");
+    fs::write(
+        dir.join("todo.txt"),
+        "Write docs https://example.com/old id:t1\n",
+    )
+    .unwrap();
+
+    let output = run(
+        &dir,
+        &[
+            "todo",
+            "link",
+            "t1",
+            "https://example.com/new",
+            "--remove",
+            "https://example.com/old",
+        ],
+    );
+    stdout_of(&output);
+
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(
+        !todo.contains("https://example.com/old"),
+        "todo.txt: {todo}"
+    );
+    assert!(todo.contains("https://example.com/new"), "todo.txt: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn link_keeps_the_rest_of_the_line_intact() {
+    let dir = fresh_dir("torudo_it_link_intact");
+    fs::write(
+        dir.join("todo.txt"),
+        "(A) 2026-08-01 Write docs +torudo @home time:short id:t1 t:2026-09-01\n",
+    )
+    .unwrap();
+
+    let output = run(&dir, &["todo", "link", "t1", "https://example.com/a"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["priority"], "A");
+    assert_eq!(json["creation_date"], "2026-08-01");
+    assert_eq!(json["projects"][0], "torudo");
+    assert_eq!(json["contexts"][0], "home");
+    assert_eq!(json["key_values"]["time"], "short");
+    assert_eq!(json["key_values"]["t"], "2026-09-01");
+    assert_eq!(json["id"], "t1");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn link_leaves_the_other_items_alone() {
+    let dir = fresh_dir("torudo_it_link_others");
+    fs::write(dir.join("todo.txt"), "Write docs id:t1\nShip it id:t2\n").unwrap();
+
+    let output = run(&dir, &["todo", "link", "t1", "https://example.com/a"]);
+    stdout_of(&output);
+
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(
+        todo.contains("Ship it id:t2"),
+        "the untouched line is byte-identical: {todo}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn link_on_unknown_id_fails() {
+    let dir = fresh_dir("torudo_it_link_unknown");
+    fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "link", "nope", "https://example.com/a"]);
+
+    assert!(!output.status.success(), "unknown id should exit non-zero");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("nope"),
+        "stderr should name the id: {stderr}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn link_without_any_url_fails() {
+    let dir = fresh_dir("torudo_it_link_no_url");
+    fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "link", "t1"]);
+
+    assert!(!output.status.success(), "no-op link should exit non-zero");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn link_rejects_a_value_that_is_not_a_url() {
+    let dir = fresh_dir("torudo_it_link_not_a_url");
+    fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
+
+    let output = run(&dir, &["todo", "link", "t1", "example.com"]);
+
+    assert!(!output.status.success(), "a bare host is rejected");
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(!todo.contains("example.com"), "nothing is written: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn link_works_in_every_mode() {
+    let dir = fresh_dir("torudo_it_link_modes");
+    for (mode, file) in [
+        ("inbox", "inbox.txt"),
+        ("waiting", "waiting.txt"),
+        ("ref", "ref.txt"),
+        ("someday", "someday.txt"),
+    ] {
+        fs::write(dir.join(file), "Read it id:x1\n").unwrap();
+        let output = run(&dir, &[mode, "link", "x1", "https://example.com/a"]);
+        stdout_of(&output);
+        let content = fs::read_to_string(dir.join(file)).unwrap();
+        assert!(
+            content.contains("https://example.com/a"),
+            "mode {mode}: {content}"
+        );
+    }
+
+    fs::remove_dir_all(&dir).ok();
+}
