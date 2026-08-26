@@ -91,6 +91,16 @@ enum Commands {
         #[arg(long, value_enum)]
         mode: Option<cli::ModeName>,
     },
+    #[command(flatten)]
+    Item(cli::ItemAction),
+    /// Bring a completed item back out of done.txt
+    Reopen {
+        /// Id of the completed item to bring back
+        id: String,
+        /// Mode to bring it back into
+        #[arg(long, value_enum, default_value = "todo")]
+        to: cli::ModeName,
+    },
     /// Inbox operations
     Inbox {
         #[command(subcommand)]
@@ -184,6 +194,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     if let Some(Commands::Done { action }) = &args.command {
         let todotxt_dir = resolve_todotxt_dir(args.todotxt_dir.clone());
         return cli::run_done(action, &todotxt_dir);
+    }
+    if let Some(Commands::Item(action)) = &args.command {
+        let todotxt_dir = resolve_todotxt_dir(args.todotxt_dir.clone());
+        return cli::run_item(action, &todotxt_dir);
+    }
+    if let Some(Commands::Reopen { id, to }) = &args.command {
+        let todotxt_dir = resolve_todotxt_dir(args.todotxt_dir.clone());
+        return cli::run_reopen(id, *to, &todotxt_dir);
     }
 
     let todotxt_dir = resolve_todotxt_dir(args.todotxt_dir);

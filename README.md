@@ -82,9 +82,11 @@ torudo -d
 torudo --nvim-listen /tmp/my-nvim.sock
 ```
 
-### Working with Modes from Outside the TUI
+### Working with Items from Outside the TUI
 
-Every GTD mode is reachable from the CLI without the TUI running, which makes torudo usable from launchers, shell scripts, editor keybindings, and agents. `<mode>` is one of `inbox`, `todo`, `waiting`, `ref`, `someday`.
+Everything torudo holds is reachable from the CLI without the TUI running, which makes it usable from launchers, shell scripts, editor keybindings, and agents.
+
+The CLI splits along one line: a **mode** is a place, so `add` and `list` name one (`<mode>` is `inbox`, `todo`, `waiting`, `ref`, or `someday`). An **item** is a thing, and its `id:` is unique across the files, so `set`, `link`, `complete`, `promote` and `show` take just the id and find the mode themselves. `reopen` is the exception that takes `--to`, because there the mode is the destination: the item is in `done.txt`, and nothing records which file it left.
 
 ```bash
 # Capture a new task into the inbox
@@ -104,48 +106,49 @@ torudo todo list --json
 torudo todo list --json --with-md
 
 # Set GTD tags on an item (--time short|medium|long, --energy low|high)
-torudo todo set <id> --time short --energy low
+torudo set <id> --time short --energy low
 
 # Make an item recur on completion (see "Recurring Items" below)
-torudo todo set <id> --rec 1w
+torudo set <id> --rec 1w
 
 # Stop an item recurring
-torudo todo set <id> --rec none
+torudo set <id> --rec none
 
 # Set the priority (a-e, uppercase also works)
-torudo todo set <id> --priority a
+torudo set <id> --priority a
 
 # Clear the priority
-torudo todo set <id> --priority none
+torudo set <id> --priority none
 
 # Push an item out to a date (t:) — until then it sorts last and renders dimmed
-torudo todo set <id> --threshold 2026-08-24
+torudo set <id> --threshold 2026-08-24
 
 # Give it a deadline (due:)
-torudo todo set <id> --due 2026-08-31
+torudo set <id> --due 2026-08-31
 
 # Drop the threshold, or the deadline — none is case-insensitive here and above
-torudo todo set <id> --threshold none
-torudo todo set <id> --due none
+torudo set <id> --threshold none
+torudo set <id> --due none
 
 # Attach a URL to an item that already exists — the TUI opens line URLs with `o`
-torudo todo link <id> https://example.com/spec
+torudo link <id> https://example.com/spec
 
 # Attach several at once, drop one, or swap one for another in a single write
-torudo todo link <id> https://a.example https://b.example
-torudo todo link <id> --remove https://a.example
-torudo todo link <id> https://new.example --remove https://b.example
+torudo link <id> https://a.example https://b.example
+torudo link <id> --remove https://a.example
+torudo link <id> https://new.example --remove https://b.example
 
 # Move an item to another mode
-torudo inbox promote <id> --to todo
+torudo promote <id> --to todo
 
 # Complete an item — moves it to done.txt with today's date (Todo / Waiting only)
 # A recurring item also gets a "recurrence" field with the next occurrence's id/dates
-torudo todo complete <id>
+torudo complete <id>
 
-# Look at the archive, and undo a completion
+# Look at the archive, and undo a completion (back into todo unless --to says otherwise)
 torudo done list --json
-torudo todo reopen <id>
+torudo reopen <id>
+torudo reopen <id> --to someday
 
 # Search titles, +project / @context tags, and detail-md content across every mode
 # (done.txt is never included)
@@ -243,7 +246,7 @@ This ensures high-priority items are always visible at the top while preserving 
 
 ### Display Features
 
-- **Threshold dates** (`t:YYYY-MM-DD`): future items sort to bottom and render dimmed; set or clear one with `torudo <mode> set <id> --threshold`
+- **Threshold dates** (`t:YYYY-MM-DD`): future items sort to bottom and render dimmed; set or clear one with `torudo set <id> --threshold`
 - **Overdue highlighting** (`due:YYYY-MM-DD`): items past due render with a red border
 - **Detail md preview** (Todo / Waiting tabs): top 3 unchecked `- [ ]` from `todos/{id}.md` shown inline on each card
 - **Detail md badge** (Todo / Waiting tabs): right-aligned `{done}/{total} {elapsed}` (e.g. `2/7  5m`) on each card; updates live
@@ -259,9 +262,9 @@ Add `rec:<pattern>` to an item to spawn its next occurrence automatically when y
 
 A strict (`+`) pattern that has fallen a long way behind catches up in one go: the pattern is applied repeatedly until the next date lands *after* the day you completed it, so completing a `due:2025-01-01 rec:+1m` item on 2026-08-15 gives you 2026-09-01 rather than 2025-02-01. You never have to complete an item nineteen times to work off a backlog, and the schedule still lines up with the original day of the month. (This is a deliberate departure from topydo, which only ever advances one period.)
 
-To stop an item repeating, clear the tag with `torudo <mode> set <id> --rec none`.
+To stop an item repeating, clear the tag with `torudo set <id> --rec none`.
 
-Completing a recurring item still moves the original line to `done.txt` as usual, and also appends a new line to the same mode file: a fresh `id:`, today as the creation date, `t:`/`due:` shifted by the pattern (the gap between them is preserved), and everything else — priority, `+project`, `@context`, `rec:`, `time:`, `energy:` — carried over unchanged. If the item has a `todos/{id}.md` detail file, it is copied to the new id with every `- [x]` checkbox reset to `- [ ]` (so a written-out procedure survives, just unchecked) and the frontmatter's `branch:` line dropped (`cwd:` is kept). An invalid `rec:` value never blocks completion — it just skips creating a next occurrence and reports why, both on the TUI status line and (for `torudo todo complete`) as a warning on stderr.
+Completing a recurring item still moves the original line to `done.txt` as usual, and also appends a new line to the same mode file: a fresh `id:`, today as the creation date, `t:`/`due:` shifted by the pattern (the gap between them is preserved), and everything else — priority, `+project`, `@context`, `rec:`, `time:`, `energy:` — carried over unchanged. If the item has a `todos/{id}.md` detail file, it is copied to the new id with every `- [x]` checkbox reset to `- [ ]` (so a written-out procedure survives, just unchecked) and the frontmatter's `branch:` line dropped (`cwd:` is kept). An invalid `rec:` value never blocks completion — it just skips creating a next occurrence and reports why, both on the TUI status line and (for `torudo complete`) as a warning on stderr.
 
 ### Vim Integration
 

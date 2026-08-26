@@ -101,10 +101,7 @@ fn set_writes_time_and_energy_tags() {
     let dir = fresh_dir("torudo_it_set_tags");
     fs::write(dir.join("todo.txt"), "Write docs +torudo id:t1\n").unwrap();
 
-    let output = run(
-        &dir,
-        &["todo", "set", "t1", "--time", "short", "--energy", "low"],
-    );
+    let output = run(&dir, &["set", "t1", "--time", "short", "--energy", "low"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["id"], "t1");
@@ -123,7 +120,7 @@ fn set_replaces_an_existing_value() {
     let dir = fresh_dir("torudo_it_set_replace");
     fs::write(dir.join("todo.txt"), "Write docs id:t1 time:long\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--time", "short"]);
+    let output = run(&dir, &["set", "t1", "--time", "short"]);
     stdout_of(&output);
 
     let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
@@ -138,7 +135,7 @@ fn set_accepts_a_single_option() {
     let dir = fresh_dir("torudo_it_set_single");
     fs::write(dir.join("inbox.txt"), "Capture me id:i1\n").unwrap();
 
-    let output = run(&dir, &["inbox", "set", "i1", "--energy", "high"]);
+    let output = run(&dir, &["set", "i1", "--energy", "high"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["key_values"]["energy"], "high");
@@ -152,7 +149,7 @@ fn set_on_unknown_id_fails() {
     let dir = fresh_dir("torudo_it_set_unknown");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "nope", "--time", "short"]);
+    let output = run(&dir, &["set", "nope", "--time", "short"]);
 
     assert!(!output.status.success(), "unknown id should exit non-zero");
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -169,7 +166,7 @@ fn set_without_any_option_fails() {
     let dir = fresh_dir("torudo_it_set_no_option");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1"]);
+    let output = run(&dir, &["set", "t1"]);
 
     assert!(!output.status.success(), "no-op set should exit non-zero");
 
@@ -181,7 +178,7 @@ fn set_writes_a_recurrence_tag() {
     let dir = fresh_dir("torudo_it_set_rec");
     fs::write(dir.join("todo.txt"), "Pay rent id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--rec", "+1m"]);
+    let output = run(&dir, &["set", "t1", "--rec", "+1m"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["key_values"]["rec"], "+1m");
@@ -200,7 +197,7 @@ fn set_rec_none_clears_the_recurrence_tag() {
     )
     .unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--rec", "none"]);
+    let output = run(&dir, &["set", "t1", "--rec", "none"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert!(
@@ -225,7 +222,7 @@ fn set_rec_none_is_case_insensitive() {
     )
     .unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--rec", "None"]);
+    let output = run(&dir, &["set", "t1", "--rec", "None"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert!(
@@ -248,7 +245,7 @@ fn set_rec_none_succeeds_on_an_item_without_a_recurrence_tag() {
     let dir = fresh_dir("torudo_it_set_rec_none_absent");
     fs::write(dir.join("todo.txt"), "Pay rent +home id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--rec", "none"]);
+    let output = run(&dir, &["set", "t1", "--rec", "none"]);
 
     assert!(
         output.status.success(),
@@ -266,7 +263,7 @@ fn set_rejects_an_invalid_recurrence_pattern() {
     let dir = fresh_dir("torudo_it_set_rec_invalid");
     fs::write(dir.join("todo.txt"), "Pay rent id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--rec", "banana"]);
+    let output = run(&dir, &["set", "t1", "--rec", "banana"]);
 
     assert!(
         !output.status.success(),
@@ -283,7 +280,7 @@ fn set_writes_a_threshold_tag() {
     let dir = fresh_dir("torudo_it_set_threshold");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--threshold", "2026-08-24"]);
+    let output = run(&dir, &["set", "t1", "--threshold", "2026-08-24"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["key_values"]["t"], "2026-08-24");
@@ -298,7 +295,7 @@ fn set_writes_a_due_tag() {
     let dir = fresh_dir("torudo_it_set_due");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--due", "2026-08-24"]);
+    let output = run(&dir, &["set", "t1", "--due", "2026-08-24"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["key_values"]["due"], "2026-08-24");
@@ -317,7 +314,7 @@ fn set_replaces_an_existing_threshold() {
     )
     .unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--threshold", "2026-08-24"]);
+    let output = run(&dir, &["set", "t1", "--threshold", "2026-08-24"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["key_values"]["t"], "2026-08-24");
@@ -340,7 +337,7 @@ fn set_threshold_none_clears_the_threshold_tag() {
     )
     .unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--threshold", "none"]);
+    let output = run(&dir, &["set", "t1", "--threshold", "none"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert!(
@@ -368,7 +365,7 @@ fn set_threshold_none_is_case_insensitive() {
     )
     .unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--threshold", "NONE"]);
+    let output = run(&dir, &["set", "t1", "--threshold", "NONE"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert!(
@@ -397,7 +394,7 @@ fn set_due_none_clears_the_due_tag() {
     )
     .unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--due", "none"]);
+    let output = run(&dir, &["set", "t1", "--due", "none"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert!(
@@ -419,7 +416,7 @@ fn set_threshold_none_succeeds_on_an_item_without_a_threshold_tag() {
     let dir = fresh_dir("torudo_it_set_threshold_none_absent");
     fs::write(dir.join("todo.txt"), "Pay rent +home id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--threshold", "none"]);
+    let output = run(&dir, &["set", "t1", "--threshold", "none"]);
 
     assert!(
         output.status.success(),
@@ -437,7 +434,7 @@ fn set_rejects_a_relative_threshold() {
     let dir = fresh_dir("torudo_it_set_threshold_relative");
     fs::write(dir.join("todo.txt"), "Pay rent id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--threshold", "next monday"]);
+    let output = run(&dir, &["set", "t1", "--threshold", "next monday"]);
 
     assert!(
         !output.status.success(),
@@ -461,7 +458,7 @@ fn set_rejects_an_impossible_due_date() {
     let dir = fresh_dir("torudo_it_set_due_impossible");
     fs::write(dir.join("todo.txt"), "Pay rent id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--due", "2026-02-30"]);
+    let output = run(&dir, &["set", "t1", "--due", "2026-02-30"]);
 
     assert!(
         !output.status.success(),
@@ -483,7 +480,6 @@ fn set_writes_a_threshold_and_a_due_together() {
     let output = run(
         &dir,
         &[
-            "todo",
             "set",
             "t1",
             "--threshold",
@@ -512,7 +508,7 @@ fn set_rejects_an_invalid_value() {
     let dir = fresh_dir("torudo_it_set_invalid");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--time", "huge"]);
+    let output = run(&dir, &["set", "t1", "--time", "huge"]);
 
     assert!(
         !output.status.success(),
@@ -530,7 +526,7 @@ fn set_writes_a_priority() {
     let dir = fresh_dir("torudo_it_set_priority");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--priority", "a"]);
+    let output = run(&dir, &["set", "t1", "--priority", "a"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["priority"], "A");
@@ -546,7 +542,7 @@ fn set_replaces_an_existing_priority() {
     let dir = fresh_dir("torudo_it_set_priority_replace");
     fs::write(dir.join("todo.txt"), "(A) Write docs id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--priority", "c"]);
+    let output = run(&dir, &["set", "t1", "--priority", "c"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["priority"], "C");
@@ -563,7 +559,7 @@ fn set_priority_none_clears_the_priority() {
     let dir = fresh_dir("torudo_it_set_priority_none");
     fs::write(dir.join("todo.txt"), "(X) Write docs id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--priority", "none"]);
+    let output = run(&dir, &["set", "t1", "--priority", "none"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert!(
@@ -582,7 +578,7 @@ fn set_priority_accepts_an_uppercase_value() {
     let dir = fresh_dir("torudo_it_set_priority_upper");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--priority", "B"]);
+    let output = run(&dir, &["set", "t1", "--priority", "B"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["priority"], "B");
@@ -595,7 +591,7 @@ fn set_priority_accepts_the_lowest_level() {
     let dir = fresh_dir("torudo_it_set_priority_lowest");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--priority", "e"]);
+    let output = run(&dir, &["set", "t1", "--priority", "e"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["priority"], "E");
@@ -608,7 +604,7 @@ fn set_rejects_an_invalid_priority() {
     let dir = fresh_dir("torudo_it_set_priority_invalid");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "t1", "--priority", "z"]);
+    let output = run(&dir, &["set", "t1", "--priority", "z"]);
 
     assert!(
         !output.status.success(),
@@ -625,7 +621,7 @@ fn set_priority_on_unknown_id_fails() {
     let dir = fresh_dir("torudo_it_set_priority_unknown");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "set", "nope", "--priority", "a"]);
+    let output = run(&dir, &["set", "nope", "--priority", "a"]);
 
     assert!(!output.status.success(), "unknown id should exit non-zero");
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -646,7 +642,7 @@ fn promote_moves_an_item_between_modes() {
     )
     .unwrap();
 
-    let output = run(&dir, &["inbox", "promote", "i1", "--to", "todo"]);
+    let output = run(&dir, &["promote", "i1", "--to", "todo"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["id"], "i1");
@@ -668,7 +664,7 @@ fn promote_creates_the_target_file_when_missing() {
     let dir = fresh_dir("torudo_it_promote_lazy_file");
     fs::write(dir.join("todo.txt"), "Someday maybe id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "promote", "t1", "--to", "someday"]);
+    let output = run(&dir, &["promote", "t1", "--to", "someday"]);
     stdout_of(&output);
 
     let someday = fs::read_to_string(dir.join("someday.txt")).unwrap();
@@ -682,7 +678,7 @@ fn promote_on_unknown_id_fails() {
     let dir = fresh_dir("torudo_it_promote_unknown");
     fs::write(dir.join("inbox.txt"), "Capture me id:i1\n").unwrap();
 
-    let output = run(&dir, &["inbox", "promote", "nope", "--to", "todo"]);
+    let output = run(&dir, &["promote", "nope", "--to", "todo"]);
 
     assert!(!output.status.success(), "unknown id should exit non-zero");
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -699,7 +695,7 @@ fn promote_to_the_same_mode_fails() {
     let dir = fresh_dir("torudo_it_promote_same");
     fs::write(dir.join("inbox.txt"), "Capture me id:i1\n").unwrap();
 
-    let output = run(&dir, &["inbox", "promote", "i1", "--to", "inbox"]);
+    let output = run(&dir, &["promote", "i1", "--to", "inbox"]);
 
     assert!(
         !output.status.success(),
@@ -720,7 +716,7 @@ fn complete_moves_the_item_to_done() {
     )
     .unwrap();
 
-    let output = run(&dir, &["todo", "complete", "t1"]);
+    let output = run(&dir, &["complete", "t1"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["id"], "t1");
@@ -747,7 +743,7 @@ fn complete_works_from_waiting() {
     let dir = fresh_dir("torudo_it_complete_waiting");
     fs::write(dir.join("waiting.txt"), "Waiting on bob id:w1\n").unwrap();
 
-    let output = run(&dir, &["waiting", "complete", "w1"]);
+    let output = run(&dir, &["complete", "w1"]);
     stdout_of(&output);
 
     let done = fs::read_to_string(dir.join("done.txt")).unwrap();
@@ -770,7 +766,7 @@ fn complete_spawns_the_next_occurrence() {
     )
     .unwrap();
 
-    let output = run(&dir, &["todo", "complete", "r1"]);
+    let output = run(&dir, &["complete", "r1"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["id"], "r1");
@@ -803,7 +799,7 @@ fn complete_with_an_invalid_rec_warns_but_still_succeeds() {
     let dir = fresh_dir("torudo_it_complete_rec_invalid");
     fs::write(dir.join("todo.txt"), "Pay rent +home rec:1b id:r2\n").unwrap();
 
-    let output = run(&dir, &["todo", "complete", "r2"]);
+    let output = run(&dir, &["complete", "r2"]);
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -830,7 +826,7 @@ fn complete_without_a_rec_tag_leaves_the_recurrence_field_out() {
     let dir = fresh_dir("torudo_it_complete_no_rec");
     fs::write(dir.join("todo.txt"), "Write docs id:r3\n").unwrap();
 
-    let output = run(&dir, &["todo", "complete", "r3"]);
+    let output = run(&dir, &["complete", "r3"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert!(
@@ -856,14 +852,14 @@ fn complete_after_clearing_due_falls_back_to_the_completion_date() {
     )
     .unwrap();
 
-    let cleared = run(&dir, &["todo", "set", "r4", "--due", "none"]);
+    let cleared = run(&dir, &["set", "r4", "--due", "none"]);
     let cleared_json: serde_json::Value = serde_json::from_str(stdout_of(&cleared).trim()).unwrap();
     assert!(
         cleared_json["key_values"].get("due").is_none(),
         "due is gone before the completion: {cleared_json}"
     );
 
-    let output = run(&dir, &["todo", "complete", "r4"]);
+    let output = run(&dir, &["complete", "r4"]);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         !stderr.contains("rec:"),
@@ -910,14 +906,14 @@ fn complete_after_clearing_a_threshold_only_recurrence_gains_a_due_date() {
     )
     .unwrap();
 
-    let cleared = run(&dir, &["todo", "set", "w5", "--threshold", "none"]);
+    let cleared = run(&dir, &["set", "w5", "--threshold", "none"]);
     let cleared_json: serde_json::Value = serde_json::from_str(stdout_of(&cleared).trim()).unwrap();
     assert!(
         cleared_json["key_values"].get("t").is_none(),
         "t is gone before the completion: {cleared_json}"
     );
 
-    let output = run(&dir, &["todo", "complete", "w5"]);
+    let output = run(&dir, &["complete", "w5"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["completed"], true);
@@ -952,7 +948,7 @@ fn complete_from_inbox_is_refused() {
     let dir = fresh_dir("torudo_it_complete_inbox");
     fs::write(dir.join("inbox.txt"), "Capture me id:i1\n").unwrap();
 
-    let output = run(&dir, &["inbox", "complete", "i1"]);
+    let output = run(&dir, &["complete", "i1"]);
 
     assert!(
         !output.status.success(),
@@ -979,7 +975,7 @@ fn complete_on_unknown_id_fails() {
     let dir = fresh_dir("torudo_it_complete_unknown");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "complete", "nope"]);
+    let output = run(&dir, &["complete", "nope"]);
 
     assert!(!output.status.success(), "unknown id should exit non-zero");
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1001,7 +997,7 @@ fn reopen_brings_an_item_back_from_done() {
     .unwrap();
     fs::write(dir.join("todo.txt"), "Existing id:t9\n").unwrap();
 
-    let output = run(&dir, &["todo", "reopen", "d1"]);
+    let output = run(&dir, &["reopen", "d1"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["id"], "d1");
@@ -1026,7 +1022,7 @@ fn reopen_can_target_any_mode() {
     let dir = fresh_dir("torudo_it_reopen_mode");
     fs::write(dir.join("done.txt"), "x 2026-08-15 Rethink this id:d1\n").unwrap();
 
-    let output = run(&dir, &["someday", "reopen", "d1"]);
+    let output = run(&dir, &["reopen", "d1", "--to", "someday"]);
     stdout_of(&output);
 
     let someday = fs::read_to_string(dir.join("someday.txt")).unwrap();
@@ -1040,7 +1036,7 @@ fn reopen_on_unknown_id_fails() {
     let dir = fresh_dir("torudo_it_reopen_unknown");
     fs::write(dir.join("done.txt"), "x 2026-08-15 Write docs id:d1\n").unwrap();
 
-    let output = run(&dir, &["todo", "reopen", "nope"]);
+    let output = run(&dir, &["reopen", "nope"]);
 
     assert!(!output.status.success(), "unknown id should exit non-zero");
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1246,7 +1242,7 @@ fn link_appends_a_url_to_the_line() {
     let dir = fresh_dir("torudo_it_link_append");
     fs::write(dir.join("todo.txt"), "Write docs +torudo id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "link", "t1", "https://example.com/a"]);
+    let output = run(&dir, &["link", "t1", "https://example.com/a"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["id"], "t1");
@@ -1266,7 +1262,6 @@ fn link_appends_several_urls_at_once() {
     let output = run(
         &dir,
         &[
-            "todo",
             "link",
             "t1",
             "https://example.com/a",
@@ -1291,7 +1286,7 @@ fn link_skips_a_url_the_item_already_has() {
     )
     .unwrap();
 
-    let output = run(&dir, &["todo", "link", "t1", "https://example.com/a"]);
+    let output = run(&dir, &["link", "t1", "https://example.com/a"]);
     stdout_of(&output);
 
     let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
@@ -1313,10 +1308,7 @@ fn link_removes_a_url() {
     )
     .unwrap();
 
-    let output = run(
-        &dir,
-        &["todo", "link", "t1", "--remove", "https://example.com/a"],
-    );
+    let output = run(&dir, &["link", "t1", "--remove", "https://example.com/a"]);
     stdout_of(&output);
 
     let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
@@ -1331,10 +1323,7 @@ fn link_remove_of_an_absent_url_succeeds() {
     let dir = fresh_dir("torudo_it_link_remove_absent");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
 
-    let output = run(
-        &dir,
-        &["todo", "link", "t1", "--remove", "https://example.com/a"],
-    );
+    let output = run(&dir, &["link", "t1", "--remove", "https://example.com/a"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["title"], "Write docs");
@@ -1354,7 +1343,6 @@ fn link_swaps_a_url_in_one_call() {
     let output = run(
         &dir,
         &[
-            "todo",
             "link",
             "t1",
             "https://example.com/new",
@@ -1383,7 +1371,7 @@ fn link_keeps_the_rest_of_the_line_intact() {
     )
     .unwrap();
 
-    let output = run(&dir, &["todo", "link", "t1", "https://example.com/a"]);
+    let output = run(&dir, &["link", "t1", "https://example.com/a"]);
     let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
 
     assert_eq!(json["priority"], "A");
@@ -1402,7 +1390,7 @@ fn link_leaves_the_other_items_alone() {
     let dir = fresh_dir("torudo_it_link_others");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\nShip it id:t2\n").unwrap();
 
-    let output = run(&dir, &["todo", "link", "t1", "https://example.com/a"]);
+    let output = run(&dir, &["link", "t1", "https://example.com/a"]);
     stdout_of(&output);
 
     let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
@@ -1419,7 +1407,7 @@ fn link_on_unknown_id_fails() {
     let dir = fresh_dir("torudo_it_link_unknown");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "link", "nope", "https://example.com/a"]);
+    let output = run(&dir, &["link", "nope", "https://example.com/a"]);
 
     assert!(!output.status.success(), "unknown id should exit non-zero");
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1436,7 +1424,7 @@ fn link_without_any_url_fails() {
     let dir = fresh_dir("torudo_it_link_no_url");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "link", "t1"]);
+    let output = run(&dir, &["link", "t1"]);
 
     assert!(!output.status.success(), "no-op link should exit non-zero");
 
@@ -1448,7 +1436,7 @@ fn link_rejects_a_value_that_is_not_a_url() {
     let dir = fresh_dir("torudo_it_link_not_a_url");
     fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
 
-    let output = run(&dir, &["todo", "link", "t1", "example.com"]);
+    let output = run(&dir, &["link", "t1", "example.com"]);
 
     assert!(!output.status.success(), "a bare host is rejected");
     let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
@@ -1458,23 +1446,126 @@ fn link_rejects_a_value_that_is_not_a_url() {
 }
 
 #[test]
-fn link_works_in_every_mode() {
-    let dir = fresh_dir("torudo_it_link_modes");
+fn link_finds_the_item_in_whatever_mode_holds_it() {
     for (mode, file) in [
         ("inbox", "inbox.txt"),
         ("waiting", "waiting.txt"),
         ("ref", "ref.txt"),
         ("someday", "someday.txt"),
     ] {
+        let dir = fresh_dir(&format!("torudo_it_link_in_{mode}"));
         fs::write(dir.join(file), "Read it id:x1\n").unwrap();
-        let output = run(&dir, &[mode, "link", "x1", "https://example.com/a"]);
+
+        let output = run(&dir, &["link", "x1", "https://example.com/a"]);
         stdout_of(&output);
+
         let content = fs::read_to_string(dir.join(file)).unwrap();
         assert!(
             content.contains("https://example.com/a"),
             "mode {mode}: {content}"
         );
+        fs::remove_dir_all(&dir).ok();
     }
+}
+
+#[test]
+fn set_finds_the_item_in_whatever_mode_holds_it() {
+    let dir = fresh_dir("torudo_it_set_any_mode");
+    fs::write(dir.join("inbox.txt"), "Capture me id:i1\n").unwrap();
+    fs::write(dir.join("someday.txt"), "Maybe one day id:s1\n").unwrap();
+
+    stdout_of(&run(&dir, &["set", "i1", "--time", "short"]));
+    stdout_of(&run(&dir, &["set", "s1", "--priority", "b"]));
+
+    let inbox = fs::read_to_string(dir.join("inbox.txt")).unwrap();
+    assert!(inbox.contains("time:short"), "inbox.txt: {inbox}");
+    let someday = fs::read_to_string(dir.join("someday.txt")).unwrap();
+    assert!(someday.starts_with("(B) "), "someday.txt: {someday}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_on_a_completed_item_is_refused() {
+    let dir = fresh_dir("torudo_it_set_completed");
+    let done = "x 2026-08-15 Write docs id:d1\n";
+    fs::write(dir.join("done.txt"), done).unwrap();
+
+    let output = run(&dir, &["set", "d1", "--time", "short"]);
+
+    assert!(!output.status.success(), "a completed item is not editable");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("reopen"),
+        "stderr should point at reopen: {stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.join("done.txt")).unwrap(),
+        done,
+        "done.txt is untouched"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn link_on_a_completed_item_is_refused() {
+    let dir = fresh_dir("torudo_it_link_completed");
+    fs::write(dir.join("done.txt"), "x 2026-08-15 Write docs id:d1\n").unwrap();
+
+    let output = run(&dir, &["link", "d1", "https://example.com/a"]);
+
+    assert!(!output.status.success(), "a completed item is not editable");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("reopen"),
+        "stderr should point at reopen: {stderr}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn promote_finds_the_source_mode_itself() {
+    let dir = fresh_dir("torudo_it_promote_finds_source");
+    fs::write(dir.join("someday.txt"), "Maybe one day id:s1\n").unwrap();
+
+    stdout_of(&run(&dir, &["promote", "s1", "--to", "todo"]));
+
+    let someday = fs::read_to_string(dir.join("someday.txt")).unwrap();
+    assert!(!someday.contains("id:s1"), "gone from someday: {someday}");
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(todo.contains("Maybe one day"), "landed in todo: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn reopen_lands_in_todo_by_default() {
+    let dir = fresh_dir("torudo_it_reopen_default");
+    fs::write(dir.join("done.txt"), "x 2026-08-15 Write docs id:d1\n").unwrap();
+
+    stdout_of(&run(&dir, &["reopen", "d1"]));
+
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert!(todo.contains("Write docs"), "back in todo.txt: {todo}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn complete_reports_the_mode_it_refused() {
+    let dir = fresh_dir("torudo_it_complete_names_mode");
+    fs::write(dir.join("someday.txt"), "Maybe one day id:s1\n").unwrap();
+
+    let output = run(&dir, &["complete", "s1"]);
+
+    assert!(!output.status.success(), "Someday cannot complete");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Someday"),
+        "stderr names where it found the item: {stderr}"
+    );
 
     fs::remove_dir_all(&dir).ok();
 }

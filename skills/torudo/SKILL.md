@@ -7,26 +7,34 @@ description: Drive torudo (a todo.txt TUI) from natural language. Use whenever t
 
 torudo keeps one todo.txt-format file per GTD mode under `~/todotxt/` (`inbox.txt`,
 `todo.txt`, `waiting.txt`, `ref.txt`, `someday.txt`), plus per-item detail in
-`todos/{id}.md`. Every mode file is reachable from the CLI:
+`todos/{id}.md`. The whole of it is reachable from the CLI:
 
 ```bash
-torudo <mode> add <text>                             # append an item, print it as JSON
-torudo <mode> list [--json] [--with-md]              # list the mode's items
-torudo <mode> set <id> [--time ...] [--energy ...] [--rec ...] [--priority ...] [--threshold ...] [--due ...]  # set GTD tags / recurrence / priority / dates
-torudo <mode> link <id> <url>... [--remove <url>]     # attach URLs to an item that already exists
-torudo <mode> promote <id> --to <mode>               # move to another mode
-torudo <mode> complete <id>                          # finish it: move to done.txt
-torudo <mode> reopen <id>                            # pull it back out of done.txt
-torudo done list [--json] [--with-md]                # what has been completed
-torudo search <query> [--json] [--with-md] [--mode <mode>] # find an item by title, tag or detail text, across every mode
-torudo show <id>                                     # print one item by id, detail md included, from any mode
-torudo focus <id>                                    # move the running TUI's cursor onto an item
+# A mode is a place: put an item in it, or read what it holds.
+torudo <mode> add <text>                              # append an item, print it as JSON
+torudo <mode> list [--json] [--with-md]               # list the mode's items
+torudo done list [--json] [--with-md]                 # what has been completed
+
+# An item is a thing: its id says which one, so no mode is named.
+torudo show <id>                                      # print it as JSON, detail md included
+torudo set <id> [--time ...] [--energy ...] [--rec ...] [--priority ...] [--threshold ...] [--due ...]
+torudo link <id> <url>... [--remove <url>]            # attach URLs to it
+torudo complete <id>                                  # finish it: move to done.txt
+torudo promote <id> --to <mode>                       # move it to another mode
+torudo reopen <id> [--to <mode>]                      # pull it back out of done.txt (default: todo)
+torudo focus <id>                                     # move the running TUI's cursor onto it
+
+torudo search <query> [--json] [--with-md] [--mode <mode>] # find an item by title, tag or detail text
 ```
 
 `<mode>` is one of `inbox` / `todo` / `waiting` / `ref` / `someday`. Everything works
 whether or not the TUI is running — a running session picks the change up through its file
-watcher. Pass `--todotxt-dir <path>` **before** the mode when the user works out of a
+watcher. Pass `--todotxt-dir <path>` **before** the subcommand when the user works out of a
 non-default directory.
+
+An `id:` is unique across the files, so the commands above that take one find the item
+themselves. Never run a `search` or `show` first just to work out which mode something is in
+— the id has already answered that.
 
 Never edit the `.txt` files by hand — always go through these commands. The detail md files
 under `todos/` are the exception: their content is yours to author, so write them with
@@ -51,7 +59,7 @@ The text follows the todo.txt format, assembled in this order:
 - **Priority** — `(A)` through `(E)` only when the user explicitly signals urgency
   ("最優先で", "急ぎ", "(A)で"). Never invent one. This is only for what to embed at capture
   time; to change or clear the priority on an item that already exists, use
-  `torudo <mode> set <id> --priority` instead (see "Triaging" below).
+  `torudo set <id> --priority` instead (see "Triaging" below).
 - **`+project` / `@context`** — add only when the request makes it obvious (e.g. "torudoの
   リリース作業" → `+torudo`). When it is a guess, ask the user with AskUserQuestion instead
   of guessing; offering "タグなしで追加" as one of the options is usually right, since inbox
@@ -60,7 +68,7 @@ The text follows the todo.txt format, assembled in this order:
 - **`t:` / `due:`** — only when the user gave a date. Convert relative dates ("明日", "来週
   月曜") to absolute `YYYY-MM-DD` using today's date. This is only for what to embed at capture
   time; to add, move or drop a date on an item that already exists, use
-  `torudo <mode> set <id> --threshold` / `--due` instead (see "Triaging" below).
+  `torudo set <id> --threshold` / `--due` instead (see "Triaging" below).
 - **`rec:<count><unit>`** — only when the user says the task repeats ("毎週", "毎月",
   "定期で"). Unit is `d` / `w` / `m` / `y`. No `+` (e.g. `rec:1w`) counts from the day it gets
   completed — use it for chores like taking out the trash. A leading `+` (e.g. `rec:+1m`)
@@ -157,15 +165,15 @@ plan: /home/maedana/.claude/plans/2026-08-20-readme-dev-setup.md
 ## Triaging
 
 ```bash
-torudo inbox set i1 --time short --energy low   # time:short energy:low
-torudo todo set t1 --rec 1w                     # rec:1w — recur weekly from completion
-torudo todo set t1 --rec none                   # drop rec: — stop the item repeating
-torudo todo set t1 --priority a                 # (A) — bump it to top priority
-torudo todo set t1 --priority none              # drop the priority prefix
-torudo todo set t1 --threshold 2026-08-24       # t:2026-08-24 — hold it back until then
-torudo todo set t1 --due 2026-08-31             # due:2026-08-31 — the deadline
-torudo todo set t1 --threshold none             # drop t: — back in play right away
-torudo inbox promote i1 --to todo               # move inbox.txt → todo.txt
+torudo set i1 --time short --energy low  # time:short energy:low
+torudo set t1 --rec 1w                   # rec:1w — recur weekly from completion
+torudo set t1 --rec none                 # drop rec: — stop the item repeating
+torudo set t1 --priority a               # (A) — bump it to top priority
+torudo set t1 --priority none            # drop the priority prefix
+torudo set t1 --threshold 2026-08-24     # t:2026-08-24 — hold it back until then
+torudo set t1 --due 2026-08-31           # due:2026-08-31 — the deadline
+torudo set t1 --threshold none           # drop t: — back in play right away
+torudo promote i1 --to todo              # inbox.txt → todo.txt, source mode found for you
 ```
 
 - `--time` is `short` / `medium` / `long`, `--energy` is `low` / `high`, `--rec` is a pattern
@@ -185,7 +193,7 @@ torudo inbox promote i1 --to todo               # move inbox.txt → todo.txt
   really means to do today rather than everything they call "priority".
 - Postponing something is `--threshold`, not a move to another mode. "来週月曜まで寝かせて",
   "今日はやらない" and "月末まで置いといて" all point at `t:`, and a single
-  `torudo <mode> set <id> --threshold <YYYY-MM-DD>` is the whole of it. Work the relative date
+  `torudo set <id> --threshold <YYYY-MM-DD>` is the whole of it. Work the relative date
   out against today's date yourself — the CLI takes nothing but `YYYY-MM-DD`. Do not reach for
   `someday` here: that mode says "might never happen", which is not what "not yet" means. Say
   the date you arrived at back to the user ("8/24まで先送りしました"), so a bad conversion gets
@@ -196,18 +204,19 @@ torudo inbox promote i1 --to todo               # move inbox.txt → todo.txt
   away at review time is the survey's job, under the rule in "Reviewing what to do next".
 - Set the tags **before** promoting, so the item lands in Todo ready to be picked. That is
   the usual flow: capture → write the checklist → set time/energy → promote to todo.
-- Both commands need the item's `id` and fail loudly on an unknown one. Take the `id` from
-  `add`'s output or from `list --json`.
+- Both commands need the item's `id` and fail loudly on an unknown one, but neither needs to
+  know which mode holds it — that is what `set <id>` finds for itself. Take the `id` from
+  `add`'s output, from `list --json`, or from `search`.
 - Estimating time/energy is a judgment call about the user's own capacity — propose values
   with your reasoning and let the user correct them, unless they already said what they want.
 
 ## Attaching a URL to an item that already exists
 
 ```bash
-torudo todo link t1 https://example.com/spec              # append one URL to the line
-torudo todo link t1 https://a.example https://b.example   # append several at once
-torudo todo link t1 --remove https://example.com/spec     # drop one from the line
-torudo todo link t1 https://new --remove https://old      # swap one for the other in one write
+torudo link t1 https://example.com/spec             # append one URL to the line
+torudo link t1 https://a.example https://b.example  # append several at once
+torudo link t1 --remove https://example.com/spec    # drop one from the line
+torudo link t1 https://new --remove https://old     # swap one for the other in one write
 ```
 
 - Only the **line** gets a link icon and opens with `o` in the TUI. A URL written into
@@ -217,31 +226,33 @@ torudo todo link t1 https://new --remove https://old      # swap one for the oth
   line. Read it back with `torudo show <id>` first rather than retyping it from memory.
 - Appending a URL the item already carries changes nothing, and removing one it never had is
   not an error — both still succeed, so a repeated `link` is safe.
-- `http://` and `https://` are the only accepted values; anything else fails loudly and
-  writes nothing. There is no way to append arbitrary text to a line — rewording an item
-  means the user rewriting it, not `link`.
+- `link` appends URLs and nothing else. Rewording an item is the user rewriting it, not a
+  `link` call with prose in it.
 - Attaching at capture time is different: build the line with the URL already in it, under
   "When the input is a URL" above. `link` is for the item that is already on file.
 
 ## Completing
 
 ```bash
-torudo todo complete <id>      # → done.txt, stamped with today's date
+torudo complete <id>      # → done.txt, stamped with today's date
 torudo done list --json        # find what was completed, and its id
-torudo todo reopen <id>        # done.txt → todo.txt, completion marker cleared
+torudo reopen <id>        # done.txt → todo.txt, completion marker cleared
 ```
 
-- Only **Todo** and **Waiting** can complete, matching the TUI's `x`. Finishing something
-  sitting in Inbox / Ref / Someday means promoting it to Todo first.
+- Only **Todo** and **Waiting** can complete, matching the TUI's `x`. `complete <id>` finds
+  the mode itself and names it when it refuses, so finishing something sitting in Inbox / Ref
+  / Someday means reading that message and promoting it to Todo first.
 - If the item carries `rec:`, completing it also appends a fresh next occurrence to the same
   file — nothing more to do. The JSON output's `recurrence` field carries the new item's `id`
   and dates; report that instead of `torudo <mode> add`-ing a replacement by hand.
 - **Complete only what the user said is done.** `torudo show <id>` prints the item's detail
   md; when it still has unchecked `- [ ]` lines, say so and let them confirm rather than
   assuming the task is finished.
-- `reopen` takes the item back out of `done.txt` and into the mode you name — priority,
-  creation date, and tags all survive the round trip, so a mistaken completion costs nothing.
-  It reads ids from `done.txt`, so get them from `torudo done list --json`.
+- `reopen` takes the item back out of `done.txt`, into Todo unless `--to` says otherwise —
+  priority, creation date, and tags all survive the round trip, so a mistaken completion costs
+  nothing. Nothing records which file the item left when it was completed, which is why the
+  destination is named here and nowhere else. It reads ids from `done.txt`, so get them from
+  `torudo done list --json`.
 - `done` is an archive, not a GTD mode: it only lists. Items leave it through `reopen`.
 
 ## Finding and focusing
@@ -515,22 +526,22 @@ todoに移しました: リリース作業 +torudo time:short energy:low (id: 8a
 | inboxにhttps://github.com/owner/repo/issues/12 を追加して | `gh issue view 12 -R owner/repo` でタイトル取得 → 確認 → `torudo inbox add "<issueタイトル> https://github.com/owner/repo/issues/12"` |
 | inboxの中身を見せて | `torudo inbox list` |
 | これのやることリストを書いて | `torudo inbox list --json` で id を得る → `torudo show <id>` で既存mdを確認 → `todos/{id}.md` に `- [ ]` を書く |
-| 短時間・低エネルギーにしてtodoに移して | `torudo inbox set <id> --time short --energy low` → `torudo inbox promote <id> --to todo` |
-| ゴミ出しは毎週繰り返しにして | `torudo todo set <id> --rec 1w` |
-| もう繰り返さなくていい | `torudo todo set <id> --rec none` |
-| これ最優先にして | `torudo todo set <id> --priority a` |
-| 優先度下げていい | `torudo todo set <id> --priority c` |
-| 優先度外して | `torudo todo set <id> --priority none` |
-| 来週月曜まで先送りして | 今日の日付から日付を算出 → `torudo todo set <id> --threshold 2026-08-24` |
+| 短時間・低エネルギーにしてtodoに移して | `torudo set <id> --time short --energy low` → `torudo promote <id> --to todo` |
+| ゴミ出しは毎週繰り返しにして | `torudo set <id> --rec 1w` |
+| もう繰り返さなくていい | `torudo set <id> --rec none` |
+| これ最優先にして | `torudo set <id> --priority a` |
+| 優先度下げていい | `torudo set <id> --priority c` |
+| 優先度外して | `torudo set <id> --priority none` |
+| 来週月曜まで先送りして | 今日の日付から日付を算出 → `torudo set <id> --threshold 2026-08-24` |
 | 今日はやらない / しばらく寝かせたい | 同上。何日まで寝かせるか決まらなければ確認してから `--threshold` |
-| 月末までにやらないとまずい | `torudo todo set <id> --due 2026-08-31` |
-| もう着手できる / 先送りやめる | `torudo todo set <id> --threshold none` |
-| このタスクにこのURL紐付けて | `torudo search` などで id を得る → `torudo todo link <id> https://…` |
-| さっきのissueのリンクも足しといて | `torudo todo link <id> https://github.com/owner/repo/issues/12` |
-| このURLもう関係ないから外して | `torudo show <id>` で正確なURLを確認 → `torudo todo link <id> --remove https://…` |
-| これはいつかやるやつ | `torudo inbox promote <id> --to someday` |
-| Astro7対応終わった | `torudo todo complete <id>` |
-| さっき完了にしたのやっぱ戻して | `torudo done list --json` で id を得る → `torudo todo reopen <id>` |
+| 月末までにやらないとまずい | `torudo set <id> --due 2026-08-31` |
+| もう着手できる / 先送りやめる | `torudo set <id> --threshold none` |
+| このタスクにこのURL紐付けて | `torudo search` などで id を得る → `torudo link <id> https://…` |
+| さっきのissueのリンクも足しといて | `torudo link <id> https://github.com/owner/repo/issues/12` |
+| このURLもう関係ないから外して | `torudo show <id>` で正確なURLを確認 → `torudo link <id> --remove https://…` |
+| これはいつかやるやつ | `torudo promote <id> --to someday` |
+| Astro7対応終わった | `torudo complete <id>` |
+| さっき完了にしたのやっぱ戻して | `torudo done list --json` で id を得る → `torudo reopen <id>` |
 | 今週何が終わった? | `torudo done list` |
 | Astro7対応に着手して | `git wt --nocd` でworktree作成 → `herdr tab create` → `herdr agent start` → ListAgentsで名前解決 → SendMessageで依頼 |
 | worktree切ってclaude立てて | 同上。ブランチ名とベースブランチを確認してから |

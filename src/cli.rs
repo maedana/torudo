@@ -9,7 +9,10 @@ use serde_json::json;
 use std::error::Error;
 use std::path::Path;
 
-/// Actions available under every GTD mode subcommand (`torudo <mode> <action>`).
+/// Actions a GTD mode scopes (`torudo <mode> <action>`). Only these two: the mode
+/// is a place here — one to put an item into, one to read out of. Everything else
+/// acts on an item, which its `id:` already identifies, so it hangs off the top
+/// level instead and finds the mode itself.
 #[derive(Subcommand)]
 pub enum ModeAction {
     /// Add a new item to this mode's file and print it as JSON
@@ -27,6 +30,13 @@ pub enum ModeAction {
         #[arg(long, requires = "json")]
         with_md: bool,
     },
+}
+
+/// The item-scoped commands, the ones `torudo <verb> <id>` reaches. They live
+/// together because they share a first step: find the mode holding `id`, which
+/// [`ItemAction::run`] does once for all of them.
+#[derive(Subcommand)]
+pub enum ItemAction {
     /// Set GTD tags on an item and print it as JSON
     Set {
         /// Id of the item to update
@@ -68,11 +78,6 @@ pub enum ModeAction {
     /// Complete an item, moving it to done.txt, and print it as JSON
     Complete {
         /// Id of the item to complete
-        id: String,
-    },
-    /// Bring a completed item back from done.txt into this mode
-    Reopen {
-        /// Id of the completed item to bring back
         id: String,
     },
     /// Move an item to another mode and print it as JSON
@@ -240,7 +245,35 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
                 with_md.then_some(todotxt_dir),
             )?;
         }
-        ModeAction::Set {
+    }
+    Ok(())
+}
+
+/// The GTD mode whose file holds `id`. This is the step every item-scoped command
+/// starts with, and the reason they need no mode on the command line: an `id:` is
+/// unique across the files, so naming the mode as well only created a way to name
+/// the wrong one.
+///
+/// `done.txt` is searched last, and only to tell an archived item apart from a
+/// typo. The two need different answers: a bad id is retyped, a completed one is
+/// reopened. Writing to the archive is refused outright — `done.txt` is a record
+/// of what happened, so an item has to come back into a mode before it can change
+/// again.
+fn locate_item(todotxt_dir: &str, id: &str) -> Result<ViewMode, Box<dyn Error>> {
+    for mode in ViewMode::ALL {
+        if todo::has_todo_with_id(&mode.file_path(todotxt_dir), id) {
+            return Ok(*mode);
+        }
+    }
+    if todo::has_todo_with_id(&done_file(todotxt_dir), id) {
+        return Err(format!("item id:{id} is completed; reopen it first").into());
+    }
+    Err(format!("no item with id:{id} in any mode").into())
+}
+
+pub fn run_item(action: &ItemAction, todotxt_dir: &str) -> Result<(), Box<dyn Error>> {
+    match action {
+        ItemAction::Set {
             id,
             time,
             energy,
@@ -261,7 +294,7 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
                         .into(),
                 );
             }
-            require_item(&file, mode, id)?;
+            let file = locate_item(todotxt_dir, id)?.file_path(todotxt_dir);
             if let Some(time) = time {
                 todo::set_key_value(&file, id, "time", time.as_str())?;
             }
@@ -282,15 +315,16 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
             }
             print_item(&file, id, todotxt_dir)?;
         }
-        ModeAction::Link { id, urls, remove } => {
+        ItemAction::Link { id, urls, remove } => {
             if urls.is_empty() && remove.is_empty() {
                 return Err("specify at least one URL to append, or --remove".into());
             }
-            require_item(&file, mode, id)?;
+            let file = locate_item(todotxt_dir, id)?.file_path(todotxt_dir);
             todo::edit_urls(&file, id, urls, remove)?;
             print_item(&file, id, todotxt_dir)?;
         }
-        ModeAction::Complete { id } => {
+        ItemAction::Complete { id } => {
+            let mode = locate_item(todotxt_dir, id)?;
             // Matches the TUI, where `x` only works in Todo and Waiting.
             if !matches!(mode, ViewMode::Todo | ViewMode::Waiting) {
                 return Err(format!(
@@ -299,8 +333,7 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
                 )
                 .into());
             }
-            require_item(&file, mode, id)?;
-            let recurred = todo::mark_complete(&file, id)?;
+            let recurred = todo::mark_complete(&mode.file_path(todotxt_dir), id)?;
             // The item is completed either way, so a bad pattern is a warning on
             // stderr rather than a non-zero exit.
             if let Recurred::Failed { value, error } = &recurred {
@@ -308,29 +341,35 @@ pub fn run(mode: ViewMode, action: &ModeAction, todotxt_dir: &str) -> Result<(),
             }
             print_completed_item(&done_file(todotxt_dir), id, todotxt_dir, &recurred)?;
         }
-        ModeAction::Reopen { id } => {
-            let done = done_file(todotxt_dir);
-            if !todo::reopen_item(&done, &file, id)? {
-                return Err(format!("no completed item with id:{id} in done.txt").into());
-            }
-            print_item(&file, id, todotxt_dir)?;
-        }
-        ModeAction::Promote { id, to } => {
+        ItemAction::Promote { id, to } => {
             let target = to.view_mode();
+            let mode = locate_item(todotxt_dir, id)?;
             if target == mode {
                 return Err(format!("item is already in {}", mode.label()).into());
             }
-            require_item(&file, mode, id)?;
             let target_file = target.file_path(todotxt_dir);
-            todo::move_to_file(&file, &target_file, id)?;
+            todo::move_to_file(&mode.file_path(todotxt_dir), &target_file, id)?;
             print_item(&target_file, id, todotxt_dir)?;
         }
     }
     Ok(())
 }
 
+/// `reopen` is the one item command that takes a mode, because here the mode is
+/// where the item is going rather than where it is: the item is in `done.txt`, and
+/// nothing records which file it left. Todo is the default because that is where a
+/// mistaken completion nearly always belongs.
+pub fn run_reopen(id: &str, to: ModeName, todotxt_dir: &str) -> Result<(), Box<dyn Error>> {
+    let file = to.view_mode().file_path(todotxt_dir);
+    if !todo::reopen_item(&done_file(todotxt_dir), &file, id)? {
+        return Err(format!("no completed item with id:{id} in done.txt").into());
+    }
+    print_item(&file, id, todotxt_dir)?;
+    Ok(())
+}
+
 /// Actions available under the `done` subcommand. `done.txt` is an archive, not a
-/// GTD mode, so it is read-only here — items leave it through `<mode> reopen`.
+/// GTD mode, so it is read-only here — items leave it through `torudo reopen`.
 #[derive(Subcommand)]
 pub enum DoneAction {
     /// List the completed items
@@ -571,14 +610,6 @@ pub fn run_show(id: &str, todotxt_dir: &str) -> Result<(), Box<dyn Error>> {
     json["mode"] = serde_json::Value::String(mode.to_string());
     println!("{}", serde_json::to_string_pretty(&json)?);
     Ok(())
-}
-
-fn require_item(file: &str, mode: ViewMode, id: &str) -> Result<(), Box<dyn Error>> {
-    if todo::has_todo_with_id(file, id) {
-        Ok(())
-    } else {
-        Err(format!("no item with id:{id} in {}", mode.filename()).into())
-    }
 }
 
 /// The id lookup `find_item` and `find_item_anywhere` share: one file in, at most one
