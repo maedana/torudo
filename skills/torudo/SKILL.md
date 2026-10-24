@@ -17,7 +17,7 @@ torudo done list [--json] [--with-md]                 # what has been completed
 
 # An item is a thing: its id says which one, so no mode is named.
 torudo show <id>                                      # print it as JSON, detail md included
-torudo set <id> [--time ...] [--energy ...] [--rec ...] [--priority ...] [--threshold ...] [--due ...] [--project ...]
+torudo set <id> [--time ...] [--energy ...] [--rec ...] [--priority ...] [--threshold ...] [--due ...] [--project ...] [--context ...] [--title ...]
 torudo link <id> <url>... [--remove <url>]            # attach URLs to it
 torudo complete <id>                                  # finish it: move to done.txt
 torudo promote <id> --to <mode>                       # move it to another mode
@@ -174,6 +174,8 @@ torudo set t1 --due 2026-08-31           # due:2026-08-31 — the deadline
 torudo set t1 --threshold none           # drop t: — back in play right away
 torudo set t1 --project torudo           # +torudo — replaces every +project on the line
 torudo set t1 --project none             # drop every +project
+torudo set t1 --context pc               # @pc — same, for @context
+torudo set t1 --title "Write the docs"   # fix the title; tags and URLs on the line stay
 torudo promote i1 --to todo              # inbox.txt → todo.txt, source mode found for you
 ```
 

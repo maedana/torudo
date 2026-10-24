@@ -65,6 +65,15 @@ pub enum ItemAction {
         /// project the item has. `none` removes them all.
         #[arg(long, value_parser = parse_project_value)]
         project: Option<String>,
+        /// Context (`@context` tag), with or without the `@`. Replaces every
+        /// context the item has. `none` removes them all.
+        #[arg(long, value_parser = parse_context_value)]
+        context: Option<String>,
+        /// Title: the item's description. Its priority, dates, tags and URLs stay
+        /// as they are. A word that would read as a tag (`+x`, `@x`, `key:value`)
+        /// is refused rather than quietly becoming one.
+        #[arg(long, value_parser = parse_title_value)]
+        title: Option<String>,
     },
     /// Append URLs to an item's line, or drop them, and print it as JSON
     Link {
@@ -104,7 +113,7 @@ pub enum ModeName {
 }
 
 /// The one value that removes a tag instead of setting one, shared by `--rec`,
-/// `--threshold`, `--due` and `--project`. Spelled in any case on the command line — the
+/// `--threshold`, `--due`, `--project` and `--context`. Spelled in any case on the command line — the
 /// parsers normalise to this lowercase form, which `set_or_clear` compares
 /// against — matching `--priority none`, which clap already accepts either way. `--time` and `--energy` have no equivalent yet: a
 /// stale `rec:` keeps spawning occurrences and a stale `t:` keeps an item at the
@@ -138,22 +147,48 @@ fn parse_date_value(value: &str) -> Result<String, String> {
     Ok(date.format("%Y-%m-%d").to_string())
 }
 
-/// Reject a project name that would not round-trip as one `+project` token. A
-/// leading `+` is accepted and dropped so `foo` and `+foo` mean the same.
+/// Reject a tag name that would not round-trip as one `{sigil}name` token. A
+/// leading `sigil` is accepted and dropped so `foo` and `+foo` mean the same.
 /// [`NONE_VALUE`] is let through in any case, normalised to lowercase so the
 /// caller can recognise it.
-fn parse_project_value(value: &str) -> Result<String, String> {
+fn parse_tag_value(value: &str, sigil: char, what: &str) -> Result<String, String> {
     if value.eq_ignore_ascii_case(NONE_VALUE) {
         return Ok(NONE_VALUE.to_string());
     }
-    let name = value.strip_prefix('+').unwrap_or(value);
+    let name = value.strip_prefix(sigil).unwrap_or(value);
     if name.is_empty() {
-        return Err("expected a project name, or none to clear it".to_string());
+        return Err(format!("expected a {what} name, or none to clear it"));
     }
     if name.split_whitespace().count() != 1 {
         return Err(format!("`{value}` contains whitespace"));
     }
     Ok(name.to_string())
+}
+
+fn parse_project_value(value: &str) -> Result<String, String> {
+    parse_tag_value(value, '+', "project")
+}
+
+fn parse_context_value(value: &str) -> Result<String, String> {
+    parse_tag_value(value, '@', "context")
+}
+
+/// Accept a title only if `Item::parse` would read all of it back as the
+/// description. Anything else — `+x`, `@x`, `key:value`, or a priority, date or
+/// `x` at its head — would land on the line as a tag, and the item would change
+/// in a way the caller never asked for.
+fn parse_title_value(value: &str) -> Result<String, String> {
+    let title = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if title.is_empty() {
+        return Err("expected a title".to_string());
+    }
+    let item = Item::parse(&title, 0);
+    if item.description != title {
+        return Err(format!(
+            "`{title}` would not read back as a title: a word in it parses as a priority, date or tag"
+        ));
+    }
+    Ok(title)
 }
 
 /// Reject anything that is not a URL at the argument boundary, the way `--rec`
@@ -304,6 +339,8 @@ pub fn run_item(action: &ItemAction, todotxt_dir: &str) -> Result<(), Box<dyn Er
             threshold,
             due,
             project,
+            context,
+            title,
         } => {
             if time.is_none()
                 && energy.is_none()
@@ -312,9 +349,11 @@ pub fn run_item(action: &ItemAction, todotxt_dir: &str) -> Result<(), Box<dyn Er
                 && threshold.is_none()
                 && due.is_none()
                 && project.is_none()
+                && context.is_none()
+                && title.is_none()
             {
                 return Err(
-                    "specify at least one of --time, --energy, --rec, --priority, --threshold, --due or --project"
+                    "specify at least one of --time, --energy, --rec, --priority, --threshold, --due, --project, --context or --title"
                         .into(),
                 );
             }
@@ -339,7 +378,14 @@ pub fn run_item(action: &ItemAction, todotxt_dir: &str) -> Result<(), Box<dyn Er
             }
             if let Some(project) = project {
                 let project = (project != NONE_VALUE).then_some(project.as_str());
-                todo::set_project(&file, id, project)?;
+                todo::set_tag(&file, id, '+', project)?;
+            }
+            if let Some(context) = context {
+                let context = (context != NONE_VALUE).then_some(context.as_str());
+                todo::set_tag(&file, id, '@', context)?;
+            }
+            if let Some(title) = title {
+                todo::set_title(&file, id, title)?;
             }
             print_item(&file, id, todotxt_dir)?;
         }
@@ -830,6 +876,49 @@ mod tests {
     #[test]
     fn parse_project_value_rejects_whitespace() {
         assert!(parse_project_value("two words").is_err());
+    }
+
+    #[test]
+    fn parse_context_value_strips_a_leading_at_sign() {
+        assert_eq!(parse_context_value("@pc"), Ok("pc".to_string()));
+    }
+
+    #[test]
+    fn parse_context_value_accepts_none_whatever_the_case() {
+        assert_eq!(parse_context_value("NONE"), Ok(NONE_VALUE.to_string()));
+    }
+
+    #[test]
+    fn parse_title_value_normalises_whitespace() {
+        assert_eq!(
+            parse_title_value("  Rewrite   the docs "),
+            Ok("Rewrite the docs".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_title_value_rejects_an_empty_title() {
+        assert!(parse_title_value("   ").is_err());
+    }
+
+    #[test]
+    fn parse_title_value_rejects_a_word_that_would_parse_as_a_tag() {
+        for title in ["Write +docs", "Ask @bob", "Pay due:2026-09-01", "Fix id:t9"] {
+            assert!(
+                parse_title_value(title).is_err(),
+                "{title} should be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_title_value_rejects_a_head_that_would_parse_as_priority_or_date() {
+        for title in ["(A) Write docs", "2026-08-01 Write docs", "x Write docs"] {
+            assert!(
+                parse_title_value(title).is_err(),
+                "{title} should be refused"
+            );
+        }
     }
 
     #[test]

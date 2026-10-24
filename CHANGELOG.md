@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **`torudo set <id> --project <name>`**: move an item to another project without opening the TUI or editing the `.txt` by hand. It replaces every `+project` the item has with the one given, keeping the new tag in the slot the first old one held, and `--project none` takes the item out of every project. The leading `+` is optional, so `torudo` and `+torudo` mean the same
+- **`torudo set <id> --context <name>`**: the same for `@context` tags — replace them all with one, or drop them with `--context none`. The leading `@` is optional
+- **`torudo set <id> --title <text>`**: fix a typo or reword an item after capture. Only the description changes: the priority, dates, tags and URLs on the line stay where they are. A title that would not read back as plain text — a word like `+x`, `@x` or `key:value`, or a leading `(A)`, date or `x ` — is refused, rather than quietly filing the item under a project or completing it
 
 ## [0.19.0] - 2026-08-26
 

@@ -735,15 +735,16 @@ pub fn edit_urls(
     Ok(())
 }
 
-/// Drop every `+project` token from `line` and, given a project, put that one in
-/// the slot the first dropped token held — so the line keeps its shape — or at the
-/// end when there was none. `None` just drops them.
-fn replace_projects(line: &str, project: Option<&str>) -> String {
-    let new_tag = project.map(|p| format!("+{p}"));
+/// Drop every tag starting with `sigil` (`+` for projects, `@` for contexts) from
+/// `line` and, given a name, put that one tag in the slot the first dropped token
+/// held — so the line keeps its shape — or at the end when there was none. `None`
+/// just drops them.
+fn replace_tags(line: &str, sigil: char, name: Option<&str>) -> String {
+    let new_tag = name.map(|n| format!("{sigil}{n}"));
     let mut placed = false;
     let mut tokens: Vec<&str> = Vec::new();
     for tok in line.split_whitespace() {
-        if !tok.starts_with('+') {
+        if !tok.starts_with(sigil) {
             tokens.push(tok);
         } else if let Some(tag) = new_tag.as_deref()
             && !placed
@@ -760,16 +761,61 @@ fn replace_projects(line: &str, project: Option<&str>) -> String {
     tokens.join(" ")
 }
 
-/// Replace the projects of the item with `todo_id` with `project`, or drop them
-/// all with `None`. Dropping from an item with none is not an error, the same
-/// stance as [`clear_key_value`].
-pub fn set_project(
+/// Replace the tags starting with `sigil` on the item with `todo_id` with `name`,
+/// or drop them all with `None`. Dropping from an item with none is not an error,
+/// the same stance as [`clear_key_value`].
+pub fn set_tag(
     todo_file: &str,
     todo_id: &str,
-    project: Option<&str>,
+    sigil: char,
+    name: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
-    if rewrite_item_line(todo_file, todo_id, |line| replace_projects(line, project))? {
-        debug!("Set project {project:?} on {todo_id} in {todo_file}");
+    if rewrite_item_line(todo_file, todo_id, |line| replace_tags(line, sigil, name))? {
+        debug!("Set {sigil}{name:?} on {todo_id} in {todo_file}");
+    }
+    Ok(())
+}
+
+/// Whether `Item::parse` would file `token` under the description: not a project,
+/// context, id or `key:value`, and not a URL either — those are description words
+/// to the parser, but `link` owns them, so a new title leaves them alone.
+fn is_title_word(token: &str) -> bool {
+    !token.starts_with('+')
+        && !token.starts_with('@')
+        && split_key_value(token).is_none()
+        && !crate::url::is_url(token)
+}
+
+/// Swap the description words of `line` for `title`. The head — priority and the
+/// dates `Item::parse` reads off the front — stays where it is, the title goes
+/// straight after it, and every tag and URL follows in its original order.
+fn replace_title(line: &str, title: &str) -> String {
+    let mut tokens = line.split_whitespace().peekable();
+    let mut out: Vec<&str> = Vec::new();
+    let mut dates = 0;
+    while let Some(tok) = tokens.peek() {
+        if extract_priority_char(tok).is_some()
+            && !out.iter().any(|t| extract_priority_char(t).is_some())
+        {
+            out.push(tok);
+        } else if dates < 2 && NaiveDate::parse_from_str(tok, DATE_FORMAT).is_ok() {
+            dates += 1;
+            out.push(tok);
+        } else {
+            break;
+        }
+        tokens.next();
+    }
+    out.push(title);
+    out.extend(tokens.filter(|tok| !is_title_word(tok)));
+    out.join(" ")
+}
+
+/// Rewrite the title of the item with `todo_id`, keeping everything else on its
+/// line. The title has already been checked to hold no tag of its own.
+pub fn set_title(todo_file: &str, todo_id: &str, title: &str) -> Result<(), Box<dyn Error>> {
+    if rewrite_item_line(todo_file, todo_id, |line| replace_title(line, title))? {
+        debug!("Set title on {todo_id} in {todo_file}");
     }
     Ok(())
 }
@@ -2886,40 +2932,78 @@ Learn Rust +learning @coding id:task-003";
     }
 
     #[test]
-    fn replace_projects_puts_the_new_project_where_the_first_one_was() {
+    fn replace_tags_puts_the_new_project_where_the_first_one_was() {
         assert_eq!(
-            replace_projects("Write docs +old @pc +other id:t1", Some("new")),
+            replace_tags("Write docs +old @pc +other id:t1", '+', Some("new")),
             "Write docs +new @pc id:t1"
         );
     }
 
     #[test]
-    fn replace_projects_appends_when_the_line_has_no_project() {
+    fn replace_tags_appends_when_the_line_has_no_project() {
         assert_eq!(
-            replace_projects("Write docs id:t1", Some("new")),
+            replace_tags("Write docs id:t1", '+', Some("new")),
             "Write docs id:t1 +new"
         );
     }
 
     #[test]
-    fn replace_projects_with_none_drops_every_project() {
+    fn replace_tags_with_none_drops_every_project() {
         assert_eq!(
-            replace_projects("Write docs +a +b id:t1", None),
+            replace_tags("Write docs +a +b id:t1", '+', None),
             "Write docs id:t1"
         );
     }
 
     #[test]
-    fn set_project_touches_only_the_item_with_the_id() {
+    fn set_tag_touches_only_the_item_with_the_id() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("todo.txt");
         fs::write(&file, "Write docs +a id:t1\nShip it +a id:t2\n").unwrap();
 
-        set_project(file.to_str().unwrap(), "t1", Some("b")).unwrap();
+        set_tag(file.to_str().unwrap(), "t1", '+', Some("b")).unwrap();
 
         assert_eq!(
             fs::read_to_string(&file).unwrap(),
             "Write docs +b id:t1\nShip it +a id:t2\n"
+        );
+    }
+
+    #[test]
+    fn replace_tags_with_an_at_sign_replaces_the_contexts_only() {
+        assert_eq!(
+            replace_tags("Write docs +p @a @b id:t1", '@', Some("c")),
+            "Write docs +p @c id:t1"
+        );
+    }
+
+    #[test]
+    fn replace_title_keeps_the_head_tags_and_urls() {
+        assert_eq!(
+            replace_title(
+                "(A) 2026-08-01 Old title +p @c https://x.example due:2026-09-01 id:t1",
+                "New title"
+            ),
+            "(A) 2026-08-01 New title +p @c https://x.example due:2026-09-01 id:t1"
+        );
+    }
+
+    #[test]
+    fn replace_title_puts_the_title_before_tags_that_led_the_line() {
+        assert_eq!(replace_title("+p Old id:t1", "New"), "New +p id:t1");
+    }
+
+    #[test]
+    fn set_title_touches_only_the_item_with_the_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("todo.txt");
+        fs::write(&file, "Write docs id:t1\nShip it id:t2\n").unwrap();
+
+        set_title(file.to_str().unwrap(), "t1", "Rewrite docs").unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            "Rewrite docs id:t1\nShip it id:t2\n"
         );
     }
 

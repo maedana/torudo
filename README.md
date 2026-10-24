@@ -136,6 +136,13 @@ torudo set <id> --project torudo
 # Take it out of every project
 torudo set <id> --project none
 
+# Same for contexts — replaces every @context it has (the @ is optional)
+torudo set <id> --context pc
+torudo set <id> --context none
+
+# Rewrite the title — priority, dates, tags and URLs on the line are kept
+torudo set <id> --title "Write the release notes"
+
 # Attach a URL to an item that already exists — the TUI opens line URLs with `o`
 torudo link <id> https://example.com/spec
 

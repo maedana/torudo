@@ -1599,3 +1599,54 @@ fn set_project_none_drops_every_project() {
 
     fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn set_context_replaces_the_items_contexts() {
+    let dir = fresh_dir("torudo_it_set_context");
+    fs::write(dir.join("todo.txt"), "Write docs +p @a @b id:t1\n").unwrap();
+
+    let output = run(&dir, &["set", "t1", "--context", "@pc"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["contexts"], serde_json::json!(["pc"]));
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert_eq!(todo, "Write docs +p @pc id:t1\n");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_title_rewrites_only_the_description() {
+    let dir = fresh_dir("torudo_it_set_title");
+    fs::write(
+        dir.join("todo.txt"),
+        "(B) 2026-08-01 Wirte docs +p @pc https://x.example id:t1\n",
+    )
+    .unwrap();
+
+    let output = run(&dir, &["set", "t1", "--title", "Write docs"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["title"], "Write docs https://x.example");
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert_eq!(
+        todo,
+        "(B) 2026-08-01 Write docs +p @pc https://x.example id:t1\n"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_title_refuses_a_title_carrying_a_tag() {
+    let dir = fresh_dir("torudo_it_set_title_tag");
+    fs::write(dir.join("todo.txt"), "Write docs id:t1\n").unwrap();
+
+    let output = run(&dir, &["set", "t1", "--title", "Write +docs"]);
+
+    assert!(!output.status.success());
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert_eq!(todo, "Write docs id:t1\n", "nothing is written");
+
+    fs::remove_dir_all(&dir).ok();
+}
