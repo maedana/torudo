@@ -130,6 +130,12 @@ torudo set <id> --due 2026-08-31
 torudo set <id> --threshold none
 torudo set <id> --due none
 
+# Move an item to another project — replaces every +project it has (the + is optional)
+torudo set <id> --project torudo
+
+# Take it out of every project
+torudo set <id> --project none
+
 # Attach a URL to an item that already exists — the TUI opens line URLs with `o`
 torudo link <id> https://example.com/spec
 

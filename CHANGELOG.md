@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`torudo set <id> --project <name>`**: move an item to another project without opening the TUI or editing the `.txt` by hand. It replaces every `+project` the item has with the one given, keeping the new tag in the slot the first old one held, and `--project none` takes the item out of every project. The leading `+` is optional, so `torudo` and `+torudo` mean the same
+
 ## [0.19.0] - 2026-08-26
 
 ### Added

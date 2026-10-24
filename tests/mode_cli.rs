@@ -1569,3 +1569,33 @@ fn complete_reports_the_mode_it_refused() {
 
     fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn set_project_replaces_the_items_projects() {
+    let dir = fresh_dir("torudo_it_set_project");
+    fs::write(dir.join("todo.txt"), "Write docs +old +other @pc id:t1\n").unwrap();
+
+    let output = run(&dir, &["set", "t1", "--project", "+new"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["projects"], serde_json::json!(["new"]));
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert_eq!(todo, "Write docs +new @pc id:t1\n");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn set_project_none_drops_every_project() {
+    let dir = fresh_dir("torudo_it_set_project_none");
+    fs::write(dir.join("todo.txt"), "Pay rent +home rec:+1m id:t1\n").unwrap();
+
+    let output = run(&dir, &["set", "t1", "--project", "none"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert_eq!(json["projects"], serde_json::json!([]));
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert_eq!(todo, "Pay rent rec:+1m id:t1\n");
+
+    fs::remove_dir_all(&dir).ok();
+}

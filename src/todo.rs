@@ -735,6 +735,45 @@ pub fn edit_urls(
     Ok(())
 }
 
+/// Drop every `+project` token from `line` and, given a project, put that one in
+/// the slot the first dropped token held — so the line keeps its shape — or at the
+/// end when there was none. `None` just drops them.
+fn replace_projects(line: &str, project: Option<&str>) -> String {
+    let new_tag = project.map(|p| format!("+{p}"));
+    let mut placed = false;
+    let mut tokens: Vec<&str> = Vec::new();
+    for tok in line.split_whitespace() {
+        if !tok.starts_with('+') {
+            tokens.push(tok);
+        } else if let Some(tag) = new_tag.as_deref()
+            && !placed
+        {
+            tokens.push(tag);
+            placed = true;
+        }
+    }
+    if let Some(tag) = new_tag.as_deref()
+        && !placed
+    {
+        tokens.push(tag);
+    }
+    tokens.join(" ")
+}
+
+/// Replace the projects of the item with `todo_id` with `project`, or drop them
+/// all with `None`. Dropping from an item with none is not an error, the same
+/// stance as [`clear_key_value`].
+pub fn set_project(
+    todo_file: &str,
+    todo_id: &str,
+    project: Option<&str>,
+) -> Result<(), Box<dyn Error>> {
+    if rewrite_item_line(todo_file, todo_id, |line| replace_projects(line, project))? {
+        debug!("Set project {project:?} on {todo_id} in {todo_file}");
+    }
+    Ok(())
+}
+
 pub fn move_to_file(
     source_file: &str,
     dest_file: &str,
@@ -2844,6 +2883,44 @@ Learn Rust +learning @coding id:task-003";
     fn apply_url_edits_leaves_a_line_it_changes_nothing_on_alone() {
         let line = "Write docs id:t1";
         assert_eq!(apply_url_edits(line, &[], &urls(&["https://absent"])), line);
+    }
+
+    #[test]
+    fn replace_projects_puts_the_new_project_where_the_first_one_was() {
+        assert_eq!(
+            replace_projects("Write docs +old @pc +other id:t1", Some("new")),
+            "Write docs +new @pc id:t1"
+        );
+    }
+
+    #[test]
+    fn replace_projects_appends_when_the_line_has_no_project() {
+        assert_eq!(
+            replace_projects("Write docs id:t1", Some("new")),
+            "Write docs id:t1 +new"
+        );
+    }
+
+    #[test]
+    fn replace_projects_with_none_drops_every_project() {
+        assert_eq!(
+            replace_projects("Write docs +a +b id:t1", None),
+            "Write docs id:t1"
+        );
+    }
+
+    #[test]
+    fn set_project_touches_only_the_item_with_the_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("todo.txt");
+        fs::write(&file, "Write docs +a id:t1\nShip it +a id:t2\n").unwrap();
+
+        set_project(file.to_str().unwrap(), "t1", Some("b")).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            "Write docs +b id:t1\nShip it +a id:t2\n"
+        );
     }
 
     #[test]

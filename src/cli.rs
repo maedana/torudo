@@ -61,6 +61,10 @@ pub enum ItemAction {
         /// Due date (`due:` tag) as `YYYY-MM-DD`. `none` removes the tag.
         #[arg(long, value_parser = parse_date_value)]
         due: Option<String>,
+        /// Project (`+project` tag), with or without the `+`. Replaces every
+        /// project the item has. `none` removes them all.
+        #[arg(long, value_parser = parse_project_value)]
+        project: Option<String>,
     },
     /// Append URLs to an item's line, or drop them, and print it as JSON
     Link {
@@ -100,7 +104,7 @@ pub enum ModeName {
 }
 
 /// The one value that removes a tag instead of setting one, shared by `--rec`,
-/// `--threshold` and `--due`. Spelled in any case on the command line — the
+/// `--threshold`, `--due` and `--project`. Spelled in any case on the command line — the
 /// parsers normalise to this lowercase form, which `set_or_clear` compares
 /// against — matching `--priority none`, which clap already accepts either way. `--time` and `--energy` have no equivalent yet: a
 /// stale `rec:` keeps spawning occurrences and a stale `t:` keeps an item at the
@@ -132,6 +136,24 @@ fn parse_date_value(value: &str) -> Result<String, String> {
     let date = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
         .map_err(|_| "expected a date as YYYY-MM-DD, or none to clear it".to_string())?;
     Ok(date.format("%Y-%m-%d").to_string())
+}
+
+/// Reject a project name that would not round-trip as one `+project` token. A
+/// leading `+` is accepted and dropped so `foo` and `+foo` mean the same.
+/// [`NONE_VALUE`] is let through in any case, normalised to lowercase so the
+/// caller can recognise it.
+fn parse_project_value(value: &str) -> Result<String, String> {
+    if value.eq_ignore_ascii_case(NONE_VALUE) {
+        return Ok(NONE_VALUE.to_string());
+    }
+    let name = value.strip_prefix('+').unwrap_or(value);
+    if name.is_empty() {
+        return Err("expected a project name, or none to clear it".to_string());
+    }
+    if name.split_whitespace().count() != 1 {
+        return Err(format!("`{value}` contains whitespace"));
+    }
+    Ok(name.to_string())
 }
 
 /// Reject anything that is not a URL at the argument boundary, the way `--rec`
@@ -281,6 +303,7 @@ pub fn run_item(action: &ItemAction, todotxt_dir: &str) -> Result<(), Box<dyn Er
             priority,
             threshold,
             due,
+            project,
         } => {
             if time.is_none()
                 && energy.is_none()
@@ -288,9 +311,10 @@ pub fn run_item(action: &ItemAction, todotxt_dir: &str) -> Result<(), Box<dyn Er
                 && priority.is_none()
                 && threshold.is_none()
                 && due.is_none()
+                && project.is_none()
             {
                 return Err(
-                    "specify at least one of --time, --energy, --rec, --priority, --threshold or --due"
+                    "specify at least one of --time, --energy, --rec, --priority, --threshold, --due or --project"
                         .into(),
                 );
             }
@@ -312,6 +336,10 @@ pub fn run_item(action: &ItemAction, todotxt_dir: &str) -> Result<(), Box<dyn Er
             }
             if let Some(due) = due {
                 set_or_clear(&file, id, "due", due)?;
+            }
+            if let Some(project) = project {
+                let project = (project != NONE_VALUE).then_some(project.as_str());
+                todo::set_project(&file, id, project)?;
             }
             print_item(&file, id, todotxt_dir)?;
         }
@@ -777,6 +805,31 @@ mod tests {
             parse_date_value("2026-02-30"),
             Err("expected a date as YYYY-MM-DD, or none to clear it".to_string())
         );
+    }
+
+    #[test]
+    fn parse_project_value_accepts_a_bare_name() {
+        assert_eq!(parse_project_value("torudo"), Ok("torudo".to_string()));
+    }
+
+    #[test]
+    fn parse_project_value_strips_a_leading_plus() {
+        assert_eq!(parse_project_value("+torudo"), Ok("torudo".to_string()));
+    }
+
+    #[test]
+    fn parse_project_value_accepts_none_whatever_the_case() {
+        assert_eq!(parse_project_value("None"), Ok(NONE_VALUE.to_string()));
+    }
+
+    #[test]
+    fn parse_project_value_rejects_an_empty_name() {
+        assert!(parse_project_value("+").is_err());
+    }
+
+    #[test]
+    fn parse_project_value_rejects_whitespace() {
+        assert!(parse_project_value("two words").is_err());
     }
 
     #[test]
