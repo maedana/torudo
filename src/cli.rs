@@ -41,11 +41,11 @@ pub enum ItemAction {
     Set {
         /// Id of the item to update
         id: String,
-        /// Estimated time to finish (`time:` tag)
-        #[arg(long, value_enum)]
+        /// Estimated time to finish (`time:` tag). `none` removes the tag.
+        #[arg(long, value_enum, ignore_case = true)]
         time: Option<TimeValue>,
-        /// Energy the item demands (`energy:` tag)
-        #[arg(long, value_enum)]
+        /// Energy the item demands (`energy:` tag). `none` removes the tag.
+        #[arg(long, value_enum, ignore_case = true)]
         energy: Option<EnergyValue>,
         /// How often the item repeats once completed (`rec:` tag), e.g. `1w`, `+1m`.
         /// `none` removes the tag.
@@ -115,10 +115,8 @@ pub enum ModeName {
 /// The one value that removes a tag instead of setting one, shared by `--rec`,
 /// `--threshold`, `--due`, `--project` and `--context`. Spelled in any case on the command line — the
 /// parsers normalise to this lowercase form, which `set_or_clear` compares
-/// against — matching `--priority none`, which clap already accepts either way. `--time` and `--energy` have no equivalent yet: a
-/// stale `rec:` keeps spawning occurrences and a stale `t:` keeps an item at the
-/// bottom of the list, so being able to clear those matters more than for the
-/// other two.
+/// against — matching `--priority`, `--time` and `--energy none`, which clap
+/// already accepts either way.
 const NONE_VALUE: &str = "none";
 
 /// Reject a bad `rec:` pattern at the argument boundary, the way `--time` and
@@ -223,6 +221,9 @@ pub enum TimeValue {
     Short,
     Medium,
     Long,
+    /// Removes the tag instead of setting one.
+    // A variant for the same reason as `PriorityValue::None`.
+    None,
 }
 
 impl TimeValue {
@@ -231,6 +232,7 @@ impl TimeValue {
             Self::Short => "short",
             Self::Medium => "medium",
             Self::Long => "long",
+            Self::None => NONE_VALUE,
         }
     }
 }
@@ -239,6 +241,9 @@ impl TimeValue {
 pub enum EnergyValue {
     Low,
     High,
+    /// Removes the tag instead of setting one.
+    // A variant for the same reason as `PriorityValue::None`.
+    None,
 }
 
 impl EnergyValue {
@@ -246,6 +251,7 @@ impl EnergyValue {
         match self {
             Self::Low => "low",
             Self::High => "high",
+            Self::None => NONE_VALUE,
         }
     }
 }
@@ -359,10 +365,10 @@ pub fn run_item(action: &ItemAction, todotxt_dir: &str) -> Result<(), Box<dyn Er
             }
             let file = locate_item(todotxt_dir, id)?.file_path(todotxt_dir);
             if let Some(time) = time {
-                todo::set_key_value(&file, id, "time", time.as_str())?;
+                set_or_clear(&file, id, "time", time.as_str())?;
             }
             if let Some(energy) = energy {
-                todo::set_key_value(&file, id, "energy", energy.as_str())?;
+                set_or_clear(&file, id, "energy", energy.as_str())?;
             }
             if let Some(rec) = rec {
                 set_or_clear(&file, id, "rec", rec)?;

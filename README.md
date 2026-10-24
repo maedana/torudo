@@ -108,6 +108,9 @@ torudo todo list --json --with-md
 # Set GTD tags on an item (--time short|medium|long, --energy low|high)
 torudo set <id> --time short --energy low
 
+# Drop either tag again
+torudo set <id> --time none --energy none
+
 # Make an item recur on completion (see "Recurring Items" below)
 torudo set <id> --rec 1w
 

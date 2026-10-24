@@ -165,6 +165,7 @@ plan: /home/maedana/.claude/plans/2026-08-20-readme-dev-setup.md
 
 ```bash
 torudo set i1 --time short --energy low  # time:short energy:low
+torudo set i1 --time none                # drop time: — same for --energy none
 torudo set t1 --rec 1w                   # rec:1w — recur weekly from completion
 torudo set t1 --rec none                 # drop rec: — stop the item repeating
 torudo set t1 --priority a               # (A) — bump it to top priority
@@ -183,8 +184,7 @@ torudo promote i1 --to todo              # inbox.txt → todo.txt, source mode f
   yours to convert: the CLI takes `YYYY-MM-DD` and nothing else, so work "来週月曜" out against
   today's date before calling rather than after the error.
 - Clearing a tag with `none` is safe on an item that has nothing to clear — it succeeds and
-  changes nothing. `--time` and `--energy` have no `none` yet, so a stale `time:` can only be
-  overwritten.
+  changes nothing.
 - `(A)` surfaces in its own column in the TUI's Pick view, so reserve it for things the user
   really means to do today rather than everything they call "priority".
 - Postponing something is `--threshold`, not a move to another mode. "来週月曜まで寝かせて",

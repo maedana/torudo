@@ -1650,3 +1650,23 @@ fn set_title_refuses_a_title_carrying_a_tag() {
 
     fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn set_time_and_energy_none_clear_both_tags() {
+    let dir = fresh_dir("torudo_it_set_time_energy_none");
+    fs::write(
+        dir.join("todo.txt"),
+        "Write docs +p time:short energy:low id:t1\n",
+    )
+    .unwrap();
+
+    let output = run(&dir, &["set", "t1", "--time", "none", "--energy", "None"]);
+    let json: serde_json::Value = serde_json::from_str(stdout_of(&output).trim()).unwrap();
+
+    assert!(json["key_values"].get("time").is_none(), "{json}");
+    assert!(json["key_values"].get("energy").is_none(), "{json}");
+    let todo = fs::read_to_string(dir.join("todo.txt")).unwrap();
+    assert_eq!(todo, "Write docs +p id:t1\n");
+
+    fs::remove_dir_all(&dir).ok();
+}
