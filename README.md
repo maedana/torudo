@@ -122,7 +122,7 @@ torudo set <id> --priority a
 # Clear the priority
 torudo set <id> --priority none
 
-# Push an item out to a date (t:) — until then it sorts last and renders dimmed
+# Push an item out to a date (t:) — until then it sorts last and renders dimmed (z hides it in the TUI)
 torudo set <id> --threshold 2026-08-24
 
 # Give it a deadline (due:)
@@ -261,7 +261,7 @@ This ensures high-priority items are always visible at the top while preserving 
 
 ### Display Features
 
-- **Threshold dates** (`t:YYYY-MM-DD`): future items sort to bottom and render dimmed; set or clear one with `torudo set <id> --threshold`
+- **Threshold dates** (`t:YYYY-MM-DD`): future items sort to bottom and render dimmed; press `z` to hide them, along with any column left with nothing else. Set or clear one with `torudo set <id> --threshold`
 - **Overdue highlighting** (`due:YYYY-MM-DD`): items past due render with a red border
 - **Detail md preview** (Todo / Waiting tabs): top 3 unchecked `- [ ]` from `todos/{id}.md` shown inline on each card
 - **Detail md badge** (Todo / Waiting tabs): right-aligned `{done}/{total} {elapsed}` (e.g. `2/7  5m`) on each card; updates live

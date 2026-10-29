@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`z` hides deferred items in the TUI**: press `z` and every item whose `t:` date is still in the future stops taking up a card, and a column left with nothing else disappears, so a project whose every task is pushed out stops cluttering the board. Press `z` again to bring them back (sorted to the bottom and dimmed, as before); the footer names what the key will do next, `z:Hide later` or `z:Show later`. They are shown at startup, as before. While anything is hidden the current mode's tab reads `visible/total`, e.g. `Todo (9/13)`. `torudo focus` on a hidden item turns them back on so the cursor can land on it, and reports that as `deferred_shown` in its reply
+
 ### Removed
 - **The TUI's Claude / crmux integration** (breaking): the `c` submenu — `csp`/`csi` to send a prompt to a crmux session, `cgp` to import plans through crmux, and `clp`/`cli` to launch `claude` in a tmux window — is gone. Starting work on an item now happens through the [Agent Skill](skills/torudo/SKILL.md) driving the CLI, so the TUI side had gone unused. The `cwd:` frontmatter stays, since the skill reads it to find the item's repository
 

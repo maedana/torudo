@@ -15,6 +15,10 @@ impl HelpEntry {
     }
 }
 
+// The `z` footer names what pressing it will do, so it reads as a toggle.
+const SHOW_LATER: &str = "Show later";
+const HIDE_LATER: &str = "Hide later";
+
 pub const HELP_ENTRIES: &[HelpEntry] = &[
     HelpEntry {
         key: "hjkl",
@@ -269,6 +273,15 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         footer_key: None,
     },
     HelpEntry {
+        key: "z",
+        desc: "Show/hide later items (future t: date)",
+        indent: false,
+        todo_only: false,
+        waiting_too: false,
+        footer: Some(SHOW_LATER),
+        footer_key: None,
+    },
+    HelpEntry {
         key: "?",
         desc: "Toggle help",
         indent: false,
@@ -295,11 +308,21 @@ pub fn visible_entries(is_todo: bool, is_waiting: bool) -> Vec<&'static HelpEntr
         .collect()
 }
 
-pub fn footer_entries(is_todo: bool, is_waiting: bool) -> Vec<(&'static str, &'static str)> {
+pub fn footer_entries(
+    is_todo: bool,
+    is_waiting: bool,
+    show_deferred: bool,
+) -> Vec<(&'static str, &'static str)> {
     HELP_ENTRIES
         .iter()
         .filter(|e| e.footer.is_some() && e.is_visible(is_todo, is_waiting))
-        .map(|e| (e.footer_key.unwrap_or(e.key), e.footer.unwrap()))
+        .map(|e| {
+            let label = match e.footer.unwrap() {
+                SHOW_LATER if show_deferred => HIDE_LATER,
+                label => label,
+            };
+            (e.footer_key.unwrap_or(e.key), label)
+        })
         .collect()
 }
 
@@ -340,11 +363,12 @@ mod tests {
 
     #[test]
     fn test_footer_entries_contains_short_labels() {
-        let entries = footer_entries(true, false);
+        let entries = footer_entries(true, false, false);
         assert!(entries.contains(&("hjkl/Tab/S-Tab", "Nav")));
         assert!(entries.contains(&("x", "Done")));
         assert!(entries.contains(&("o", "URL")));
         assert!(entries.contains(&("s", "Send")));
+        assert!(!entries.iter().any(|(_, desc)| *desc == "Claude"));
         assert!(entries.contains(&("t", "Tag")));
         assert!(entries.contains(&("?", "Help")));
         assert!(entries.contains(&("q", "Quit")));
@@ -353,7 +377,7 @@ mod tests {
 
     #[test]
     fn test_footer_entries_excludes_stab_as_separate_entry() {
-        let entries = footer_entries(true, false);
+        let entries = footer_entries(true, false, false);
         // S-Tab should not appear as its own footer entry (merged into Tab/S-Tab)
         assert!(!entries.iter().any(|(k, _)| *k == "S-Tab"));
         // Tab also should not appear as a standalone key since it's merged
@@ -370,7 +394,7 @@ mod tests {
     #[test]
     fn test_footer_entries_nav_merged_into_single_entry() {
         // Nav+Mode are collapsed into a single `hjkl/Tab/S-Tab:Nav` footer entry.
-        let entries = footer_entries(true, false);
+        let entries = footer_entries(true, false, false);
         let nav_count = entries
             .iter()
             .filter(|(k, _)| *k == "hjkl/Tab/S-Tab")
@@ -411,10 +435,22 @@ mod tests {
 
     #[test]
     fn test_f_entry_in_footer() {
-        let entries = footer_entries(false, false);
+        let entries = footer_entries(false, false, false);
         assert!(
             entries.iter().any(|(k, desc)| *k == "f" && *desc == "Jump"),
             "f:Jump should appear in footer"
         );
+    }
+
+    #[test]
+    fn test_z_footer_offers_to_show_later_items_while_they_are_hidden() {
+        let entries = footer_entries(true, false, false);
+        assert!(entries.contains(&("z", "Show later")));
+    }
+
+    #[test]
+    fn test_z_footer_offers_to_hide_later_items_while_they_are_shown() {
+        let entries = footer_entries(true, false, true);
+        assert!(entries.contains(&("z", "Hide later")));
     }
 }

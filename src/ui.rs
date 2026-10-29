@@ -496,11 +496,28 @@ fn draw_project_columns(f: &mut ratatui::Frame, state: &mut AppState, area: Rect
     }
 }
 
+/// A mode tab's label. While deferred items are hidden the count reads
+/// `visible/total`, so it is clear something is kept off screen.
+fn tab_title(label: &str, total: usize, hidden: usize) -> String {
+    if hidden == 0 {
+        format!("{label} ({total})")
+    } else {
+        format!("{label} ({}/{total})", total.saturating_sub(hidden))
+    }
+}
+
 fn draw_tab_bar(f: &mut ratatui::Frame, state: &AppState, area: Rect) {
     let tab_titles: Vec<String> = ViewMode::ALL
         .iter()
         .enumerate()
-        .map(|(i, m)| format!("{} ({})", m.label(), state.mode_counts[i]))
+        .map(|(i, m)| {
+            let hidden = if i == state.current_mode_index() {
+                state.hidden_deferred_count()
+            } else {
+                0
+            };
+            tab_title(m.label(), state.mode_counts[i], hidden)
+        })
         .collect();
     let tabs = Tabs::new(tab_titles)
         .select(state.current_mode_index())
@@ -597,7 +614,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
         }
         let is_todo = state.view_mode == ViewMode::Todo;
         let is_waiting = state.view_mode == ViewMode::Waiting;
-        let footer_str = help::footer_entries(is_todo, is_waiting)
+        let footer_str = help::footer_entries(is_todo, is_waiting, state.show_deferred)
             .iter()
             .map(|(key, desc)| format!("{key}:{desc}"))
             .collect::<Vec<_>>()
@@ -1227,5 +1244,15 @@ mod tests {
             3,
             "all 3 visible todos should receive a hint label"
         );
+    }
+
+    #[test]
+    fn tab_title_shows_the_plain_count_when_nothing_is_hidden() {
+        assert_eq!(tab_title("Todo", 13, 0), "Todo (13)");
+    }
+
+    #[test]
+    fn tab_title_shows_visible_over_total_when_deferred_items_are_hidden() {
+        assert_eq!(tab_title("Todo", 13, 4), "Todo (9/13)");
     }
 }

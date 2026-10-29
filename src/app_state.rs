@@ -49,6 +49,7 @@ pub struct FocusResult {
     pub mode: ViewMode,
     pub column: String,
     pub filter_cleared: bool,
+    pub deferred_shown: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -222,6 +223,7 @@ pub struct AppState {
     pub pending_enter_hint: bool,
     pub current_filter: Option<NowFilter>,
     pub todo_layout: TodoLayout,
+    pub show_deferred: bool,
     #[cfg(test)]
     pub vim_send_log: std::cell::RefCell<Vec<String>>,
 }
@@ -286,6 +288,7 @@ impl AppState {
             pending_enter_hint: false,
             current_filter: None,
             todo_layout: TodoLayout::default(),
+            show_deferred: true,
             #[cfg(test)]
             vim_send_log: std::cell::RefCell::new(Vec::new()),
         };
@@ -323,18 +326,20 @@ impl AppState {
     }
 
     fn rebuild_grouping(&mut self) {
-        let source: Vec<Item> = match &self.current_filter {
-            Some(f) if f.is_active() && self.view_mode == ViewMode::Todo => self
-                .todos
-                .iter()
-                .filter(|t| f.matches(t))
-                .cloned()
-                .collect(),
-            _ => self.todos.clone(),
-        };
+        let today = chrono::Local::now().date_naive();
+        let now_filter = self
+            .current_filter
+            .as_ref()
+            .filter(|f| f.is_active() && self.view_mode == ViewMode::Todo);
+        let source: Vec<Item> = self
+            .todos
+            .iter()
+            .filter(|t| self.show_deferred || !t.is_threshold_pending(today))
+            .filter(|t| now_filter.is_none_or(|f| f.matches(t)))
+            .cloned()
+            .collect();
         let (names, grouped) =
             if self.view_mode == ViewMode::Todo && self.todo_layout == TodoLayout::Pick {
-                let today = chrono::Local::now().date_naive();
                 group_todos_for_pick(&source, today)
             } else {
                 let g = group_todos_by_project_owned(&source);
@@ -445,8 +450,9 @@ impl AppState {
     /// Returns `None` without touching any state when no mode file holds it.
     ///
     /// Once a mode is picked the item is always locatable, because every layout
-    /// puts every item in some column. The Now filter is therefore cleared only
-    /// when it really is what hides the target, and never has to be restored.
+    /// puts every item in some column. Deferred items are revealed and the Now
+    /// filter is cleared only when that really is what hides the target, and
+    /// neither has to be restored.
     pub fn focus_todo(&mut self, id: &str) -> Option<FocusResult> {
         let mode = self.find_mode_for_id(id)?;
         if mode == self.view_mode {
@@ -459,9 +465,23 @@ impl AppState {
         } else {
             self.set_view_mode(mode);
         }
-        // Only drop the Now filter when it is what hides the target.
-        let mut filter_cleared = false;
+        // Only reveal deferred items or drop the Now filter when that is what
+        // hides the target.
+        let mut deferred_shown = false;
         let mut located = self.locate_todo(id);
+        if located.is_none() && !self.show_deferred {
+            let today = chrono::Local::now().date_naive();
+            if self
+                .todos
+                .iter()
+                .any(|t| t.id.as_deref() == Some(id) && t.is_threshold_pending(today))
+            {
+                self.set_show_deferred(true);
+                deferred_shown = true;
+                located = self.locate_todo(id);
+            }
+        }
+        let mut filter_cleared = false;
         if located.is_none() && self.current_filter.is_some() {
             self.handle_clear_filter();
             filter_cleared = true;
@@ -473,6 +493,7 @@ impl AppState {
             mode,
             column,
             filter_cleared,
+            deferred_shown,
         })
     }
 
@@ -632,6 +653,38 @@ impl AppState {
             self.reset_navigation();
             self.update_derived_state();
         }
+    }
+
+    pub fn handle_toggle_deferred(&mut self) {
+        self.set_show_deferred(!self.show_deferred);
+    }
+
+    /// Flip deferred visibility, keeping the cursor on the selected item when
+    /// it is still on screen and letting `update_derived_state` clamp it
+    /// otherwise.
+    fn set_show_deferred(&mut self, show: bool) {
+        let selected = self.get_current_todo_id().map(str::to_string);
+        self.show_deferred = show;
+        self.rebuild_grouping();
+        if let Some((col, row, _)) = selected.and_then(|id| self.locate_todo(&id)) {
+            self.current_column = col;
+            self.selected_in_column = row;
+        }
+        self.scroll_offset = 0;
+        self.update_derived_state();
+    }
+
+    /// How many items of the current mode are kept off screen for having a
+    /// future `t:` date.
+    pub fn hidden_deferred_count(&self) -> usize {
+        if self.show_deferred {
+            return 0;
+        }
+        let today = chrono::Local::now().date_naive();
+        self.todos
+            .iter()
+            .filter(|t| t.is_threshold_pending(today))
+            .count()
     }
 
     pub fn handle_toggle_layout(&mut self) {
@@ -2604,5 +2657,128 @@ mod tests {
             state.project_names, pick_columns,
             "Pick layout columns must be preserved across md preview refresh"
         );
+    }
+
+    fn deferred_test_state() -> AppState {
+        create_test_state(vec![
+            Item::parse("Now task +p1 id:now", 1),
+            Item::parse("Later task +p1 t:2999-01-01 id:later", 2),
+            Item::parse("Parked task +p2 t:2999-01-01 id:parked", 3),
+        ])
+    }
+
+    fn hidden_deferred_test_state() -> AppState {
+        let mut state = deferred_test_state();
+        state.handle_toggle_deferred();
+        state
+    }
+
+    #[test]
+    fn deferred_items_are_shown_by_default() {
+        let state = deferred_test_state();
+
+        assert!(state.show_deferred);
+        assert_eq!(total_grouped_todos(&state), 3);
+    }
+
+    #[test]
+    fn toggling_deferred_hides_them() {
+        let state = hidden_deferred_test_state();
+
+        assert!(!state.show_deferred);
+        assert_eq!(total_grouped_todos(&state), 1);
+        assert_eq!(state.get_current_todo_id(), Some("now"));
+    }
+
+    #[test]
+    fn a_column_holding_only_deferred_items_disappears() {
+        let state = hidden_deferred_test_state();
+
+        assert_eq!(state.project_names, vec!["p1".to_string()]);
+    }
+
+    #[test]
+    fn toggling_deferred_twice_shows_every_item_again() {
+        let mut state = hidden_deferred_test_state();
+
+        state.handle_toggle_deferred();
+
+        assert!(state.show_deferred);
+        assert_eq!(total_grouped_todos(&state), 3);
+        assert_eq!(
+            state.project_names,
+            vec!["p1".to_string(), "p2".to_string()]
+        );
+    }
+
+    #[test]
+    fn hidden_deferred_count_reports_items_kept_off_screen() {
+        let mut state = deferred_test_state();
+        assert_eq!(state.hidden_deferred_count(), 0);
+
+        state.handle_toggle_deferred();
+        assert_eq!(state.hidden_deferred_count(), 2);
+    }
+
+    #[test]
+    fn toggling_deferred_keeps_the_cursor_on_a_visible_item() {
+        let mut state = create_test_state(vec![
+            Item::parse("A task +p1 t:2999-01-01 id:a", 1),
+            Item::parse("B task +p2 id:b", 2),
+        ]);
+        assert!(state.focus_todo("b").is_some());
+
+        state.handle_toggle_deferred();
+        assert_eq!(state.get_current_todo_id(), Some("b"));
+
+        state.handle_toggle_deferred();
+        assert_eq!(state.get_current_todo_id(), Some("b"));
+    }
+
+    #[test]
+    fn hiding_deferred_moves_the_cursor_off_a_hidden_item() {
+        let mut state = deferred_test_state();
+        assert!(state.focus_todo("parked").is_some());
+
+        state.handle_toggle_deferred();
+
+        assert_eq!(state.get_current_todo_id(), Some("now"));
+    }
+
+    #[test]
+    fn focus_todo_shows_deferred_items_when_the_target_is_deferred() {
+        let dir = focus_test_dir(
+            "torudo_test_focus_deferred_hidden",
+            &[(ViewMode::Todo, "T1 +p1 id:t1\nT2 +p2 t:2999-01-01 id:t2\n")],
+        );
+        let mut state = focus_test_state(&dir);
+        state.handle_toggle_deferred();
+
+        let result = state
+            .focus_todo("t2")
+            .expect("t2 exists behind the deferral");
+
+        assert!(result.deferred_shown);
+        assert!(state.show_deferred);
+        assert_eq!(state.get_current_todo_id(), Some("t2"));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn focus_todo_leaves_deferred_hidden_when_the_target_is_visible() {
+        let dir = focus_test_dir(
+            "torudo_test_focus_deferred_visible",
+            &[(ViewMode::Todo, "T1 +p1 id:t1\nT2 +p2 t:2999-01-01 id:t2\n")],
+        );
+        let mut state = focus_test_state(&dir);
+        state.handle_toggle_deferred();
+
+        let result = state.focus_todo("t1").expect("t1 is visible");
+
+        assert!(!result.deferred_shown);
+        assert!(!state.show_deferred);
+
+        fs::remove_dir_all(&dir).ok();
     }
 }

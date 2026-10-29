@@ -396,6 +396,12 @@ impl EventHandler {
                 }
                 state.handle_toggle_layout();
             }
+            KeyCode::Char('z') => {
+                if debug_mode {
+                    debug!("Toggle deferred visibility");
+                }
+                state.handle_toggle_deferred();
+            }
             KeyCode::Char('?') => {
                 state.toggle_help();
             }
@@ -1279,6 +1285,18 @@ mod tests {
         assert_eq!(state.todo_layout, crate::app_state::TodoLayout::Pick);
         handler.handle_keyboard_event(&make_key_event('v'), &mut state, false);
         assert_eq!(state.todo_layout, crate::app_state::TodoLayout::Project);
+    }
+
+    #[test]
+    fn z_key_toggles_deferred_visibility() {
+        let mut state = create_test_state();
+        let mut handler = EventHandler::new();
+        assert!(state.show_deferred);
+        handler.handle_keyboard_event(&make_key_event('z'), &mut state, false);
+        assert!(!state.show_deferred);
+        handler.handle_keyboard_event(&make_key_event('z'), &mut state, false);
+        assert!(state.show_deferred);
+        assert!(handler.pending_keys.is_empty());
     }
 
     #[test]

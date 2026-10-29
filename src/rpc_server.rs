@@ -177,6 +177,7 @@ fn handle_focus(state: &mut AppState, params: &rmpv::Value) -> Result<String, St
         "mode": focused.mode.cli_name(),
         "column": focused.column,
         "filter_cleared": focused.filter_cleared,
+        "deferred_shown": focused.deferred_shown,
     });
     serde_json::to_string_pretty(&response).map_err(|e| e.to_string())
 }
@@ -332,6 +333,18 @@ mod tests {
         assert_eq!(json["mode"], "todo");
         assert_eq!(json["column"], "work");
         assert_eq!(json["filter_cleared"], false);
+    }
+
+    #[test]
+    fn test_handle_focus_reports_deferred_shown() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = test_state(dir.path(), "T1 +work t:2999-01-01 id:t1\n");
+        state.handle_toggle_deferred();
+
+        let result = handle_focus(&mut state, &string_params(&["t1"])).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["deferred_shown"], true);
     }
 
     #[test]
