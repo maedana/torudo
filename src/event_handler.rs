@@ -118,7 +118,6 @@ impl EventHandler {
         &mut self,
         event: &Event,
         state: &mut AppState,
-        todo_file: &str,
         debug_mode: bool,
     ) -> bool {
         if let Event::Key(key) = *event {
@@ -127,20 +126,6 @@ impl EventHandler {
                 match key.code {
                     KeyCode::Char('?' | 'q') | KeyCode::Esc => {
                         state.show_help = false;
-                    }
-                    _ => {}
-                }
-                return false;
-            }
-
-            // Handle plan modal keys when modal is open
-            if state.plan_modal.is_some() {
-                match key.code {
-                    KeyCode::Char(c @ ('j' | 'k' | ' ' | 'q')) => {
-                        state.handle_plan_modal_key(c, todo_file);
-                    }
-                    KeyCode::Enter => {
-                        state.handle_plan_modal_key('\r', todo_file);
                     }
                     _ => {}
                 }
@@ -160,7 +145,7 @@ impl EventHandler {
 
             // Handle multi-stroke sequences
             if !self.pending_keys.is_empty() {
-                self.handle_pending_sequence(key.code, state, todo_file, debug_mode);
+                self.handle_pending_sequence(key.code, state, debug_mode);
                 return false;
             }
 
@@ -170,13 +155,7 @@ impl EventHandler {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn handle_pending_sequence(
-        &mut self,
-        code: KeyCode,
-        state: &mut AppState,
-        todo_file: &str,
-        debug_mode: bool,
-    ) {
+    fn handle_pending_sequence(&mut self, code: KeyCode, state: &mut AppState, debug_mode: bool) {
         let KeyCode::Char(c) = code else {
             // Non-char key pressed during sequence - cancel
             self.pending_keys.clear();
@@ -185,59 +164,8 @@ impl EventHandler {
         };
 
         self.pending_keys.push(c);
-        let todotxt_dir = std::path::Path::new(todo_file)
-            .parent()
-            .and_then(|p| p.to_str())
-            .unwrap_or(".");
 
         match self.pending_keys.as_slice() {
-            ['c', 's'] => {
-                // Intermediate state - wait for third key
-                state.status_message = Some("cs → p: Plan | i: Impl | Esc: Cancel".to_string());
-            }
-            ['c', 's', 'p'] => {
-                if debug_mode {
-                    debug!("Send plan prompt requested (csp)");
-                }
-                state.handle_send_plan(todotxt_dir);
-                self.pending_keys.clear();
-            }
-            ['c', 's', 'i'] => {
-                if debug_mode {
-                    debug!("Send implement prompt requested (csi)");
-                }
-                state.handle_send_implement(todotxt_dir);
-                self.pending_keys.clear();
-            }
-            ['c', 'g'] => {
-                // Intermediate state - wait for third key
-                state.status_message = Some("cg → p: Plans | Esc: Cancel".to_string());
-            }
-            ['c', 'g', 'p'] if state.crmux_supports_get_plans() => {
-                if debug_mode {
-                    debug!("Get plans requested (cgp)");
-                }
-                state.handle_open_plan_modal();
-                self.pending_keys.clear();
-            }
-            ['c', 'l'] => {
-                // Intermediate state - wait for third key
-                state.status_message = Some("cl → p: Plan | i: Impl | Esc: Cancel".to_string());
-            }
-            ['c', 'l', 'p'] => {
-                if debug_mode {
-                    debug!("Launch plan requested (clp)");
-                }
-                state.handle_launch_plan(todotxt_dir);
-                self.pending_keys.clear();
-            }
-            ['c', 'l', 'i'] => {
-                if debug_mode {
-                    debug!("Launch implement requested (cli)");
-                }
-                state.handle_launch_implement(todotxt_dir);
-                self.pending_keys.clear();
-            }
             ['s', 't'] => {
                 if debug_mode {
                     debug!("Send to todo (st)");
@@ -446,13 +374,6 @@ impl EventHandler {
                 }
                 state.prev_view_mode();
             }
-            KeyCode::Char('c')
-                if state.view_mode == ViewMode::Todo
-                    && (state.crmux_available() || state.claude_available()) =>
-            {
-                self.pending_keys.push('c');
-                state.status_message = Some(build_c_submenu(state));
-            }
             KeyCode::Char('o') => {
                 if debug_mode {
                     debug!("Open URLs command received");
@@ -525,21 +446,6 @@ fn build_s_submenu(state: &AppState) -> String {
     parts.join(" | ")
 }
 
-fn build_c_submenu(state: &AppState) -> String {
-    let mut parts = vec!["c →".to_string()];
-    if state.crmux_available() {
-        parts.push("s: Send…".to_string());
-    }
-    if state.crmux_supports_get_plans() {
-        parts.push("g: Get…".to_string());
-    }
-    if state.claude_available() {
-        parts.push("l: Launch…".to_string());
-    }
-    parts.push("Esc: Cancel".to_string());
-    parts.join(" | ")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -556,7 +462,7 @@ mod tests {
         })
     }
 
-    fn create_test_state_with_crmux() -> crate::app_state::AppState {
+    fn create_test_state() -> crate::app_state::AppState {
         let todos = vec![Item {
             completed: false,
             priority: Some('A'),
@@ -570,157 +476,19 @@ mod tests {
             line_number: 1,
             md_meta: None,
         }];
-        let mut state = crate::app_state::AppState::new(
+        crate::app_state::AppState::new(
             todos,
             "/tmp/nvim.sock".to_string(),
             "/tmp/todotxt".to_string(),
-        );
-        state.crmux_version = Some((0, 11, 0));
-        state.claude_available = false;
-        state
-    }
-
-    fn create_test_state_with_claude() -> crate::app_state::AppState {
-        let todos = vec![Item {
-            completed: false,
-            priority: Some('A'),
-            creation_date: None,
-            completion_date: None,
-            description: "Test task".to_string(),
-            projects: vec!["proj".to_string()],
-            contexts: vec![],
-            id: Some("test-id".to_string()),
-            key_values: HashMap::new(),
-            line_number: 1,
-            md_meta: None,
-        }];
-        let mut state = crate::app_state::AppState::new(
-            todos,
-            "/tmp/nvim.sock".to_string(),
-            "/tmp/todotxt".to_string(),
-        );
-        state.crmux_version = None;
-        state.claude_available = true;
-        state
-    }
-
-    #[test]
-    fn test_cs_intermediate_state() {
-        let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
-
-        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
-        assert!(state.status_message.is_some());
-
-        handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
-        assert_eq!(handler.pending_keys.as_slice(), &['c', 's']);
-    }
-
-    #[test]
-    fn test_three_stroke_csp_sends_plan() {
-        let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
-
-        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('p'), &mut state, todo_file, false);
-        assert!(handler.pending_keys.is_empty());
-    }
-
-    #[test]
-    fn test_three_stroke_csi_sends_implement() {
-        let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
-
-        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('i'), &mut state, todo_file, false);
-        assert!(handler.pending_keys.is_empty());
-    }
-
-    #[test]
-    fn test_cg_intermediate_state() {
-        let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
-
-        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('g'), &mut state, todo_file, false);
-        assert_eq!(handler.pending_keys.as_slice(), &['c', 'g']);
-    }
-
-    #[test]
-    fn test_three_stroke_cgp_gets_plans() {
-        let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
-
-        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('g'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('p'), &mut state, todo_file, false);
-        assert!(handler.pending_keys.is_empty());
-    }
-
-    #[test]
-    fn test_cl_intermediate_state() {
-        let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        state.claude_available = true;
-        let todo_file = "/tmp/dummy.txt";
-
-        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
-        assert!(state.status_message.is_some());
-
-        handler.handle_keyboard_event(&make_key_event('l'), &mut state, todo_file, false);
-        assert_eq!(handler.pending_keys.as_slice(), &['c', 'l']);
-    }
-
-    #[test]
-    fn test_three_stroke_clp_triggers_launch_plan() {
-        let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        state.claude_available = false;
-        let todo_file = "/tmp/dummy.txt";
-
-        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('l'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('p'), &mut state, todo_file, false);
-
-        assert!(handler.pending_keys.is_empty());
-        assert_eq!(
-            state.status_message.as_deref(),
-            Some("claude CLI not found")
-        );
-    }
-
-    #[test]
-    fn test_three_stroke_cli_triggers_launch_implement() {
-        let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        state.claude_available = false;
-        let todo_file = "/tmp/dummy.txt";
-
-        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('l'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('i'), &mut state, todo_file, false);
-
-        assert!(handler.pending_keys.is_empty());
-        assert_eq!(
-            state.status_message.as_deref(),
-            Some("claude CLI not found")
-        );
+        )
     }
 
     #[test]
     fn test_d_key_shows_intermediate() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
-        handler.handle_keyboard_event(&make_key_event('d'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('d'), &mut state, false);
         assert_eq!(handler.pending_keys.as_slice(), &['d']);
         let msg = state.status_message.as_deref().unwrap();
         assert!(msg.contains("Delete"));
@@ -743,18 +511,8 @@ mod tests {
         );
 
         let mut handler = EventHandler::new();
-        handler.handle_keyboard_event(
-            &make_key_event('d'),
-            &mut state,
-            todo_file_path.to_str().unwrap(),
-            false,
-        );
-        handler.handle_keyboard_event(
-            &make_key_event('d'),
-            &mut state,
-            todo_file_path.to_str().unwrap(),
-            false,
-        );
+        handler.handle_keyboard_event(&make_key_event('d'), &mut state, false);
+        handler.handle_keyboard_event(&make_key_event('d'), &mut state, false);
 
         assert!(handler.pending_keys.is_empty());
         assert!(state.status_message.is_none());
@@ -767,11 +525,10 @@ mod tests {
     #[test]
     fn test_d_then_other_cancels() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
-        handler.handle_keyboard_event(&make_key_event('d'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('x'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('d'), &mut state, false);
+        handler.handle_keyboard_event(&make_key_event('x'), &mut state, false);
 
         assert!(handler.pending_keys.is_empty());
         assert!(state.status_message.is_none());
@@ -780,10 +537,9 @@ mod tests {
     #[test]
     fn test_t_key_shows_intermediate() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
-        handler.handle_keyboard_event(&make_key_event('t'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('t'), &mut state, false);
         assert_eq!(handler.pending_keys.as_slice(), &['t']);
         let msg = state.status_message.as_deref().unwrap();
         assert!(msg.contains("time"));
@@ -793,11 +549,10 @@ mod tests {
     #[test]
     fn test_ti_intermediate_state() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
-        handler.handle_keyboard_event(&make_key_event('t'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('i'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('t'), &mut state, false);
+        handler.handle_keyboard_event(&make_key_event('i'), &mut state, false);
         assert_eq!(handler.pending_keys.as_slice(), &['t', 'i']);
         let msg = state.status_message.as_deref().unwrap();
         assert!(msg.contains("short"));
@@ -823,12 +578,7 @@ mod tests {
 
         let mut handler = EventHandler::new();
         for c in ['t', 'i', 's'] {
-            handler.handle_keyboard_event(
-                &make_key_event(c),
-                &mut state,
-                todo_file_path.to_str().unwrap(),
-                false,
-            );
+            handler.handle_keyboard_event(&make_key_event(c), &mut state, false);
         }
 
         assert!(handler.pending_keys.is_empty());
@@ -857,12 +607,7 @@ mod tests {
 
         let mut handler = EventHandler::new();
         for c in ['t', 'i', 'm'] {
-            handler.handle_keyboard_event(
-                &make_key_event(c),
-                &mut state,
-                todo_file_path.to_str().unwrap(),
-                false,
-            );
+            handler.handle_keyboard_event(&make_key_event(c), &mut state, false);
         }
 
         let content = fs::read_to_string(&todo_file_path).unwrap();
@@ -890,12 +635,7 @@ mod tests {
 
         let mut handler = EventHandler::new();
         for c in ['t', 'i', 'l'] {
-            handler.handle_keyboard_event(
-                &make_key_event(c),
-                &mut state,
-                todo_file_path.to_str().unwrap(),
-                false,
-            );
+            handler.handle_keyboard_event(&make_key_event(c), &mut state, false);
         }
 
         let content = fs::read_to_string(&todo_file_path).unwrap();
@@ -907,11 +647,10 @@ mod tests {
     #[test]
     fn test_te_intermediate_state() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
-        handler.handle_keyboard_event(&make_key_event('t'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('e'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('t'), &mut state, false);
+        handler.handle_keyboard_event(&make_key_event('e'), &mut state, false);
         assert_eq!(handler.pending_keys.as_slice(), &['t', 'e']);
         let msg = state.status_message.as_deref().unwrap();
         assert!(msg.contains("low"));
@@ -936,12 +675,7 @@ mod tests {
 
         let mut handler = EventHandler::new();
         for c in ['t', 'e', 'l'] {
-            handler.handle_keyboard_event(
-                &make_key_event(c),
-                &mut state,
-                todo_file_path.to_str().unwrap(),
-                false,
-            );
+            handler.handle_keyboard_event(&make_key_event(c), &mut state, false);
         }
 
         assert!(handler.pending_keys.is_empty());
@@ -970,12 +704,7 @@ mod tests {
 
         let mut handler = EventHandler::new();
         for c in ['t', 'e', 'h'] {
-            handler.handle_keyboard_event(
-                &make_key_event(c),
-                &mut state,
-                todo_file_path.to_str().unwrap(),
-                false,
-            );
+            handler.handle_keyboard_event(&make_key_event(c), &mut state, false);
         }
 
         let content = fs::read_to_string(&todo_file_path).unwrap();
@@ -988,12 +717,11 @@ mod tests {
     #[test]
     fn test_te_then_invalid_cancels() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
-        handler.handle_keyboard_event(&make_key_event('t'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('e'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('q'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('t'), &mut state, false);
+        handler.handle_keyboard_event(&make_key_event('e'), &mut state, false);
+        handler.handle_keyboard_event(&make_key_event('q'), &mut state, false);
 
         assert!(handler.pending_keys.is_empty());
         assert!(state.status_message.is_none());
@@ -1002,81 +730,36 @@ mod tests {
     #[test]
     fn test_ti_then_invalid_cancels() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
-        handler.handle_keyboard_event(&make_key_event('t'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('i'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('q'), &mut state, todo_file, false);
-
-        assert!(handler.pending_keys.is_empty());
-        assert!(state.status_message.is_none());
-    }
-
-    #[test]
-    fn test_invalid_sequence_clears() {
-        let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        state.claude_available = true;
-        let todo_file = "/tmp/dummy.txt";
-
-        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('l'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('q'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('t'), &mut state, false);
+        handler.handle_keyboard_event(&make_key_event('i'), &mut state, false);
+        handler.handle_keyboard_event(&make_key_event('q'), &mut state, false);
 
         assert!(handler.pending_keys.is_empty());
         assert!(state.status_message.is_none());
-    }
-
-    #[test]
-    fn test_c_key_shows_submenu() {
-        let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
-
-        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
-        let msg = state.status_message.as_deref().unwrap();
-        assert!(msg.contains("c →"));
-        assert!(msg.contains("s: Send…"));
-        assert!(msg.contains("g: Get…"));
-        assert_eq!(handler.pending_keys.as_slice(), &['c']);
-    }
-
-    #[test]
-    fn test_c_key_available_with_claude_only() {
-        let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_claude();
-        let todo_file = "/tmp/dummy.txt";
-
-        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
-        let msg = state.status_message.as_deref().unwrap();
-        assert!(msg.contains("c →"));
-        assert!(msg.contains("l: Launch…"));
-        assert_eq!(handler.pending_keys.as_slice(), &['c']);
     }
 
     #[test]
     fn test_question_mark_toggles_help() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
         assert!(!state.show_help);
-        handler.handle_keyboard_event(&make_key_event('?'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('?'), &mut state, false);
         assert!(state.show_help);
-        handler.handle_keyboard_event(&make_key_event('?'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('?'), &mut state, false);
         assert!(!state.show_help);
     }
 
     #[test]
     fn test_help_overlay_blocks_other_keys() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
         state.show_help = true;
         let initial_column = state.selected_in_column;
-        handler.handle_keyboard_event(&make_key_event('j'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('j'), &mut state, false);
         assert_eq!(state.selected_in_column, initial_column);
         assert!(state.show_help);
     }
@@ -1084,12 +767,10 @@ mod tests {
     #[test]
     fn test_q_closes_help() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
         state.show_help = true;
-        let quit =
-            handler.handle_keyboard_event(&make_key_event('q'), &mut state, todo_file, false);
+        let quit = handler.handle_keyboard_event(&make_key_event('q'), &mut state, false);
         assert!(!quit);
         assert!(!state.show_help);
     }
@@ -1097,8 +778,7 @@ mod tests {
     #[test]
     fn test_esc_closes_help() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
         state.show_help = true;
         let esc_event = Event::Key(KeyEvent {
@@ -1107,7 +787,7 @@ mod tests {
             kind: KeyEventKind::Press,
             state: KeyEventState::NONE,
         });
-        let quit = handler.handle_keyboard_event(&esc_event, &mut state, todo_file, false);
+        let quit = handler.handle_keyboard_event(&esc_event, &mut state, false);
         assert!(!quit);
         assert!(!state.show_help);
     }
@@ -1133,34 +813,31 @@ mod tests {
     #[test]
     fn test_tab_switches_to_next_mode() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
         // ALL order: Inbox, Todo, Waiting, Ref, Someday. Initial mode is Todo
         assert_eq!(state.view_mode, ViewMode::Todo);
-        handler.handle_keyboard_event(&make_tab_event(), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_tab_event(), &mut state, false);
         assert_eq!(state.view_mode, ViewMode::Waiting);
     }
 
     #[test]
     fn test_backtab_switches_to_prev_mode() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
         assert_eq!(state.view_mode, ViewMode::Todo);
-        handler.handle_keyboard_event(&make_backtab_event(), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_backtab_event(), &mut state, false);
         assert_eq!(state.view_mode, ViewMode::Inbox);
     }
 
     #[test]
     fn test_s_submenu_shows_targets() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
         // Pressing s in Todo mode shows all modes except Todo
-        handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('s'), &mut state, false);
         let msg = state.status_message.as_deref().unwrap();
         assert!(msg.contains("s →"));
         assert!(!msg.contains("t: Todo")); // Current mode is not shown
@@ -1173,11 +850,10 @@ mod tests {
     #[test]
     fn test_s_submenu_from_inbox_mode() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
+        let mut state = create_test_state();
         state.view_mode = ViewMode::Inbox;
-        let todo_file = "/tmp/dummy.txt";
 
-        handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('s'), &mut state, false);
         let msg = state.status_message.as_deref().unwrap();
         assert!(msg.contains("t: Todo")); // From Inbox mode, Todo is shown
         assert!(!msg.contains("i: Inbox")); // Current mode is hidden
@@ -1188,11 +864,10 @@ mod tests {
         // Tab order (ViewMode::ALL) is Inbox, Todo, Waiting, Ref, Someday
         // Pressing s in Todo mode yields the order without Todo = Inbox, Waiting, Ref, Someday
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
+        let mut state = create_test_state();
         assert_eq!(state.view_mode, ViewMode::Todo);
-        let todo_file = "/tmp/dummy.txt";
 
-        handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('s'), &mut state, false);
         assert_eq!(
             state.status_message.as_deref().unwrap(),
             "s → | i: Inbox | w: Waiting | r: Ref | s: Someday | Esc: Cancel"
@@ -1203,11 +878,10 @@ mod tests {
     fn test_s_submenu_order_matches_tab_order_from_inbox() {
         // Pressing s in Inbox mode yields the order without Inbox = Todo, Waiting, Ref, Someday
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
+        let mut state = create_test_state();
         state.view_mode = ViewMode::Inbox;
-        let todo_file = "/tmp/dummy.txt";
 
-        handler.handle_keyboard_event(&make_key_event('s'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('s'), &mut state, false);
         assert_eq!(
             state.status_message.as_deref().unwrap(),
             "s → | t: Todo | w: Waiting | r: Ref | s: Someday | Esc: Cancel"
@@ -1217,10 +891,9 @@ mod tests {
     #[test]
     fn test_p_prefix_shows_submenu() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
-        handler.handle_keyboard_event(&make_key_event('p'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('p'), &mut state, false);
 
         assert_eq!(handler.pending_keys.as_slice(), &['p']);
         let msg = state.status_message.as_deref().unwrap();
@@ -1243,10 +916,9 @@ mod tests {
             temp_dir.to_str().unwrap().to_string(),
         );
         let mut handler = EventHandler::new();
-        let todo_file_str = todo_file.to_str().unwrap();
 
-        handler.handle_keyboard_event(&make_key_event('p'), &mut state, todo_file_str, false);
-        handler.handle_keyboard_event(&make_key_event('a'), &mut state, todo_file_str, false);
+        handler.handle_keyboard_event(&make_key_event('p'), &mut state, false);
+        handler.handle_keyboard_event(&make_key_event('a'), &mut state, false);
 
         assert!(handler.pending_keys.is_empty());
         let content = std::fs::read_to_string(&todo_file).unwrap();
@@ -1272,10 +944,9 @@ mod tests {
             temp_dir.to_str().unwrap().to_string(),
         );
         let mut handler = EventHandler::new();
-        let todo_file_str = todo_file.to_str().unwrap();
 
-        handler.handle_keyboard_event(&make_key_event('p'), &mut state, todo_file_str, false);
-        handler.handle_keyboard_event(&make_key_event('x'), &mut state, todo_file_str, false);
+        handler.handle_keyboard_event(&make_key_event('p'), &mut state, false);
+        handler.handle_keyboard_event(&make_key_event('x'), &mut state, false);
 
         assert!(handler.pending_keys.is_empty());
         let content = std::fs::read_to_string(&todo_file).unwrap();
@@ -1291,42 +962,11 @@ mod tests {
     #[test]
     fn test_p_unknown_key_cancels() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
-        handler.handle_keyboard_event(&make_key_event('p'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('z'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('p'), &mut state, false);
+        handler.handle_keyboard_event(&make_key_event('z'), &mut state, false);
 
-        assert!(handler.pending_keys.is_empty());
-        assert!(state.status_message.is_none());
-    }
-
-    #[test]
-    fn test_c_key_unavailable_without_crmux_or_claude() {
-        let mut handler = EventHandler::new();
-        let todos = vec![Item {
-            completed: false,
-            priority: Some('A'),
-            creation_date: None,
-            completion_date: None,
-            description: "Test task".to_string(),
-            projects: vec!["proj".to_string()],
-            contexts: vec![],
-            id: Some("test-id".to_string()),
-            key_values: HashMap::new(),
-            line_number: 1,
-            md_meta: None,
-        }];
-        let mut state = crate::app_state::AppState::new(
-            todos,
-            "/tmp/nvim.sock".to_string(),
-            "/tmp/todotxt".to_string(),
-        );
-        state.crmux_version = None;
-        state.claude_available = false;
-        let todo_file = "/tmp/dummy.txt";
-
-        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
         assert!(handler.pending_keys.is_empty());
         assert!(state.status_message.is_none());
     }
@@ -1344,8 +984,7 @@ mod tests {
         state.set_view_mode(ViewMode::Waiting);
 
         let mut handler = EventHandler::new();
-        let todo_file = format!("{dir_path}/todo.txt");
-        handler.handle_keyboard_event(&make_key_event('x'), &mut state, &todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('x'), &mut state, false);
 
         let waiting_content = fs::read_to_string(&waiting_path).unwrap();
         assert!(
@@ -1363,7 +1002,7 @@ mod tests {
     }
 
     #[test]
-    fn test_x_uses_active_file_not_todo_file_arg() {
+    fn test_x_in_waiting_mode_leaves_todo_file_untouched() {
         use std::fs;
         let dir = tempfile::tempdir().unwrap();
         let dir_path = dir.path().to_str().unwrap().to_string();
@@ -1377,7 +1016,7 @@ mod tests {
         state.set_view_mode(ViewMode::Waiting);
 
         let mut handler = EventHandler::new();
-        handler.handle_keyboard_event(&make_key_event('x'), &mut state, &todo_path, false);
+        handler.handle_keyboard_event(&make_key_event('x'), &mut state, false);
 
         let todo_content = fs::read_to_string(&todo_path).unwrap();
         assert!(
@@ -1404,7 +1043,7 @@ mod tests {
         state.set_view_mode(ViewMode::Inbox);
 
         let mut handler = EventHandler::new();
-        handler.handle_keyboard_event(&make_key_event('x'), &mut state, &inbox_path, false);
+        handler.handle_keyboard_event(&make_key_event('x'), &mut state, false);
 
         let content = fs::read_to_string(&inbox_path).unwrap();
         assert!(
@@ -1421,10 +1060,9 @@ mod tests {
     #[test]
     fn test_f_key_requests_hint_enter() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
-        handler.handle_keyboard_event(&make_key_event('f'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('f'), &mut state, false);
         assert!(
             state.pending_enter_hint,
             "f should flag pending_enter_hint for next frame"
@@ -1435,13 +1073,12 @@ mod tests {
     #[test]
     fn test_char_during_hint_mode_types_into_hint() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
         let cells: Vec<(usize, usize)> = (0..30).map(|i| (0, i)).collect();
         state.enter_hint_mode(&cells);
 
-        handler.handle_keyboard_event(&make_key_event('a'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('a'), &mut state, false);
         let hint = state
             .hint
             .as_ref()
@@ -1452,12 +1089,11 @@ mod tests {
     #[test]
     fn test_hint_mode_exact_match_moves_selection() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
         let cells = vec![(0, 0), (0, 1), (0, 2)];
         state.enter_hint_mode(&cells);
-        handler.handle_keyboard_event(&make_key_event('c'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('c'), &mut state, false);
 
         assert!(state.hint.is_none(), "exact match exits hint mode");
         assert_eq!(state.selected_in_column, 2);
@@ -1467,8 +1103,7 @@ mod tests {
     fn test_esc_during_hint_mode_cancels() {
         use crossterm::event::{KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
         state.enter_hint_mode(&[(0, 0), (0, 1)]);
         let esc = Event::Key(KeyEvent {
@@ -1477,7 +1112,7 @@ mod tests {
             kind: KeyEventKind::Press,
             state: KeyEventState::NONE,
         });
-        handler.handle_keyboard_event(&esc, &mut state, todo_file, false);
+        handler.handle_keyboard_event(&esc, &mut state, false);
 
         assert!(state.hint.is_none(), "Esc exits hint mode");
         assert!(state.status_message.is_none());
@@ -1486,12 +1121,11 @@ mod tests {
     #[test]
     fn test_non_prefix_key_during_hint_mode_cancels() {
         let mut handler = EventHandler::new();
-        let mut state = create_test_state_with_crmux();
-        let todo_file = "/tmp/dummy.txt";
+        let mut state = create_test_state();
 
         // only 1 label 'a' — pressing 'z' is not a prefix of anything, cancels
         state.enter_hint_mode(&[(0, 0)]);
-        handler.handle_keyboard_event(&make_key_event('z'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('z'), &mut state, false);
 
         assert!(state.hint.is_none(), "non-prefix char exits hint mode");
     }
@@ -1520,8 +1154,7 @@ mod tests {
     fn test_n_key_shows_energy_submenu() {
         let (mut state, _dir) = make_filter_test_state();
         let mut handler = EventHandler::new();
-        let todo_file = "/tmp/dummy.txt";
-        handler.handle_keyboard_event(&make_key_event('n'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('n'), &mut state, false);
         assert_eq!(handler.pending_keys.as_slice(), &['n']);
         let msg = state.status_message.as_deref().unwrap();
         assert!(msg.contains("low"));
@@ -1533,9 +1166,8 @@ mod tests {
     fn test_nl_shows_time_submenu() {
         let (mut state, _dir) = make_filter_test_state();
         let mut handler = EventHandler::new();
-        let todo_file = "/tmp/dummy.txt";
         for c in ['n', 'l'] {
-            handler.handle_keyboard_event(&make_key_event(c), &mut state, todo_file, false);
+            handler.handle_keyboard_event(&make_key_event(c), &mut state, false);
         }
         assert_eq!(handler.pending_keys.as_slice(), &['n', 'l']);
         let msg = state.status_message.as_deref().unwrap();
@@ -1547,16 +1179,10 @@ mod tests {
 
     #[test]
     fn test_three_stroke_nls_filters_low_short() {
-        let (mut state, dir) = make_filter_test_state();
+        let (mut state, _dir) = make_filter_test_state();
         let mut handler = EventHandler::new();
-        let todo_file = dir.path().join("todo.txt");
         for c in ['n', 'l', 's'] {
-            handler.handle_keyboard_event(
-                &make_key_event(c),
-                &mut state,
-                todo_file.to_str().unwrap(),
-                false,
-            );
+            handler.handle_keyboard_event(&make_key_event(c), &mut state, false);
         }
         assert!(handler.pending_keys.is_empty());
         assert!(state.status_message.is_none());
@@ -1567,16 +1193,10 @@ mod tests {
 
     #[test]
     fn test_three_stroke_nas_filters_time_only() {
-        let (mut state, dir) = make_filter_test_state();
+        let (mut state, _dir) = make_filter_test_state();
         let mut handler = EventHandler::new();
-        let todo_file = dir.path().join("todo.txt");
         for c in ['n', 'a', 's'] {
-            handler.handle_keyboard_event(
-                &make_key_event(c),
-                &mut state,
-                todo_file.to_str().unwrap(),
-                false,
-            );
+            handler.handle_keyboard_event(&make_key_event(c), &mut state, false);
         }
         let total: usize = state.grouped_todos.values().map(Vec::len).sum();
         assert_eq!(total, 1, "only time:short remains regardless of energy");
@@ -1584,27 +1204,16 @@ mod tests {
 
     #[test]
     fn test_three_stroke_naa_clears_filter() {
-        let (mut state, dir) = make_filter_test_state();
+        let (mut state, _dir) = make_filter_test_state();
         let mut handler = EventHandler::new();
-        let todo_file = dir.path().join("todo.txt");
         // First apply a filter
         for c in ['n', 'l', 's'] {
-            handler.handle_keyboard_event(
-                &make_key_event(c),
-                &mut state,
-                todo_file.to_str().unwrap(),
-                false,
-            );
+            handler.handle_keyboard_event(&make_key_event(c), &mut state, false);
         }
         assert!(state.current_filter.is_some());
         // Then n→a→a should clear
         for c in ['n', 'a', 'a'] {
-            handler.handle_keyboard_event(
-                &make_key_event(c),
-                &mut state,
-                todo_file.to_str().unwrap(),
-                false,
-            );
+            handler.handle_keyboard_event(&make_key_event(c), &mut state, false);
         }
         assert!(state.current_filter.is_none());
         let total: usize = state.grouped_todos.values().map(Vec::len).sum();
@@ -1613,26 +1222,15 @@ mod tests {
 
     #[test]
     fn test_nc_clears_filter() {
-        let (mut state, dir) = make_filter_test_state();
+        let (mut state, _dir) = make_filter_test_state();
         let mut handler = EventHandler::new();
-        let todo_file = dir.path().join("todo.txt");
         for c in ['n', 'l', 's'] {
-            handler.handle_keyboard_event(
-                &make_key_event(c),
-                &mut state,
-                todo_file.to_str().unwrap(),
-                false,
-            );
+            handler.handle_keyboard_event(&make_key_event(c), &mut state, false);
         }
         assert!(state.current_filter.is_some());
 
         for c in ['n', 'c'] {
-            handler.handle_keyboard_event(
-                &make_key_event(c),
-                &mut state,
-                todo_file.to_str().unwrap(),
-                false,
-            );
+            handler.handle_keyboard_event(&make_key_event(c), &mut state, false);
         }
         assert!(state.current_filter.is_none());
         assert!(handler.pending_keys.is_empty());
@@ -1641,24 +1239,13 @@ mod tests {
 
     #[test]
     fn test_n_submenu_includes_clear_when_filter_active() {
-        let (mut state, dir) = make_filter_test_state();
+        let (mut state, _dir) = make_filter_test_state();
         let mut handler = EventHandler::new();
-        let todo_file = dir.path().join("todo.txt");
         for c in ['n', 'l', 's'] {
-            handler.handle_keyboard_event(
-                &make_key_event(c),
-                &mut state,
-                todo_file.to_str().unwrap(),
-                false,
-            );
+            handler.handle_keyboard_event(&make_key_event(c), &mut state, false);
         }
         // filter is now active — press n again; submenu should include "clear"
-        handler.handle_keyboard_event(
-            &make_key_event('n'),
-            &mut state,
-            todo_file.to_str().unwrap(),
-            false,
-        );
+        handler.handle_keyboard_event(&make_key_event('n'), &mut state, false);
         let msg = state.status_message.as_deref().unwrap();
         assert!(msg.contains("clear"));
     }
@@ -1667,7 +1254,7 @@ mod tests {
     fn test_n_submenu_no_clear_when_no_filter() {
         let (mut state, _dir) = make_filter_test_state();
         let mut handler = EventHandler::new();
-        handler.handle_keyboard_event(&make_key_event('n'), &mut state, "/tmp/x.txt", false);
+        handler.handle_keyboard_event(&make_key_event('n'), &mut state, false);
         let msg = state.status_message.as_deref().unwrap();
         assert!(!msg.contains("clear"));
     }
@@ -1676,9 +1263,8 @@ mod tests {
     fn test_n_then_invalid_cancels() {
         let (mut state, _dir) = make_filter_test_state();
         let mut handler = EventHandler::new();
-        let todo_file = "/tmp/dummy.txt";
-        handler.handle_keyboard_event(&make_key_event('n'), &mut state, todo_file, false);
-        handler.handle_keyboard_event(&make_key_event('q'), &mut state, todo_file, false);
+        handler.handle_keyboard_event(&make_key_event('n'), &mut state, false);
+        handler.handle_keyboard_event(&make_key_event('q'), &mut state, false);
         assert!(handler.pending_keys.is_empty());
         assert!(state.status_message.is_none());
         assert!(state.current_filter.is_none());
@@ -1686,23 +1272,12 @@ mod tests {
 
     #[test]
     fn v_key_toggles_layout_in_todo_mode() {
-        let (mut state, dir) = make_filter_test_state();
-        let todo_file = dir.path().join("todo.txt");
+        let (mut state, _dir) = make_filter_test_state();
         let mut handler = EventHandler::new();
         assert_eq!(state.todo_layout, crate::app_state::TodoLayout::Project);
-        handler.handle_keyboard_event(
-            &make_key_event('v'),
-            &mut state,
-            todo_file.to_str().unwrap(),
-            false,
-        );
+        handler.handle_keyboard_event(&make_key_event('v'), &mut state, false);
         assert_eq!(state.todo_layout, crate::app_state::TodoLayout::Pick);
-        handler.handle_keyboard_event(
-            &make_key_event('v'),
-            &mut state,
-            todo_file.to_str().unwrap(),
-            false,
-        );
+        handler.handle_keyboard_event(&make_key_event('v'), &mut state, false);
         assert_eq!(state.todo_layout, crate::app_state::TodoLayout::Project);
     }
 
@@ -1712,13 +1287,7 @@ mod tests {
         std::fs::write(dir.path().join("ref.txt"), "R +p id:r\n").unwrap();
         state.set_view_mode(ViewMode::Ref);
         let mut handler = EventHandler::new();
-        let todo_file = dir.path().join("ref.txt");
-        handler.handle_keyboard_event(
-            &make_key_event('v'),
-            &mut state,
-            todo_file.to_str().unwrap(),
-            false,
-        );
+        handler.handle_keyboard_event(&make_key_event('v'), &mut state, false);
         // Layout stays on default; no pending key buffered
         assert_eq!(state.todo_layout, crate::app_state::TodoLayout::Project);
         assert!(handler.pending_keys.is_empty());
@@ -1731,13 +1300,7 @@ mod tests {
         std::fs::write(dir.path().join("waiting.txt"), "W +p id:w\n").unwrap();
         state.set_view_mode(ViewMode::Waiting);
         let mut handler = EventHandler::new();
-        let todo_file = dir.path().join("waiting.txt");
-        handler.handle_keyboard_event(
-            &make_key_event('n'),
-            &mut state,
-            todo_file.to_str().unwrap(),
-            false,
-        );
+        handler.handle_keyboard_event(&make_key_event('n'), &mut state, false);
         assert!(handler.pending_keys.is_empty());
         assert!(state.status_message.is_none());
     }

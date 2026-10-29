@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **The TUI's Claude / crmux integration** (breaking): the `c` submenu — `csp`/`csi` to send a prompt to a crmux session, `cgp` to import plans through crmux, and `clp`/`cli` to launch `claude` in a tmux window — is gone. Starting work on an item now happens through the [Agent Skill](skills/torudo/SKILL.md) driving the CLI, so the TUI side had gone unused. The `cwd:` frontmatter stays, since the skill reads it to find the item's repository
+
 ## [0.20.0] - 2026-10-24
 
 ### Added

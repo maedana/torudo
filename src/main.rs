@@ -10,9 +10,7 @@ use std::time::Duration;
 use std::{env, error::Error, io};
 
 mod app_state;
-mod claude;
 mod cli;
-mod crmux;
 mod event_handler;
 mod file_watcher;
 mod help;
@@ -247,7 +245,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         &mut terminal,
         todos,
         file_watcher.receiver(),
-        &todo_file,
         &todotxt_dir,
         args.debug,
         args.nvim_listen,
@@ -271,7 +268,6 @@ fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     todos: Vec<todo::Item>,
     file_watcher_rx: &std::sync::mpsc::Receiver<notify::Event>,
-    todo_file: &str,
     todotxt_dir: &str,
     debug_mode: bool,
     nvim_socket: String,
@@ -332,7 +328,7 @@ fn run_app(
         // Check keyboard events non-blocking
         if event::poll(Duration::from_millis(100))? {
             let event = event::read()?;
-            if event_handler.handle_keyboard_event(&event, &mut state, todo_file, debug_mode) {
+            if event_handler.handle_keyboard_event(&event, &mut state, debug_mode) {
                 return Ok(()); // Quit was requested
             }
         }

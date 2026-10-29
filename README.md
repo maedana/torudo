@@ -14,7 +14,6 @@ A terminal-based todo.txt viewer and manager written in Rust with TUI interface.
 - Vim integration and real-time file watching
 - URL detection (🔗) and browser open (`o`)
 - Self-update via GitHub Releases (`torudo update`)
-- [crmux](https://github.com/maedana/crmux) / Claude Code integration
 
 ## Demo
 ![gif][1]
@@ -288,7 +287,7 @@ If you have Neovim running with a socket, Torudo can automatically open todo det
 
 ### Todo Detail Frontmatter
 
-Todo detail files (`todos/{id}.md`) support YAML frontmatter with a `cwd` field to specify the working directory for `clp`/`cli` claude launch:
+Todo detail files (`todos/{id}.md`) support YAML frontmatter with a `cwd` field naming the repository the item belongs to (the [Agent Skill](skills/torudo/SKILL.md) uses it when starting work on the item):
 
 ```markdown
 ---
@@ -296,8 +295,6 @@ cwd: /home/user/src/my-project
 ---
 # Task details here
 ```
-
-The `cwd` field is required for `clp`/`cli` — an error is shown if it is not set.
 
 ## File Structure
 

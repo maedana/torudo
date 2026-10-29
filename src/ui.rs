@@ -597,8 +597,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
         }
         let is_todo = state.view_mode == ViewMode::Todo;
         let is_waiting = state.view_mode == ViewMode::Waiting;
-        let has_claude = state.crmux_available() || state.claude_available();
-        let footer_str = help::footer_entries(is_todo, is_waiting, has_claude)
+        let footer_str = help::footer_entries(is_todo, is_waiting)
             .iter()
             .map(|(key, desc)| format!("{key}:{desc}"))
             .collect::<Vec<_>>()
@@ -612,15 +611,9 @@ pub fn draw_ui(f: &mut ratatui::Frame, state: &mut AppState) {
 
     f.render_widget(footer, chunks[2]);
 
-    // Draw plan modal overlay if open
-    if let Some(modal) = &state.plan_modal {
-        draw_plan_modal(f, modal, size);
-    }
-
     // Draw help overlay if shown
     if state.show_help {
-        let has_claude = state.crmux_available() || state.claude_available();
-        draw_help_overlay(f, size, state.view_mode, has_claude);
+        draw_help_overlay(f, size, state.view_mode);
     }
 }
 
@@ -644,59 +637,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-fn draw_plan_modal(f: &mut ratatui::Frame, modal: &crate::app_state::PlanModal, area: Rect) {
-    let modal_area = centered_rect(60, 60, area);
-    f.render_widget(Clear, modal_area);
-
-    let block = Block::default()
-        .title("Get Plans")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan));
-
-    let inner = block.inner(modal_area);
-    f.render_widget(block, modal_area);
-
-    // Split inner area: list + help text
-    let inner_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1)])
-        .split(inner);
-
-    let visible_height = inner_chunks[0].height as usize;
-    let scroll_offset = if modal.selected >= visible_height {
-        modal.selected - visible_height + 1
-    } else {
-        0
-    };
-
-    let lines: Vec<Line<'_>> = modal
-        .plans
-        .iter()
-        .enumerate()
-        .map(|(i, plan)| {
-            let checkbox = if modal.checked[i] { "[x] " } else { "[ ] " };
-            let text = format!("{checkbox}{}: {}", plan.project_name, plan.title);
-            let style = if i == modal.selected {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::White)
-            };
-            Line::from(Span::styled(text, style))
-        })
-        .collect();
-
-    let list = Paragraph::new(lines).scroll((u16::try_from(scroll_offset).unwrap_or(u16::MAX), 0));
-    f.render_widget(list, inner_chunks[0]);
-
-    let help = Paragraph::new("j/k: Move | Space: Toggle | Enter: Import | q: Cancel")
-        .style(Style::default())
-        .alignment(Alignment::Center);
-    f.render_widget(help, inner_chunks[1]);
-}
-
-fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect, view_mode: ViewMode, has_claude: bool) {
+fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect, view_mode: ViewMode) {
     let modal_area = centered_rect(50, 60, area);
     f.render_widget(Clear, modal_area);
 
@@ -715,7 +656,7 @@ fn draw_help_overlay(f: &mut ratatui::Frame, area: Rect, view_mode: ViewMode, ha
 
     let is_todo = view_mode == ViewMode::Todo;
     let is_waiting = view_mode == ViewMode::Waiting;
-    let entries = help::visible_entries(is_todo, is_waiting, has_claude);
+    let entries = help::visible_entries(is_todo, is_waiting);
 
     let max_key_width = entries.iter().map(|e| e.key.len()).max().unwrap_or(0);
 
