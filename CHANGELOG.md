@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-29
+
 ### Added
 - **`z` hides deferred items in the TUI**: press `z` and every item whose `t:` date is still in the future stops taking up a card, and a column left with nothing else disappears, so a project whose every task is pushed out stops cluttering the board. Press `z` again to bring them back (sorted to the bottom and dimmed, as before); the footer names what the key will do next, `z:Hide later` or `z:Show later`. They are shown at startup, as before. While anything is hidden the current mode's tab reads `visible/total`, e.g. `Todo (9/13)`. `torudo focus` on a hidden item turns them back on so the cursor can land on it, and reports that as `deferred_shown` in its reply
 
@@ -262,7 +264,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Contexts (@context_name)
   - Custom IDs (id:unique_identifier)
 
-[Unreleased]: https://github.com/maedana/torudo/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/maedana/torudo/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/maedana/torudo/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/maedana/torudo/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/maedana/torudo/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/maedana/torudo/compare/v0.17.0...v0.18.0
