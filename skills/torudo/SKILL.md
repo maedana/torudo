@@ -36,6 +36,31 @@ An `id:` is unique across the files, so the commands above that take one find th
 themselves. Never run a `search` or `show` first just to work out which mode something is in
 — the id has already answered that.
 
+### Short ids
+
+The TUI shows a **short id** on each card's top-left border in every tab but Ref: the shortest
+prefix of the item's `id:` that no other item in inbox / todo / waiting / someday shares, at
+least 3 characters (`1e1`, `899a`). The user reads it off the screen to point at items —
+"1e1と899a進めて", "c4fをwaitingに". A 3–5 character token of hex digits in a request is
+almost always one of these.
+
+The CLI takes full ids only, so resolve a short one yourself by prefix-matching over those four
+modes (Ref is not in scope — its items show no short id):
+
+```bash
+for m in inbox todo waiting someday; do torudo $m list --json; done \
+  | jq -s --arg p 1e1 'add | map(select(.id | startswith($p))) | map({id, title})'
+```
+
+- **One match** — that is the item; carry on with the full id.
+- **Several** — the id has grown since the user read it (a new item now shares the prefix).
+  Show the candidates' titles and ask which; do not guess.
+- **None** — say so. It may have been completed or moved to Ref since; do not go looking in
+  `done.txt` unasked.
+
+Once resolved, a short id is no different from naming the item: "1e1と899a進めて" is two
+"Starting work on a task" requests, one per item.
+
 Never edit the `.txt` files by hand — always go through these commands. The detail md files
 under `todos/` are the exception: their content is yours to author, so write them with
 Write/Edit. torudo touches them only as a side effect — carrying one over when a `rec:` item
@@ -523,6 +548,7 @@ covered by the code block in its own section and does not belong here.
 | このURLもう関係ないから外して | `torudo show <id>` で正確なURLを確認 → `torudo link <id> --remove https://…` |
 | さっき完了にしたのやっぱ戻して | `torudo done list --json` で id を得る → `torudo reopen <id>` |
 | Astro7対応に着手して | 「Starting work on a task」の手順。tabを開く → **そのペインの中で** worktree作成 → `herdr agent start` → SendMessageで依頼 |
+| 1e1と899a進めて | 4モードの `list --json` を前方一致で引いて full id に解決 → 各itemを「Starting work on a task」で着手 |
 | 本番でスクリプト流したい | 同上。コード変更を伴わない作業もworktreeとセッションを切る |
 | 次何やろう / 時間空いたら何やれる? | inbox/todo/waiting を `list --json --with-md` で読んで棚卸しする。着手依頼ではないのでworktreeは切らない |
 | 経費精算のタスクどこだっけ | `torudo search "経費精算"` |

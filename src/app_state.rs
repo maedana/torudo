@@ -1,4 +1,5 @@
 use crate::md_preview::{compute_meta, md_path};
+use crate::short_id::shortest_unique_prefixes;
 use crate::todo::{
     Item, Recurred, add_missing_ids, delete_todo, group_todos_by_project_owned,
     group_todos_for_pick, load_todos, mark_complete, move_to_file, set_key_value, set_priority,
@@ -119,6 +120,10 @@ impl ViewMode {
         Self::Someday,
     ];
     pub const COUNT: usize = Self::ALL.len();
+    /// The modes whose items get a short id, unique across all of them so one
+    /// seen in any of these tabs names a single item. Ref is reference material,
+    /// not something to act on, so it stays out and costs the others nothing.
+    pub const SHORT_ID_MODES: &[Self] = &[Self::Inbox, Self::Todo, Self::Waiting, Self::Someday];
 
     pub const fn filename(self) -> &'static str {
         match self {
@@ -224,6 +229,8 @@ pub struct AppState {
     pub current_filter: Option<NowFilter>,
     pub todo_layout: TodoLayout,
     pub show_deferred: bool,
+    /// Full id → shortest unique prefix, over `ViewMode::SHORT_ID_MODES`.
+    short_ids: HashMap<String, String>,
     #[cfg(test)]
     pub vim_send_log: std::cell::RefCell<Vec<String>>,
 }
@@ -289,6 +296,7 @@ impl AppState {
             current_filter: None,
             todo_layout: TodoLayout::default(),
             show_deferred: true,
+            short_ids: HashMap::new(),
             #[cfg(test)]
             vim_send_log: std::cell::RefCell::new(Vec::new()),
         };
@@ -297,10 +305,31 @@ impl AppState {
         state
     }
 
+    /// Re-read what depends on every mode file rather than the active one: the
+    /// tab counts and the short ids. The file watcher calls this when a mode
+    /// other than the active one changes.
     pub fn refresh_mode_counts(&mut self) {
         for (i, mode) in ViewMode::ALL.iter().enumerate() {
             self.mode_counts[i] = count_items_in_file(&mode.file_path(&self.todotxt_dir));
         }
+        self.refresh_short_ids();
+    }
+
+    fn refresh_short_ids(&mut self) {
+        let items: Vec<Item> = ViewMode::SHORT_ID_MODES
+            .iter()
+            .filter_map(|mode| load_todos(&mode.file_path(&self.todotxt_dir)).ok())
+            .flatten()
+            .collect();
+        self.short_ids = shortest_unique_prefixes(items.iter().filter_map(|i| i.id.as_deref()), 3);
+    }
+
+    /// The short id to show for `id` in the current mode, if it has one.
+    pub fn short_id(&self, id: &str) -> Option<&str> {
+        if !ViewMode::SHORT_ID_MODES.contains(&self.view_mode) {
+            return None;
+        }
+        self.short_ids.get(id).map(String::as_str)
     }
 
     pub fn reload_todos(&mut self, todo_file: &str) {
@@ -1791,6 +1820,66 @@ mod tests {
         assert_eq!(count_items_in_file(empty_file.to_str().unwrap()), 0);
 
         assert_eq!(count_items_in_file("/nonexistent/path.txt"), 0);
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_short_ids_are_unique_across_every_mode_but_ref() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_short_ids_scope");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(
+            temp_dir.join("todo.txt"),
+            "task +p id:899a0ec\ntask2 +p id:1e156b8\n",
+        )
+        .unwrap();
+        // Collides with the todo item, so both grow.
+        fs::write(temp_dir.join("inbox.txt"), "idea id:899c123\n").unwrap();
+        // Ref is out of scope: sharing a prefix with it costs nothing.
+        fs::write(temp_dir.join("ref.txt"), "note id:1e1ffff\n").unwrap();
+
+        let todos = load_todos(temp_dir.join("todo.txt").to_str().unwrap()).unwrap();
+        let state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+
+        assert_eq!(state.short_id("899a0ec"), Some("899a"));
+        assert_eq!(state.short_id("1e156b8"), Some("1e1"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_short_ids_follow_a_change_in_another_mode() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_short_ids_refresh");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(temp_dir.join("todo.txt"), "task +p id:899a0ec\n").unwrap();
+
+        let todos = load_todos(temp_dir.join("todo.txt").to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+        assert_eq!(state.short_id("899a0ec"), Some("899"));
+
+        // What the file watcher does when a mode other than the active one changes.
+        fs::write(temp_dir.join("waiting.txt"), "wait id:899c123\n").unwrap();
+        state.refresh_mode_counts();
+        assert_eq!(state.short_id("899a0ec"), Some("899a"));
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_ref_mode_shows_no_short_ids() {
+        let temp_dir = std::env::temp_dir().join("torudo_test_short_ids_ref");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(temp_dir.join("todo.txt"), "").unwrap();
+        fs::write(temp_dir.join("ref.txt"), "note +p id:1e1ffff\n").unwrap();
+
+        let todos = load_todos(temp_dir.join("todo.txt").to_str().unwrap()).unwrap();
+        let mut state = AppState::new(todos, String::new(), temp_dir.to_str().unwrap().to_string());
+        state.set_view_mode(ViewMode::Ref);
+
+        assert_eq!(state.short_id("1e1ffff"), None);
 
         fs::remove_dir_all(&temp_dir).ok();
     }

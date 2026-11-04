@@ -265,6 +265,7 @@ This ensures high-priority items are always visible at the top while preserving 
 - **Overdue highlighting** (`due:YYYY-MM-DD`): items past due render with a red border
 - **Detail md preview** (Todo / Waiting tabs): top 3 unchecked `- [ ]` from `todos/{id}.md` shown inline on each card
 - **Detail md badge** (Todo / Waiting tabs): right-aligned `{done}/{total} {elapsed}` (e.g. `2/7  5m`) on each card; updates live
+- **Short id** (every tab but Ref): each card's top-left border shows the shortest prefix of its `id:` that no other item in Inbox / Todo / Waiting / Someday shares, at least 3 characters (`1e1`, `899a`) — git's abbreviated hashes, per item. It is a handle to quote when asking someone (or an agent) to act on the item; it is recomputed whenever a mode file changes, so a new item that shares a prefix lengthens only the ids it collides with
 - **Recurrence chip**: `↻1w` / `↻+1m` next to the GTD chips when `rec:` is set and its pattern parses
 - **Dynamic text wrap** with per-item height calculation
 

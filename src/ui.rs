@@ -25,6 +25,23 @@ fn selected_icon_span() -> Span<'static> {
     )
 }
 
+/// The card's top-left title: the selection marker, then the short id. Dimmed
+/// like the md preview, so it reads as a handle to quote rather than as an
+/// `f` jump label, which is bold and sits on the right.
+fn card_title(is_selected: bool, short_id: Option<&str>) -> Option<Line<'static>> {
+    let mut spans = Vec::new();
+    if is_selected {
+        spans.push(selected_icon_span());
+    }
+    if let Some(id) = short_id {
+        spans.push(Span::styled(
+            id.to_string(),
+            Style::default().fg(MD_META_FG),
+        ));
+    }
+    (!spans.is_empty()).then(|| Line::from(spans))
+}
+
 pub fn create_todo_spans(todo: &Item) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     if todo.completed {
@@ -294,6 +311,7 @@ pub fn draw_project_column(
     now: SystemTime,
     col_idx: usize,
     hint: Option<&crate::app_state::HintState>,
+    short_id: &dyn Fn(&str) -> Option<String>,
 ) -> usize {
     let border_style = if is_active_column {
         Style::default().fg(Color::Yellow)
@@ -364,8 +382,9 @@ pub fn draw_project_column(
         let mut block = Block::default()
             .borders(Borders::ALL)
             .border_style(border_style);
-        if is_selected {
-            block = block.title(selected_icon_span());
+        let short = todo.id.as_deref().and_then(short_id);
+        if let Some(title) = card_title(is_selected, short.as_deref()) {
+            block = block.title(title);
         }
         if let Some(label) = hint.and_then(|h| h.cell_label(col_idx, actual_idx)) {
             block = block.title(Line::from(hint_label_span(label)).right_aligned());
@@ -488,6 +507,7 @@ fn draw_project_columns(f: &mut ratatui::Frame, state: &mut AppState, area: Rect
                 now,
                 col_idx,
                 state.hint.as_ref(),
+                &|id| state.short_id(id).map(str::to_string),
             );
             if is_active {
                 state.scroll_offset = new_scroll;
@@ -871,6 +891,29 @@ mod tests {
     fn rec_chip_span_keeps_the_strict_marker() {
         let span = rec_chip_span(&item_with_rec("+1m")).expect("should have chip");
         assert_eq!(span.content, "↻+1m");
+    }
+
+    #[test]
+    fn card_title_shows_the_short_id_dimmed() {
+        let line = card_title(false, Some("1e1")).expect("should have a title");
+        assert_eq!(line.spans.len(), 1);
+        assert_eq!(line.spans[0].content, "1e1");
+        assert_eq!(line.spans[0].style.fg, Some(MD_META_FG));
+    }
+
+    #[test]
+    fn card_title_puts_the_short_id_after_the_selected_icon() {
+        let line = card_title(true, Some("899a")).expect("should have a title");
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text, format!("{SELECTED_ICON}899a"));
+    }
+
+    #[test]
+    fn card_title_without_a_short_id_is_just_the_selected_icon() {
+        let line = card_title(true, None).expect("should have a title");
+        assert_eq!(line.spans.len(), 1);
+        assert_eq!(line.spans[0].content, SELECTED_ICON);
+        assert!(card_title(false, None).is_none());
     }
 
     #[test]

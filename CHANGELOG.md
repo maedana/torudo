@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Short ids on the TUI cards**: every tab but Ref now shows a short id on each card's top-left border — the shortest prefix of the item's `id:` that no other item in Inbox / Todo / Waiting / Someday shares, never under 3 characters (`e9c`, `899a`), like git's abbreviated hashes. It is a handle to read off the screen and quote when asking for an item, instead of a full UUID. The ids are unique across those four modes, so one read in any of them names a single item, and they are recomputed whenever a mode file changes: a new item that shares a prefix lengthens only the ids it collides with. Ref is left out, since its items are not acted on. The [Agent Skill](skills/torudo/SKILL.md) resolves a short id by prefix match and asks when it has become ambiguous; the CLI still takes full ids
+
 ## [0.21.0] - 2026-10-29
 
 ### Added

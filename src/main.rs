@@ -19,6 +19,7 @@ mod recurrence;
 mod rpc_client;
 mod rpc_server;
 mod setup;
+mod short_id;
 mod todo;
 mod ui;
 mod update;
