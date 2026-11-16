@@ -202,8 +202,9 @@ host-specific CLI when one exists, otherwise fetching the page) and confirms the
 adding it. The skill is written to answer to Japanese phrasings as well. It also writes the `- [ ]` checklist in `todos/{id}.md` for an item, and can start
 work on a task — creating the git worktree, opening a terminal tab there, and launching a
 Claude session for it. That last part additionally needs
-[git-wt](https://github.com/k1LoW/git-wt) and [herdr](https://herdr.dev); without them the
-capture and triage parts still work.
+[git-wt](https://github.com/k1LoW/git-wt) and a [herdr](https://herdr.dev) multiplexer —
+herdr-app when its window is running, otherwise the herdr TUI; without them the capture and
+triage parts still work.
 
 ```bash
 # Install globally

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Skill: starting work prefers herdr-app**: when the herdr-app window is running, the new tab opens there — in the space you asked from — and the worktree and Claude session are driven through `hc`, instead of going to the herdr TUI. Before, a session inside herdr-app that had inherited `HERDR_*` variables put the tab in the TUI, where you weren't looking. Without herdr-app the herdr flow is unchanged
+
 ## [0.22.0] - 2026-11-04
 
 ### Added

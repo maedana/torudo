@@ -421,51 +421,107 @@ answered by reading the target repo, that is the signal to stop and cut the work
 a reason to open one more file. Being told you may act now ("exited plan mode", an approval,
 a go-ahead) says nothing about *where* to act; it is never a reason to skip this section.
 
-This flow leans on two tools besides torudo — [git-wt](https://github.com/k1LoW/git-wt) for
-the worktree and [herdr](https://herdr.dev) for the tab. Check for both before starting, so a
+This flow leans on tools besides torudo — [git-wt](https://github.com/k1LoW/git-wt) for the
+worktree, and a terminal multiplexer for the tab: [herdr-app](https://herdr.dev) (with its
+`hc` CLI) or the older [herdr](https://herdr.dev) TUI. Pick the multiplexer first, so a
 missing one is reported as itself rather than as a confusing failure later:
 
 ```bash
-command -v git-wt herdr
+command -v git-wt
+herdr-app status >/dev/null 2>&1 && echo herdr-app || { command -v herdr >/dev/null && echo herdr; }
 ```
 
+- **herdr-app wins.** When `herdr-app status` succeeds the window is running: follow "With
+  herdr-app" below, even if `herdr` is installed and `HERDR_*` variables are set. Those
+  variables can leak into herdr-app's terminals from whatever launched the window, so they do
+  not prove this session is inside the herdr TUI — trusting them opens the tab somewhere the
+  user is not looking. Do not launch bare `herdr-app` to find out; that opens the window.
+- **herdr only** — follow "With herdr" below.
+- **Neither** — this flow does not apply. Print the commands for the user to run in their own
+  terminal rather than substituting another multiplexer.
 - **No `git-wt`** — fall back to plain git, choosing the path yourself:
   `git -C <repo> worktree add -b <branch> <repo>/.worktrees/<branch> <base-ref>`. Tell the
   user, because git-wt's `wt.copy` / `wt.hook` conveniences (copying `.env` and credentials,
   running `bundle install`) do not happen — the worktree will need setting up by hand.
-- **No `herdr`** — this flow does not apply. Print the commands for the user to run in their
-  own terminal rather than substituting another multiplexer.
+
+Both variants run the same steps, only through different commands:
+
+0. Reuse the branch the item's md records (`torudo show <id>`); otherwise name it yourself.
+1. Base ref — the repo's default branch unless the user says otherwise:
+   `git -C <repo> symbolic-ref --short refs/remotes/origin/HEAD` → `origin/main`.
+2. Open a tab on the repository, next to the session that asked for it.
+3. Create the worktree **in that tab's shell**, marking the outcome so it can be matched on.
+   The shell integration cd's the shell into the new worktree.
+4. Wait for the marker — `wt.hook` repos run bundle/pnpm install here and take minutes.
+5. Confirm the shell actually landed in the worktree before going on.
+5b. Record the branch in the item's md, so the task and the worktree stay tied together.
+6. Start Claude there, in plan mode, and hand the task over.
+
+The worktree is created **in the tab**, not from here, so the user can watch `bundle install`
+scroll by instead of staring at a silent terminal. The marker is what makes that safe —
+without it the only signal is screen text, which is easy to misread.
+
+### With herdr-app
+
+herdr-app draws the window; its terminals are run by herdr-core, driven with `hc`. Use
+`herdr-app do` only to open the tab, and `hc` for everything that happens inside it.
 
 ```bash
-# 0. Reuse the branch the item's md records (torudo show <id>); otherwise name it yourself
-# 1. Base ref — the repo's default branch unless the user says otherwise
-git -C <repo> symbolic-ref --short refs/remotes/origin/HEAD        # → origin/main
+# 2. Find the space this session is in, then open a tab there.
+#    The JSON reply carries the new tab's "terminal" (e.g. t1f)
+hc get "$HC_TERMINAL_ID" | jq -r '.labels["herdr.space"]'      # → sp7b93…
+herdr-app do tab.new --name "<repo>/<branch>" --space <space_id> --folder <repo> --focus false
 
+# 3 + 4. Start waiting first, then type the command; the wait only sees output printed
+#    after it starts. The "" keeps the echoed command line from matching the marker
+hc wait <t> --output 'WT_RESULT=' --timeout 600 & w=$!
+hc send <t> 'git wt <branch> <base-ref> && echo WT_RESULT""=ok || echo WT_RESULT""=fail'
+wait $w
+hc read <t> --lines 0 | rg 'WT_RESULT='                          # ok or fail?
+
+# 5. foreground.cwd should be the worktree path
+hc get <t> | jq -r '.foreground.cwd'
+
+# 6. Start Claude in plan mode, wait until it is ready for input, then hand the task over
+hc send <t> 'claude --permission-mode plan'
+hc wait <t> --timeout 120                                         # → "status": "idle"
+hc send <t> '<handover message>'
+```
+
+- **Space** — `hc get "$HC_TERMINAL_ID"` gives this session's terminal, and its
+  `herdr.space` label is the space the user is looking at. If `HC_TERMINAL_ID` is unset this
+  session is not inside herdr-app: drop `--space`, and the tab goes to the selected space.
+- **`--focus false`** — the tab is added without pulling the user away from this session.
+- **`<t>` is the terminal id from the `tab.new` reply**, not the pane id. Every `hc` command
+  above takes it; nothing needs ListAgents.
+- **Handing over** — `hc send` pastes the message into the Claude session and submits it.
+  Send it only after `hc wait` reports `idle`: a send to a booting agent can be dropped.
+- **Waiting for the plan** — `hc wait <t>` returns when the session stops working; a pending
+  plan approval shows as `blocked` or `idle`. Confirm with `hc read <t> --lines 0`.
+- **Watching it** — `hc get <t>` shows its status, `hc read <t>` dumps its screen. Neither
+  needs the peer to cooperate. Do not `hc kill` it; the tab is the user's now.
+
+### With herdr
+
+```bash
 # 2. Open a tab on the repository, in the workspace this session is running in.
 #    The JSON reply carries the pane_id
 herdr tab create --cwd <repo> --label "<repo>/<branch>" --no-focus --workspace <workspace_id>
 
-# 3. Create the worktree in that pane, marking the outcome so it can be matched on.
-#    The shell integration cd's the pane into the new worktree.
+# 3. Create the worktree in that pane, marking the outcome so it can be matched on
 herdr pane run <pane_id> "git wt <branch> <base-ref> && echo WT_OK || echo WT_FAIL"
 
-# 4. Wait for it — wt.hook repos run bundle/pnpm install here and take minutes
+# 4. Wait for it
 herdr pane wait-output <pane_id> --regex "WT_(OK|FAIL)" --timeout 600000
 
 # 5. Confirm the pane actually landed in the worktree before going on
 herdr pane get <pane_id>        # foreground_cwd should be the worktree path
-
-# 5b. Record the branch in the item's md, so the task and the worktree stay tied together
 
 # 6. Start Claude in that pane, in plan mode. Returns once it is ready for input
 herdr agent start <name> --kind claude --pane <pane_id> -- --permission-mode plan
 
 # 7. Resolve the peer name with ListAgents, then hand the task over with SendMessage
 ```
-
-The worktree is created **in the pane**, not from here, so the user can watch `bundle
-install` scroll by instead of staring at a silent terminal. The `WT_OK` / `WT_FAIL` marker is
-what makes that safe — without it the only signal is screen text, which is easy to misread.
 
 - **Workspace** — `--workspace` is what keeps the new tab next to the session that asked for
   it; without it herdr drops the tab in the default workspace, away from the user's work.
@@ -474,6 +530,18 @@ what makes that safe — without it the only signal is screen text, which is eas
   inside the command — `${HERDR_WORKSPACE_ID:+--workspace "$HERDR_WORKSPACE_ID"}` is passed as
   a single argument under zsh and herdr rejects it. If the variable is unset, this session is
   not running inside herdr: drop the flag.
+- **The peer name is not the name passed to `agent start`.** It is derived from the worktree
+  directory name plus a random suffix (`wt-probe` → `wt-probe-df`), so it cannot be predicted.
+  Call ListAgents after starting and match on the directory-name prefix.
+- **Handing over** — send the task with SendMessage. A spawned session answers on its own
+  screen, not back to you, unless you explicitly ask it to reply with SendMessage.
+- **Waiting for the plan** — `herdr agent wait <name> --until blocked --until idle`. Which of
+  the two a pending plan approval reports as has not been verified, so match on both and
+  confirm with `herdr agent read <name>`.
+- **Watching it** — `herdr agent wait <name> --until idle` blocks until it settles, and
+  `herdr agent read <name>` dumps its screen. Neither needs the peer to cooperate.
+
+### Either way
 
 - **Repository** — take it from the item's `cwd` frontmatter (`torudo show <id>` prints it)
   when it has one; ask otherwise.
@@ -486,36 +554,27 @@ what makes that safe — without it the only signal is screen text, which is eas
   it instead of naming a new one: `git wt <branch>` alone switches to the existing worktree, so
   resuming an interrupted task lands back where it was. Only fall back to naming when the
   frontmatter has none.
-- **`WT_FAIL` means stop.** A repo configured with `wt.hook` (`bundle install`, `pnpm
-  install`) can fail after the worktree directory already exists. **Do not start Claude** in
-  that case — a worktree without its dependencies is worse than no worktree at all. Report
-  what failed and let the user decide.
-- **The peer name is not the name passed to `agent start`.** It is derived from the worktree
-  directory name plus a random suffix (`wt-probe` → `wt-probe-df`), so it cannot be predicted.
-  Call ListAgents after starting and match on the directory-name prefix.
+- **A failed marker means stop** (`WT_RESULT=fail` / `WT_FAIL`). A repo configured with
+  `wt.hook` (`bundle install`, `pnpm install`) can fail after the worktree directory already
+  exists. **Do not start Claude** in that case — a worktree without its dependencies is worse
+  than no worktree at all. Report what failed and let the user decide.
 - **Plan first.** The session starts in plan mode, so the handover message asks for a plan,
   not for the work: describe the task, point at the relevant files if you know them, and ask
   for a plan. Include the item's detail md (`torudo show <id>` prints it) when it has one — the
   `- [ ]` checklist is the shape of the task as the user sees it.
 - **The plan is the user's to approve.** Tell them it is ready and stop there. Do not approve
-  it from this session, and do not drive the child's UI with `agent send-keys` to get past
-  the prompt — that turns a deliberate checkpoint into a rubber stamp.
+  it from this session, and do not drive the child's UI (`hc keys`, `agent send-keys`) to get
+  past the prompt — that turns a deliberate checkpoint into a rubber stamp.
 - **Ask it to record its plan.** The handover message is also where you tell the spawned
   session to write the path of its confirmed plan into the item's md as `plan:` frontmatter.
   Claude Code names a plan file after the prompt that opened it, so without that line nothing
   ties the plan back to the task. Give the md's full path in the message — the session is
   working in the worktree and has no reason to know where `todos/{id}.md` lives.
-- **Handing over** — send the task with SendMessage. A spawned session answers on its own
-  screen, not back to you, unless you explicitly ask it to reply with SendMessage.
-- **Waiting for the plan** — `herdr agent wait <name> --until blocked --until idle`. Which of
-  the two a pending plan approval reports as has not been verified, so match on both and
-  confirm with `herdr agent read <name>`.
-- **Watching it** — `herdr agent wait <name> --until idle` blocks until it settles, and
-  `herdr agent read <name>` dumps its screen. Neither needs the peer to cooperate.
 - **Permission boundaries** — never hand a spawned session work that was blocked in this
   session. Route that back to the user instead.
 
-Report the worktree path, the branch, and the peer name so the user can jump to the tab.
+Report the worktree path, the branch, and the peer (the `hc` terminal id, or the herdr peer
+name) so the user can jump to the tab.
 
 ## After acting
 
@@ -547,7 +606,7 @@ covered by the code block in its own section and does not belong here.
 | このタスクにこのURL紐付けて | `torudo search` などで id を得る → `torudo link <id> https://…` |
 | このURLもう関係ないから外して | `torudo show <id>` で正確なURLを確認 → `torudo link <id> --remove https://…` |
 | さっき完了にしたのやっぱ戻して | `torudo done list --json` で id を得る → `torudo reopen <id>` |
-| Astro7対応に着手して | 「Starting work on a task」の手順。tabを開く → **そのペインの中で** worktree作成 → `herdr agent start` → SendMessageで依頼 |
+| Astro7対応に着手して | 「Starting work on a task」の手順。herdr-appが動いていればそちらを優先。tabを開く → **そのタブの中で** worktree作成 → Claude起動 → 依頼（herdr-appは`hc send`、herdrはSendMessage） |
 | 1e1と899a進めて | 4モードの `list --json` を前方一致で引いて full id に解決 → 各itemを「Starting work on a task」で着手 |
 | 本番でスクリプト流したい | 同上。コード変更を伴わない作業もworktreeとセッションを切る |
 | 次何やろう / 時間空いたら何やれる? | inbox/todo/waiting を `list --json --with-md` で読んで棚卸しする。着手依頼ではないのでworktreeは切らない |
